@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build + test (stage 0, 64-bit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build stage-0 tools (transpile UPLNC -> C, build lpp1 + langc)
+        run: ./build.sh
+        working-directory: transpiler
+      - name: Run test suite (19 checks)
+        run: bash tests/run_tests.sh
+        working-directory: transpiler
+
+  fixpoint:
+    name: Self-host fixpoint (i386, -m32)
+    runs-on: ubuntu-latest
+    # informational: the fixpoint requires the full 32-bit bootstrap to converge.
+    # Do not fail the workflow if it does not (yet) hold; the test job is the gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install 32-bit toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libc6-dev-i386
+      - name: Build with -m32 and run the fixpoint check
+        run: |
+          ./build.sh
+          ./fixpoint.sh
+        working-directory: transpiler

@@ -1,7 +1,7 @@
 # UPLNC Compiler
 
+[![CI](https://github.com/leogeal/lg-uplnc/actions/workflows/ci.yml/badge.svg)](https://github.com/leogeal/lg-uplnc/actions/workflows/ci.yml)
 [![transpiler: uplnc2c](https://img.shields.io/badge/transpiler-uplnc2c-blue)](transpiler/)
-[![tests: 19/19](https://img.shields.io/badge/tests-19%2F19%20passing-brightgreen)](transpiler/tests/run_tests.sh)
 [![stage-1 self-compile: 0 errors](https://img.shields.io/badge/stage--1%20self--compile-0%20errors-brightgreen)](transpiler/README.md#status)
 [![self-host fixpoint: needs -m32](https://img.shields.io/badge/self--host%20fixpoint-needs%20--m32-yellow)](transpiler/fixpoint.sh)
 [![license: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE)
