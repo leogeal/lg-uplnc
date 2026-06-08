@@ -53,8 +53,15 @@ What is **not** yet possible in this sandbox is assembling/linking the i386 `.s`
 that `langc` emits, which needs the 32-bit libc (`gcc-multilib` / `libc6-dev-i386`;
 unavailable here, no sudo). That blocks only the final step: turn the stage-1 `.s`
 into stage-1 binaries, recompile to stage-2, and diff for the byte-identical
-**fixpoint** (the acceptance test in BOOTSTRAP.md §4). With `-m32` present,
-`build.sh` uses it automatically and that step becomes mechanical.
+**fixpoint** (the acceptance test in BOOTSTRAP.md §4).
+
+`fixpoint.sh` automates exactly that: it builds stage-1 (`langc1`) and stage-2
+(`langc2`) by assembling each generation's output with `gcc -m32`, then recompiles
+once more and checks that **stage-2 and stage-3 assembly are byte-identical**. It
+is gated on `-m32` (printing an install hint if absent), so it is ready to run
+wherever the 32-bit toolchain exists. As a prerequisite already verified here,
+`langc`'s assembly output is **deterministic** (compiling any unit twice yields
+identical `.s`), so the fixpoint is well-defined.
 
 ## How it works
 
@@ -82,7 +89,8 @@ A recursive-descent front end with a struct/type model:
 ```
 uplnc2c.py        the transpiler
 build.sh          transpile all sources + build build/lpp1, build/langc
-tests/run_tests.sh  smoke + functional tests (11 checks)
+fixpoint.sh       self-host fixpoint check (stage 1->2->3; needs -m32)
+tests/run_tests.sh  smoke + functional tests (19 checks)
 tests/pp_input.e    preprocessor test input
-build/            generated C and binaries (gitignored)
+build/            generated C, .s, and binaries (gitignored)
 ```

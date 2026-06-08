@@ -235,7 +235,9 @@ one of its own units, including the 4,331-line `langc.e`, to i386 assembly with 
 errors**; `lpp1` runs as a working preprocessor. Return-type inference closed the
 int/pointer width hazard (§7), so no `-m32` is needed to *run* the stage-0
 compiler. The only remaining step is the self-host **fixpoint** (§4), which needs
-the 32-bit libc to assemble/link `langc`'s i386 output. Details in
+the 32-bit libc to assemble/link `langc`'s i386 output; `transpiler/fixpoint.sh`
+automates the stage-1→2→3 build-and-diff and is ready to run wherever `-m32`
+exists (`langc`'s output is already verified deterministic). Details in
 [`transpiler/README.md`](transpiler/README.md).
 
 ## 8. Rough sequencing
