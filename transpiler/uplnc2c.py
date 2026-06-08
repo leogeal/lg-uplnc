@@ -630,6 +630,7 @@ class Env:
         self.funcs = set()         # global function names
         self.struct_fields = {}    # struct -> {field: type}
         self.struct_methods = {}   # struct -> set(method names)
+        self.func_recs = []        # {key, struct, params, body} for inference
 
     def collect(self, items):
         for it in items:
@@ -642,10 +643,195 @@ class Env:
                 _, _ext, vtype, names = it
                 for nm in names:
                     self.globals[nm] = vtype
-            elif k in ('func', 'func_proto'):
+            elif k == 'func_proto':
                 self.funcs.add(it[1])
+            elif k == 'func':
+                self.funcs.add(it[1])
+                self.func_recs.append(
+                    {'key': ('f', it[1]), 'struct': None,
+                     'params': it[2], 'body': it[3]})
             elif k == 'method':
                 self.struct_methods.setdefault(it[1], set()).add(it[2])
+                self.func_recs.append(
+                    {'key': ('m', it[1], it[2]), 'struct': it[1],
+                     'params': it[3], 'body': it[4]})
+
+
+# ---------------------------------------------------------------------------
+# Type resolution + return-type inference
+# ---------------------------------------------------------------------------
+
+PTR_VOID = ('ptr', ('base', 'void'))
+
+# pointer-returning libc routines (declared in the prelude)
+VOIDP_LIBC = {'calloc', 'malloc', 'realloc', 'fopen'}
+
+
+def is_ptr(t):
+    return t is not None and t[0] in ('ptr', 'arr')
+
+
+class TypeCtx:
+    """Computes the (best-effort) C type of an expression, given a scope and the
+    set of return types inferred so far. Used by both inference and emission."""
+
+    def __init__(self, env, scope, cur_struct, ret_types):
+        self.env = env
+        self.scope = scope            # name -> type (params + locals + 'this')
+        self.cur_struct = cur_struct
+        self.ret_types = ret_types    # key -> pointer type (absent => int)
+
+    def struct_of(self, t, deref):
+        if t is None:
+            return None
+        if deref:
+            if t[0] in ('ptr', 'arr'):
+                t = t[-1]
+            else:
+                return None
+        if t[0] == 'base' and t[1] in self.env.struct_fields:
+            return t[1]
+        return None
+
+    def type_of(self, e):
+        k = e[0]
+        if k == 'group':
+            return self.type_of(e[1])
+        if k == 'num' or k == 'char':
+            return ('base', 'int')
+        if k == 'str':
+            return ('ptr', ('base', 'char'))
+        if k == 'id':
+            nm = e[1]
+            if nm in self.scope:
+                return self.scope[nm]
+            if self.cur_struct and nm in self.env.struct_fields.get(self.cur_struct, {}):
+                return self.env.struct_fields[self.cur_struct][nm]
+            return self.env.globals.get(nm)
+        if k == 'member':
+            _, op, obj, fld = e
+            st = self.struct_of(self.type_of(obj), deref=(op == '->'))
+            if st and fld in self.env.struct_fields.get(st, {}):
+                return self.env.struct_fields[st][fld]
+            return None
+        if k == 'index':
+            ta = self.type_of(e[1])
+            return ta[-1] if is_ptr(ta) else None
+        if k == 'un':
+            op = e[1]
+            if op == '*':
+                ta = self.type_of(e[2])
+                return ta[-1] if is_ptr(ta) else None
+            if op == '&':
+                return ('ptr', self.type_of(e[2]))
+            return self.type_of(e[2])      # +, -, !, ~, ++, --
+        if k == 'post':
+            return self.type_of(e[2])
+        if k == 'bin':
+            op = e[1]
+            lt = self.type_of(e[2])
+            if op in ('+', '-'):
+                if is_ptr(lt):
+                    return lt               # pointer +/- integer
+                if op == '+' and is_ptr(self.type_of(e[3])):
+                    return self.type_of(e[3])
+            return ('base', 'int')
+        if k == 'cond':
+            a, b = self.type_of(e[2]), self.type_of(e[3])
+            if is_ptr(a):
+                return a
+            if is_ptr(b):
+                return b
+            return a if a is not None else b
+        if k == 'assign':
+            return self.type_of(e[2])
+        if k == 'comma':
+            return self.type_of(e[1][-1])
+        if k == 'sizeof_type':
+            return ('base', 'int')
+        if k == 'call':
+            return self.call_type(e)
+        return None
+
+    def call_type(self, e):
+        callee = e[1]
+        if callee[0] == 'member':
+            _, op, obj, fld = callee
+            st = self.struct_of(self.type_of(obj), deref=(op == '->'))
+            if st and fld in self.env.struct_methods.get(st, set()):
+                return self.ret_types.get(('m', st, fld))
+            return None
+        if callee[0] == 'id':
+            nm = callee[1]
+            if self.cur_struct and nm not in self.env.funcs \
+                    and nm in self.env.struct_methods.get(self.cur_struct, set()):
+                return self.ret_types.get(('m', self.cur_struct, nm))
+            if nm in VOIDP_LIBC:
+                return PTR_VOID
+            return self.ret_types.get(('f', nm))
+        return None
+
+
+def walk_stmts(s):
+    """Yield a statement and all nested sub-statements."""
+    yield s
+    k = s[0]
+    if k == 'block':
+        for c in s[1]:
+            yield from walk_stmts(c)
+    elif k == 'if':
+        yield from walk_stmts(s[2])
+        if s[3] is not None:
+            yield from walk_stmts(s[3])
+    elif k == 'while':
+        yield from walk_stmts(s[2])
+    elif k == 'do':
+        yield from walk_stmts(s[1])
+    elif k == 'for':
+        yield from walk_stmts(s[4])
+
+
+def func_scope(rec):
+    """Build a flat name->type scope (params + all local var decls + this)."""
+    scope = {pn: pt for pn, pt in rec['params']}
+    if rec['struct']:
+        scope.setdefault('this', ('ptr', ('base', rec['struct'])))
+    for s in walk_stmts(rec['body']):
+        if s[0] == 'var':
+            _, _ext, vtype, names = s
+            for nm in names:
+                scope[nm] = vtype
+    return scope
+
+
+def func_returns(rec):
+    return [s[1] for s in walk_stmts(rec['body'])
+            if s[0] == 'return' and s[1] is not None]
+
+
+def infer_return_types(env):
+    """Classify each UPLNC function/method as pointer- or int-returning, to a
+    fixpoint. A function returns a pointer if any of its return expressions is
+    provably a pointer -- transitively (a call to a pointer-returning function
+    or libc allocator counts)."""
+    recs = [(r['key'], r['struct'], func_scope(r), func_returns(r))
+            for r in env.func_recs]
+    ret_types = {}
+    changed = True
+    while changed:
+        changed = False
+        for key, struct, scope, returns in recs:
+            if is_ptr(ret_types.get(key)):
+                continue
+            ctx = TypeCtx(env, scope, struct, ret_types)
+            for ex in returns:
+                t = ctx.type_of(ex)
+                if is_ptr(t):
+                    # normalise array-of-T to pointer-to-T for a return type
+                    ret_types[key] = t if t[0] == 'ptr' else ('ptr', t[-1])
+                    changed = True
+                    break
+    return ret_types
 
 
 # ---------------------------------------------------------------------------
@@ -668,15 +854,22 @@ extern void *fopen();
 
 
 class Emitter:
-    def __init__(self, env):
+    def __init__(self, env, ret_types):
         self.env = env
+        self.ret_types = ret_types
         self.out = []
         # per-function context
-        self.locals = {}     # name -> type (params + locals in scope)
+        self.tc = TypeCtx(env, {}, None, ret_types)
         self.cur_struct = None
 
     def w(self, s=''):
         self.out.append(s)
+
+    def ret_str(self, key):
+        """The C return type for a function/method key. Pointer-returning
+        functions use `void *` (correct pointer width, and -- unlike a precise
+        struct type -- needs no typedef visible at the forward declaration)."""
+        return 'void *' if is_ptr(self.ret_types.get(key)) else 'int'
 
     # -- whole unit --
     def emit_unit(self, items, with_prelude=True):
@@ -688,22 +881,32 @@ class Emitter:
             self.w(f'typedef struct {sn} {sn};')
         if struct_names:
             self.w()
-        # forward declarations for every function/method in this unit
-        fwd = []
-        seen = set()
-        for it in items:
-            if it[0] in ('func', 'func_proto'):
-                name = it[1]
-            elif it[0] == 'method':
-                name = f'{it[1]}_{it[2]}'
-            else:
-                continue
-            if name not in seen:
-                seen.add(name)
-                fwd.append(name)
-        for name in fwd:
-            self.w(f'int {name}();')
-        if fwd:
+        # forward declarations with inferred return types. A full unit (.c)
+        # declares *every* known function (so cross-unit calls resolve with the
+        # right return width); a header (.h) declares only its own.
+        if with_prelude:
+            protos = [(self.ret_str(('f', n)), f'{n}();')
+                      for n in sorted(self.env.funcs)]
+            for st in sorted(self.env.struct_methods):
+                for m in sorted(self.env.struct_methods[st]):
+                    protos.append((self.ret_str(('m', st, m)), f'{st}_{m}();'))
+        else:
+            names = []
+            seen = set()
+            for it in items:
+                if it[0] in ('func', 'func_proto'):
+                    key, sym = ('f', it[1]), f'{it[1]}();'
+                elif it[0] == 'method':
+                    key, sym = ('m', it[1], it[2]), f'{it[1]}_{it[2]}();'
+                else:
+                    continue
+                if sym not in seen:
+                    seen.add(sym)
+                    names.append((self.ret_str(key), sym))
+            protos = names
+        for rt, sym in protos:
+            self.w(f'{rt} {sym}')
+        if protos:
             self.w()
         for it in items:
             self.emit_toplevel(it)
@@ -747,7 +950,7 @@ class Emitter:
         self.w(f'{prefix}{emit_group_decl(vtype, names)};')
 
     # K&R-style parameter list + declarations
-    def kr_signature(self, name, params, extra_first=None):
+    def kr_signature(self, rt, name, params, extra_first=None):
         plist = []
         decls = []
         if extra_first is not None:
@@ -757,14 +960,19 @@ class Emitter:
         for pn, pt in params:
             plist.append(pn)
             decls.append(emit_decl(pt, pn) + ';')
-        sig = f'int {name}(' + ', '.join(plist) + ')'
+        sig = f'{rt} {name}(' + ', '.join(plist) + ')'
         return sig, decls
+
+    def begin_func(self, key, struct, params, body):
+        """Set the per-function emission context (scope + current struct)."""
+        rec = {'key': key, 'struct': struct, 'params': params, 'body': body}
+        self.cur_struct = struct
+        self.tc = TypeCtx(self.env, func_scope(rec), struct, self.ret_types)
 
     def emit_func(self, it):
         _, name, params, body = it
-        sig, decls = self.kr_signature(name, params)
-        self.locals = {pn: pt for pn, pt in params}
-        self.cur_struct = None
+        self.begin_func(('f', name), None, params, body)
+        sig, decls = self.kr_signature(self.ret_str(('f', name)), name, params)
         self.w(sig)
         for d in decls:
             self.w('    ' + d)
@@ -773,12 +981,11 @@ class Emitter:
 
     def emit_method(self, it):
         _, sname, mname, params, body = it
+        self.begin_func(('m', sname, mname), sname, params, body)
         this_t = ('ptr', ('base', sname))
-        sig, decls = self.kr_signature(f'{sname}_{mname}', params,
+        sig, decls = self.kr_signature(self.ret_str(('m', sname, mname)),
+                                       f'{sname}_{mname}', params,
                                        extra_first=('this', this_t))
-        self.locals = {pn: pt for pn, pt in params}
-        self.locals['this'] = this_t
-        self.cur_struct = sname
         self.w(sig)
         for d in decls:
             self.w('    ' + d)
@@ -847,58 +1054,10 @@ class Emitter:
     def emit_local_var(self, s, indent):
         pad = '    ' * indent
         _, is_extern, vtype, names = s
-        for nm in names:
-            self.locals[nm] = vtype
         prefix = 'extern ' if is_extern else ''
         self.w(pad + f'{prefix}{emit_group_decl(vtype, names)};')
 
     # -- expressions --
-    def type_of(self, e):
-        k = e[0]
-        if k == 'group':
-            return self.type_of(e[1])
-        if k == 'id':
-            nm = e[1]
-            if nm in self.locals:
-                return self.locals[nm]
-            if self.cur_struct and nm in self.env.struct_fields.get(self.cur_struct, {}):
-                return self.env.struct_fields[self.cur_struct][nm]
-            return self.env.globals.get(nm)
-        if k == 'member':
-            _, op, obj, fld = e
-            tobj = self.type_of(obj)
-            st = self.struct_of(tobj, deref=(op == '->'))
-            if st and fld in self.env.struct_fields.get(st, {}):
-                return self.env.struct_fields[st][fld]
-            return None
-        if k == 'index':
-            ta = self.type_of(e[1])
-            if ta and ta[0] in ('ptr', 'arr'):
-                return ta[-1]
-            return None
-        if k == 'un':
-            if e[1] == '*':
-                ta = self.type_of(e[2])
-                if ta and ta[0] in ('ptr', 'arr'):
-                    return ta[-1]
-            if e[1] == '&':
-                return ('ptr', self.type_of(e[2]))
-            return self.type_of(e[2])
-        return None
-
-    def struct_of(self, t, deref):
-        """Resolve a type to a struct name; if deref, peel one pointer first."""
-        if t is None:
-            return None
-        if deref:
-            if t[0] in ('ptr', 'arr'):
-                t = t[-1]
-            else:
-                return None
-        if t[0] == 'base' and t[1] in self.env.struct_fields:
-            return t[1]
-        return None
-
     def emit_expr(self, e):
         k = e[0]
         if k == 'num' or k == 'char' or k == 'str':
@@ -906,7 +1065,7 @@ class Emitter:
         if k == 'id':
             nm = e[1]
             # implicit this->field inside a method
-            if self.cur_struct and nm not in self.locals \
+            if self.cur_struct and nm not in self.tc.scope \
                     and nm in self.env.struct_fields.get(self.cur_struct, {}):
                 return 'this->' + nm
             return nm
@@ -936,8 +1095,8 @@ class Emitter:
 
     def emit_member_or_method(self, e, call_args):
         _, op, obj, fld = e
-        tobj = self.type_of(obj)
-        st = self.struct_of(tobj, deref=(op == '->'))
+        tobj = self.tc.type_of(obj)
+        st = self.tc.struct_of(tobj, deref=(op == '->'))
         if call_args is not None and st and fld in self.env.struct_methods.get(st, set()):
             # method call:  obj<op>fld(args) -> st_fld(recv, args)
             if op == '->':
@@ -985,30 +1144,30 @@ def prescan_struct_names(srcs):
     return names
 
 
-def transpile(main_src, extra_srcs=(), with_prelude=True):
-    """Transpile `main_src` to C.  `extra_srcs` (e.g. included headers) are
-    parsed only to populate the type/method environment."""
-    all_srcs = [main_src] + list(extra_srcs)
+def transpile(main_src, context_srcs=(), with_prelude=True):
+    """Transpile `main_src` to C.  `context_srcs` (the other units + headers) are
+    parsed only to populate the global type/method environment and to drive
+    return-type inference -- they are not emitted."""
+    all_srcs = [main_src] + list(context_srcs)
     struct_names = prescan_struct_names(all_srcs)
 
     env = Env()
-    parsed_extra = []
-    for src in extra_srcs:
-        items = Parser(lex(src), struct_names).parse_unit()
-        env.collect(items)
-        parsed_extra.append(items)
-
     main_items = Parser(lex(main_src), struct_names).parse_unit()
     env.collect(main_items)
+    for src in context_srcs:
+        env.collect(Parser(lex(src), struct_names).parse_unit())
 
-    return Emitter(env).emit_unit(main_items, with_prelude=with_prelude)
+    ret_types = infer_return_types(env)
+    return Emitter(env, ret_types).emit_unit(main_items, with_prelude=with_prelude)
 
 
 def main(argv):
     import os
     if not argv:
         sys.stderr.write(
-            'usage: uplnc2c.py FILE.e [-I included.he ...] [-o OUT.c]\n')
+            'usage: uplnc2c.py FILE.e [-I context.e|.he ...] [-o OUT.c]\n'
+            '  -I  another source parsed for the global type environment and\n'
+            '      return-type inference (not emitted); pass all sibling units\n')
         return 2
     out = None
     includes = []

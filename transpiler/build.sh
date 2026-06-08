@@ -10,16 +10,23 @@ mkdir -p "$OUT"
 T="python3 uplnc2c.py"
 
 echo "[build] transpiling UPLNC -> C"
+# Every unit is transpiled with all sibling sources passed as -I context, so the
+# global type environment and return-type inference are complete (a pointer-
+# returning function in one unit gets the right prototype in every caller).
+COMPILER_SRCS="$SRC/langc.e $SRC/codegen.e $SRC/autodyn.e $SRC/grph.e \
+               $SRC/tlangc.he $SRC/codegen.he"
+ctx() { for f in $COMPILER_SRCS; do [ "$f" = "$1" ] || printf -- '-I %s ' "$f"; done; }
+
 # headers -> .h (no prelude; #included into the .c units)
-$T "$SRC/tlangc.he"  -o "$OUT/tlangc.h"
-$T "$SRC/codegen.he" -o "$OUT/codegen.h"
+$T "$SRC/tlangc.he"  $(ctx "$SRC/tlangc.he")  -o "$OUT/tlangc.h"
+$T "$SRC/codegen.he" $(ctx "$SRC/codegen.he") -o "$OUT/codegen.h"
 # preprocessor (self-contained; works at 64-bit)
 $T "$SRC/lpp1.e"     -o "$OUT/lpp1.c"
-# compiler units (-I headers populate the type/method environment)
-$T "$SRC/codegen.e"  -I "$SRC/codegen.he" -I "$SRC/tlangc.he" -o "$OUT/codegen.c"
-$T "$SRC/langc.e"    -I "$SRC/tlangc.he"  -I "$SRC/codegen.he" -o "$OUT/langc.c"
-$T "$SRC/autodyn.e"  -o "$OUT/autodyn.c"
-$T "$SRC/grph.e"     -I "$SRC/tlangc.he"  -o "$OUT/grph.c"
+# compiler units
+$T "$SRC/codegen.e"  $(ctx "$SRC/codegen.e")  -o "$OUT/codegen.c"
+$T "$SRC/langc.e"    $(ctx "$SRC/langc.e")    -o "$OUT/langc.c"
+$T "$SRC/autodyn.e"  $(ctx "$SRC/autodyn.e")  -o "$OUT/autodyn.c"
+$T "$SRC/grph.e"     $(ctx "$SRC/grph.e")     -o "$OUT/grph.c"
 
 CC="gcc -std=gnu89 -w"
 # UPLNC is an i386 (4-byte int == 4-byte pointer) language. Prefer -m32.

@@ -229,11 +229,14 @@ end and avoiding 64-bit pointer-width surprises.
 
 ## Implementation status
 
-Step 2 has begun — see [`transpiler/`](transpiler/) (`uplnc2c.py`). The front end
-is complete and exercised: every source file transpiles, the full compiler
-(`langc`+`codegen`+`autodyn`+`grph`) links, and `lpp1` runs as a working
-preprocessor. The remaining gap is the int/pointer width issue (needs `-m32` or
-return-type inference); details in [`transpiler/README.md`](transpiler/README.md).
+Steps 2–3 are working — see [`transpiler/`](transpiler/) (`uplnc2c.py`). Every
+source transpiles; the stage-0 `langc` builds (64-bit) and **self-compiles every
+one of its own units, including the 4,331-line `langc.e`, to i386 assembly with 0
+errors**; `lpp1` runs as a working preprocessor. Return-type inference closed the
+int/pointer width hazard (§7), so no `-m32` is needed to *run* the stage-0
+compiler. The only remaining step is the self-host **fixpoint** (§4), which needs
+the 32-bit libc to assemble/link `langc`'s i386 output. Details in
+[`transpiler/README.md`](transpiler/README.md).
 
 ## 8. Rough sequencing
 

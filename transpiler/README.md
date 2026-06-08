@@ -21,36 +21,40 @@ emits a full translation unit.
 
 ## Status
 
-| Component | Transpiles | Compiles | Runs correctly |
-|-----------|:----------:|:--------:|:--------------:|
-| `lpp1` (preprocessor) | ✅ | ✅ | ✅ (verified: macro expansion, comment stripping, string preservation) |
-| `langc` + `codegen` + `autodyn` + `grph` (compiler) | ✅ | ✅ (links to a binary) | ⚠️ needs `-m32` *or* return-type inference — see below |
+| Component | Transpiles | Compiles | Runs correctly | Self-compiles (stage 1) |
+|-----------|:----------:|:--------:|:--------------:|:-----------------------:|
+| `lpp1` (preprocessor) | ✅ | ✅ | ✅ | ✅ |
+| `langc`+`codegen`+`autodyn`+`grph` | ✅ | ✅ | ✅ | ✅ |
 
-So the transpiler front-end is **done and exercised end-to-end**: every source
-file parses, the full compiler links, and `lpp1` works as a real preprocessor.
+The stage-0 compiler is **working**: built at 64-bit, `langc` compiles UPLNC to
+i386 assembly, and it **self-compiles every one of its own units** — including the
+4,331-line `langc.e` — to assembly with **0 errors** (verified by the test suite).
+`lpp1` works as a real preprocessor. This is BOOTSTRAP.md steps 2–3 done.
 
-### The one remaining gap: int/pointer width
+### Return-type inference (closed the 64-bit width hazard)
 
-UPLNC is an **i386** language: `int` and pointers are both 4 bytes (`WORDSIZE 4`
-in `tlangc.he`), and UPLNC functions default to returning `int`. Many compiler
-functions actually return *pointers* (e.g. `autodynstr`, `dyncalloc`, the node
-allocators) while still being declared with the default `int` return.
+UPLNC is an **i386** language: `int` and pointers are both 4 bytes (`WORDSIZE 4`),
+and UPLNC functions default to returning `int`. Many compiler functions actually
+return *pointers* (`autodynstr`, `dyncalloc`, the node allocators, …). At 64-bit a
+pointer returned through `int` is truncated → the earlier build segfaulted.
 
-* On a true i386 target this is harmless (int == pointer == 4 bytes). Build with
-  `-m32` and `langc` runs correctly. `build.sh` auto-detects `-m32` and uses it.
-* On a 64-bit host without `-m32`, a pointer returned through an `int` is
-  truncated to 32 bits → `langc` segfaults. `lpp1` is immune only because it has
-  no pointer-returning functions.
+`uplnc2c` now **infers return types**: across all units it classifies a function
+as pointer-returning if any `return` expression is provably a pointer —
+transitively (a call to a pointer-returning function or a libc allocator counts),
+iterated to a fixpoint. Such functions are emitted as `void *` (correct pointer
+width) in both their definition and their cross-unit forward declaration. 72
+functions are inferred as pointer-returning; `langc` then runs correctly at
+64-bit. (`void *` rather than a precise struct type avoids needing the struct
+typedef visible at the forward declaration, and is sufficient for correctness.)
 
-This sandbox lacks the 32-bit libc (`gcc-multilib` / `libc6-dev-i386`) and has no
-sudo, so the `-m32` build can't be produced here; `lpp1` is the working
-demonstration. Two ways to close the gap:
+### The one remaining gap: the self-host fixpoint needs `-m32`
 
-1. **`-m32`** — install `gcc-multilib libc6-dev-i386`; `build.sh` then Just Works.
-2. **Return-type inference** (host-portable) — infer which UPLNC functions return
-   pointers (from their `return` expressions, transitively) and emit a pointer
-   return type in the K&R definition and forward declaration. This is the planned
-   next increment; it makes `langc` correct at 64-bit too.
+What is **not** yet possible in this sandbox is assembling/linking the i386 `.s`
+that `langc` emits, which needs the 32-bit libc (`gcc-multilib` / `libc6-dev-i386`;
+unavailable here, no sudo). That blocks only the final step: turn the stage-1 `.s`
+into stage-1 binaries, recompile to stage-2, and diff for the byte-identical
+**fixpoint** (the acceptance test in BOOTSTRAP.md §4). With `-m32` present,
+`build.sh` uses it automatically and that step becomes mechanical.
 
 ## How it works
 
