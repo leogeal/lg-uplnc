@@ -227,6 +227,14 @@ end and avoiding 64-bit pointer-width surprises.
 
 ---
 
+## Implementation status
+
+Step 2 has begun — see [`transpiler/`](transpiler/) (`uplnc2c.py`). The front end
+is complete and exercised: every source file transpiles, the full compiler
+(`langc`+`codegen`+`autodyn`+`grph`) links, and `lpp1` runs as a working
+preprocessor. The remaining gap is the int/pointer width issue (needs `-m32` or
+return-type inference); details in [`transpiler/README.md`](transpiler/README.md).
+
 ## 8. Rough sequencing
 
 1. **Recon (½ day):** finalize this inventory against the sources; quick hunt for

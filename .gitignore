@@ -1,6 +1,11 @@
 # Local Claude Code tooling/config
 .claude/
 
+# Transpiler build artifacts (generated C + binaries)
+transpiler/build/
+__pycache__/
+*.pyc
+
 # Editor / OS cruft
 *.swp
 *~
