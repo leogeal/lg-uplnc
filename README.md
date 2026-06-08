@@ -1,5 +1,11 @@
 # UPLNC Compiler
 
+[![transpiler: uplnc2c](https://img.shields.io/badge/transpiler-uplnc2c-blue)](transpiler/)
+[![tests: 19/19](https://img.shields.io/badge/tests-19%2F19%20passing-brightgreen)](transpiler/tests/run_tests.sh)
+[![stage-1 self-compile: 0 errors](https://img.shields.io/badge/stage--1%20self--compile-0%20errors-brightgreen)](transpiler/README.md#status)
+[![self-host fixpoint: needs -m32](https://img.shields.io/badge/self--host%20fixpoint-needs%20--m32-yellow)](transpiler/fixpoint.sh)
+[![license: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE)
+
 Source code for the compiler of the **UPLNC** language, by Evgueniy Vitchev.
 
 UPLNC is an experimental, C-like systems language created as part of a DIY
@@ -32,6 +38,8 @@ unmodified). The original paper and raw archive are kept alongside for reference
 | Path | Description |
 |------|-------------|
 | [`src/`](src/) | Clean compiler source (self-hosting; written in UPLNC) |
+| [`transpiler/`](transpiler/) | `uplnc2c` — UPLNC→C transpiler that bootstraps the compiler |
+| [`BOOTSTRAP.md`](BOOTSTRAP.md) | Bootstrapping plan + UPLNC feature/grammar inventory |
 | `uplnc-compiler-paper.pdf` | The full 134-page paper (design + implementation) |
 | `uplnc-eprint.tar.gz`, `uplnc-eprint/` | Original arXiv e-print archive and its extracted contents |
 
@@ -60,6 +68,29 @@ See [`BOOTSTRAP.md`](BOOTSTRAP.md) for a concrete bootstrapping plan — what th
 build actually needs (two binaries, `lpp1` and `langc`, targeting i386 + glibc),
 a UPLNC feature/grammar inventory drawn from the sources, and a transpiler-based
 strategy with a self-host fixpoint as the acceptance test.
+
+## Bootstrap status
+
+That plan is implemented in [`transpiler/`](transpiler/) — **`uplnc2c`**, a
+UPLNC→C transpiler that breaks the self-hosting cycle:
+
+```sh
+cd transpiler
+./build.sh              # transpile the UPLNC sources to C, build lpp1 + langc
+bash tests/run_tests.sh # 19 checks
+./fixpoint.sh           # self-host fixpoint check (needs a 32-bit toolchain)
+```
+
+| Stage | State |
+|-------|-------|
+| Transpile all sources to C | ✅ done |
+| `lpp1` preprocessor builds & runs | ✅ done |
+| `langc` builds & runs (compiles UPLNC → i386 asm) | ✅ done (return-type inference closed the 64-bit width hazard) |
+| Stage-1 self-compile (`langc` compiles its own sources) | ✅ 0 errors on all units, incl. the 4,331-line `langc.e` |
+| Self-host fixpoint (stage-2 == stage-3 asm) | ⏳ ready via [`fixpoint.sh`](transpiler/fixpoint.sh); needs `gcc-multilib`/`-m32` |
+
+See [`transpiler/README.md`](transpiler/README.md) for the design and the full
+status writeup.
 
 ## License
 
