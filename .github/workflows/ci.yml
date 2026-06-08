@@ -25,9 +25,8 @@ jobs:
   fixpoint:
     name: Self-host fixpoint (i386, -m32)
     runs-on: ubuntu-latest
-    # informational: the fixpoint requires the full 32-bit bootstrap to converge.
-    # Do not fail the workflow if it does not (yet) hold; the test job is the gate.
-    continue-on-error: true
+    # The fixpoint is verified in CI (stage-2 == stage-3 assembly), so this is a
+    # gate: if a change breaks self-hosting, fixpoint.sh exits non-zero and fails.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

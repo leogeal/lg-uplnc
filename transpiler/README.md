@@ -29,7 +29,9 @@ emits a full translation unit.
 The stage-0 compiler is **working**: built at 64-bit, `langc` compiles UPLNC to
 i386 assembly, and it **self-compiles every one of its own units** — including the
 4,331-line `langc.e` — to assembly with **0 errors** (verified by the test suite).
-`lpp1` works as a real preprocessor. This is BOOTSTRAP.md steps 2–3 done.
+`lpp1` works as a real preprocessor. And the **self-host fixpoint holds**: CI runs
+`fixpoint.sh` under `gcc-multilib` and confirms stage-2 and stage-3 assembly are
+byte-identical. This is BOOTSTRAP.md steps 2–4 done.
 
 ### Return-type inference (closed the 64-bit width hazard)
 
@@ -47,21 +49,19 @@ functions are inferred as pointer-returning; `langc` then runs correctly at
 64-bit. (`void *` rather than a precise struct type avoids needing the struct
 typedef visible at the forward declaration, and is sufficient for correctness.)
 
-### The one remaining gap: the self-host fixpoint needs `-m32`
+### The self-host fixpoint (verified in CI)
 
-What is **not** yet possible in this sandbox is assembling/linking the i386 `.s`
-that `langc` emits, which needs the 32-bit libc (`gcc-multilib` / `libc6-dev-i386`;
-unavailable here, no sudo). That blocks only the final step: turn the stage-1 `.s`
-into stage-1 binaries, recompile to stage-2, and diff for the byte-identical
-**fixpoint** (the acceptance test in BOOTSTRAP.md §4).
+`fixpoint.sh` builds stage-1 (`langc1`) and stage-2 (`langc2`) by assembling each
+generation's output with `gcc -m32`, then recompiles once more and checks that
+**stage-2 and stage-3 assembly are byte-identical** — the acceptance test in
+BOOTSTRAP.md §4. It is gated on `-m32` (printing an install hint if absent).
 
-`fixpoint.sh` automates exactly that: it builds stage-1 (`langc1`) and stage-2
-(`langc2`) by assembling each generation's output with `gcc -m32`, then recompiles
-once more and checks that **stage-2 and stage-3 assembly are byte-identical**. It
-is gated on `-m32` (printing an install hint if absent), so it is ready to run
-wherever the 32-bit toolchain exists. As a prerequisite already verified here,
-`langc`'s assembly output is **deterministic** (compiling any unit twice yields
-identical `.s`), so the fixpoint is well-defined.
+CI runs it under `gcc-multilib` and **it passes**, so the compiler is provably
+self-hosting from this transpiler. (`langc`'s assembly output is also
+deterministic — compiling any unit twice yields identical `.s` — so the fixpoint
+is well-defined.) The only thing the original sandbox could not do was install the
+32-bit libc; any machine with `gcc-multilib` / `libc6-dev-i386` reproduces it via
+`./fixpoint.sh`.
 
 ## How it works
 

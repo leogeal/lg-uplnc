@@ -3,7 +3,7 @@
 [![CI](https://github.com/leogeal/lg-uplnc/actions/workflows/ci.yml/badge.svg)](https://github.com/leogeal/lg-uplnc/actions/workflows/ci.yml)
 [![transpiler: uplnc2c](https://img.shields.io/badge/transpiler-uplnc2c-blue)](transpiler/)
 [![stage-1 self-compile: 0 errors](https://img.shields.io/badge/stage--1%20self--compile-0%20errors-brightgreen)](transpiler/README.md#status)
-[![self-host fixpoint: needs -m32](https://img.shields.io/badge/self--host%20fixpoint-needs%20--m32-yellow)](transpiler/fixpoint.sh)
+[![self-host fixpoint: verified in CI](https://img.shields.io/badge/self--host%20fixpoint-verified%20in%20CI-brightgreen)](.github/workflows/ci.yml)
 [![license: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-blue)](LICENSE)
 
 Source code for the compiler of the **UPLNC** language, by Evgueniy Vitchev.
@@ -87,10 +87,12 @@ bash tests/run_tests.sh # 19 checks
 | `lpp1` preprocessor builds & runs | ✅ done |
 | `langc` builds & runs (compiles UPLNC → i386 asm) | ✅ done (return-type inference closed the 64-bit width hazard) |
 | Stage-1 self-compile (`langc` compiles its own sources) | ✅ 0 errors on all units, incl. the 4,331-line `langc.e` |
-| Self-host fixpoint (stage-2 == stage-3 asm) | ⏳ ready via [`fixpoint.sh`](transpiler/fixpoint.sh); needs `gcc-multilib`/`-m32` |
+| Self-host fixpoint (stage-2 == stage-3 asm) | ✅ **verified in CI** ([`fixpoint.sh`](transpiler/fixpoint.sh) under `gcc-multilib`/`-m32`) |
 
-See [`transpiler/README.md`](transpiler/README.md) for the design and the full
-status writeup.
+The compiler is **provably self-hosting from this transpiler**: CI builds it via
+`uplnc2c`, has it recompile its own source twice more, and confirms stage-2 and
+stage-3 assembly are byte-identical. See [`transpiler/README.md`](transpiler/README.md)
+for the design and full status writeup.
 
 ## License
 
