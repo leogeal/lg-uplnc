@@ -56,6 +56,11 @@ bootstrapping with an existing UPLNC compiler binary. The paper (included as
 `uplnc-compiler-paper.pdf`) is the authoritative reference for the toolchain and
 the three-stage architecture.
 
+See [`BOOTSTRAP.md`](BOOTSTRAP.md) for a concrete bootstrapping plan — what the
+build actually needs (two binaries, `lpp1` and `langc`, targeting i386 + glibc),
+a UPLNC feature/grammar inventory drawn from the sources, and a transpiler-based
+strategy with a self-host fixpoint as the acceptance test.
+
 ## License
 
 The compiler is released under the **GNU General Public License, version 2 (or,
