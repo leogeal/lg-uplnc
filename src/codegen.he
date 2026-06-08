@@ -1,0 +1,109 @@
+/*                    -*- C -*-                                            */
+/*               code generation header by E.V., (C) 2003                  */
+/*
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+  
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+  
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*/
+#define CD_MODSTK    10 /* add(or subtract) a number to(from) %esp */
+#define CD_STKENTER  11 /* new stack frame */
+#define CD_STKLEAVE  12 /* leave stack frame */
+#define CD_INCREG    13 /* increase reg */
+#define CD_DECREG    14 /* decrease reg */
+#define CD_ADD2REGS  15 /* addition */
+#define CD_SUB2REGS  16 /* subtraction */
+#define CD_BAND2REGS 17 /* bitwise AND */
+#define CD_BOR2REGS  18 /* bitwise OR  */
+#define CD_BXOR2REGS 19 /* bitwise XOR */
+#define CD_SHL       20 /* << */
+#define CD_SHR       21 /* >> unsigned */
+#define CD_ASR       22 /* >> signed   */
+#define CD_EQ        23 /* == */
+#define CD_NEQ       24 /* != */
+#define CD_ZGE       25 /* >= signed */
+#define CD_UGE       26 /* >= unsigned */
+#define CD_ZLE       27 /* <= signed */
+#define CD_ULE       28 /* <= unsigned */
+#define CD_ZLT       29 /* < signed */
+#define CD_ULT       30 /* < unsigned */
+#define CD_ZGT       31 /* > signed */
+#define CD_UGT       32 /* > unsigned */
+#define CD_BNOT      33 /* ~ bitwise */
+#define CD_LNOT      34 /* ! logical */
+#define CD_NEG       35 /* - unary */
+#define CD_TESTNEJUMP 36 /*  */
+#define CD_ZCALL     37 /* call */
+#define CD_LAB       38 /* label */
+#define CD_MUL2REGS  39
+#define CD_DIV2REGS  40
+#define CD_MULREG    41 /* multiply register by const */
+#define CD_DIVCONST    42 /* divide by const*/
+#define CD_IGNORE    43
+#define CD_MOD2REGS  44
+#define CD_PUSH      45
+#define CD_POP       46
+#define CD_RET       47
+#define CD_JUMP      48
+#define CD_LDLIT     49
+#define CD_LDN       50
+#define CD_LDA       51
+#define CD_LEA       52
+#define CD_STOW      53
+#define CD_STOB      54
+#define CD_STLW      55
+#define CD_STLB      56
+#define CD_LBRW      57
+#define CD_LBRB      58
+#define CD_LBRA      59
+#define CD_LDW       60
+#define CD_LDB       61
+#define CD_LDLW      62
+#define CD_LDLB      63
+#define CD_STOW2     64
+#define CD_STOB2     65
+#define CD_TESTJUMP  66 /*  */
+
+
+struct scode
+{
+  int code;
+  int arg;
+  int reg;
+  *char str;
+};
+#define NCODEITEMS 150
+struct scodegen
+{
+  int ncodeitems;
+  int codeptr;
+  *scode codes;
+};
+
+func cg_init(this:*scodegen);
+func cg_done(this:*scodegen);
+func cg_getitem(this :*scodegen);
+func cd_init(code:*scode);
+func cg_print(this:*scodegen);
+
+#define RG_A 0
+#define RG_B 1
+#define RG_C 2
+#define RG_D 3
+
+func icodegen();
+func dcodegen();
+var **char extern: regnames;
+var extern *scodegen:ccg;
+var extern scodegen:cgglb;
+
+var extern int :Zsp;

@@ -1,0 +1,189 @@
+/*                    -*- C -*-                                            */
+/*       The language compiler definitions by E.V., (C) 2003               */
+/*
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+  
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+  
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+*/
+#define WORDSIZE 4
+#define BYTESIZE 1
+#define linesize 180
+#define linemax linesize-1
+#define mpmax linemax
+#define stif 1
+#define stwhile 2
+#define streturn 3
+#define stbreak 4
+#define stcont 5
+#define stasm 6
+#define stexp 7
+#define stfor 9
+#define stdo 10
+#define NAMESIZE 16
+#define NAMEMAX 15
+
+struct snamenode{
+  [NAMESIZE]char name;
+  *snamenode next;
+  func init;
+  func done;
+};
+struct snamelist{
+  *snamenode lst;
+  **snamenode front;
+  func init;
+  func done;
+  func find;
+  func addm;
+  func dump;
+};
+struct ssym{
+  [NAMESIZE]char name;
+  int sort;
+  int dfd;
+  int offset;
+  int type;
+  int line;
+  *snamelist nmlst;
+  func init;
+  func done;
+};
+struct ssymlist{
+  ssym sym;
+  *ssymlist next;
+};
+struct ssymtab{
+  *ssymlist lst;
+  **ssymlist front;
+};
+var extern glbsymtab,locsymtab:ssymtab;
+
+#define S_FUNC 1 
+#define S_VARG 2 
+#define S_VARL 3 
+#define T_INT 1 
+#define T_CHAR 2 
+#define T_INTP 3 
+#define T_CHARP 5 
+#define F_TYPE 6 /*first user-defined type*/
+
+#define NUMTYP 50
+#define MAXTYP 49
+#define TYPNMTBS 800
+#define V_PTR 1
+#define V_ARR 2
+#define V_STR 3
+#define V_FND 4
+#define V_FNC 5
+struct styp{
+  [NAMESIZE]char name;
+  int sort;
+  int type;
+  int dim;
+  int size;
+  int ptr;
+};
+
+#define NMSTRELE 50
+/*#define STRNMTBS 800*/
+struct sfield{
+  [NAMESIZE]char name;
+  int type;
+  int offset;
+  int next;
+};
+
+#define litstksz 30000
+#define litstknu 15
+
+#define STSIZE 8000
+#define STMAX 7999
+
+#define WQNUM 75
+#define WQMAX 74
+
+
+/* the expression processing */
+#define OP_LEAF    0
+#define OP_COMMA   1
+#define OP_ASSIGN  2
+#define OP_COND    3
+#define OP_LOR     4
+#define OP_LAND    5
+#define OP_BOR     6
+#define OP_BXOR    7
+#define OP_BAND    8
+#define OP_EQ      9
+#define OP_NEQ    10
+#define OP_LE     11
+#define OP_GE     12
+#define OP_LT     13
+#define OP_GT     14
+#define OP_SHL    15
+#define OP_SHR    16
+#define OP_PLUS   17
+#define OP_MINUS  18
+#define OP_MUL    19
+#define OP_DIV    20
+#define OP_REM    21
+#define OP_1PP    22
+#define OP_1MM    24
+#define OP_UPLUS  25
+#define OP_UMINUS 26
+#define OP_STAR   27
+#define OP_ADDR   28
+#define OP_LNOT   29
+#define OP_BNOT   30
+#define OP_2PP    31
+#define OP_2MM    32
+#define OP_SQ     33
+#define OP_FUNC   34
+#define OP_DOT    35
+#define OP_LIST   36
+
+#define L_NUM 1
+#define L_ID  2
+#define L_STR 3
+
+/* pointed by %eax */
+#define L_POI 4
+/* pointed by (%esp) */
+#define L_SP 5
+/* on %eax */
+#define L_ONREG 5
+struct eleaf{
+  int vid;
+  int val;/* number or index in the symbol table*/
+  *ssym idx;
+};
+struct enode{
+  *enode l;
+  *enode r;
+  *enode third;
+  int op;
+  eleaf leaf;
+  [NAMESIZE]char name;
+};
+
+struct elval{
+  int sort; /* object, number, string -> L_ID,L_NUM,L_STR*/
+  *ssym idx;  /* index in the symbol table, if object */
+  int offset; /*offset in a compound object */
+  int typ;    /* type */
+  int val;
+  [NAMESIZE]char name;
+};
+/*return value: 0: on register, 1: not on register */
+
+var extern *char:graphname;
+var extern stderr,stdin,stdout:*int;

@@ -1,0 +1,354 @@
+\documentclass[10pt]{article}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{epsfig}
+%\usepackage{palatino}
+\def\arXiv#1{\href{http://xxx.lanl.gov/abs/#1}{arXiv:#1}}
+
+%%<mathmacros>Some mathematics macros
+\def\Dir{\,\,{\raise.15ex\hbox{/}\mkern-12mu D}}
+\def\slD{\slash\!\!\!\!D}
+\def\slA{\slash\!\!\!\!A}
+%\providecommand\slashed[1]{\slash\!\!\!\!{#1}}
+\newcommand{\bb}{\begin{equation}}
+\newcommand{\bqn}{\begin{eqnarray}}
+\newcommand{\eqn}{\end{eqnarray}}
+\def\be{\begin{equation}}
+\def\ee{\end{equation}}
+\def\beq{\begin{eqnarray}}
+\def\eeq{\end{eqnarray}}
+\newcommand{\pp}{\partial}
+\def\g{\gamma}
+\def\G{\Gamma}
+\def\d{\delta}
+\def\D{\Delta}
+\def\a{\alpha}
+\edef\b{\beta}
+\def\l{\lambda}
+\def\m{\mu}
+\def\n{\nu}
+\def\f{\phi}
+\def\vf{\varphi}
+\providecommand{\tA}{{\tilde A}}
+\providecommand{\talpha}{{\tilde\alpha}}
+\providecommand{\cplus}{C^{(+)}}
+\providecommand{\cminus}{C^{(-)}}
+\def\({\left(}
+\def\){\right)}
+\def\[{\left[}
+\def\]{\right]}
+%%</mathmacros>
+
+%\usepackage[OT2,OT1]{fontenc}
+%\newcommand\cyr{%
+%  \renewcommand\rmdefault{wncyr}%
+%  \renewcommand\sfdefault{wncyss}%
+%  \renewcommand\encodingdefault{OT2}%
+%  \normalfont
+%  \selectfont}
+%\DeclareTextFontCommand{\textcyr}{\cyr}
+
+%\def\refname{{\cyr Literatura}}
+%%<somecyrillicmacros>These are some cyrillic macros by me - E.V.
+%\def\y{{\cyr\hard}}
+%\def\sht{{\cyr shch}}
+%\def\Sht{{\cyr SHCH}}
+%\def\ik{{\cyr \u i}}
+%\def\Ik{{\cyr \u I}}
+%\providecommand\hcyr{{\cyr h}}
+%\providecommand\hemcyr{{\cyr hem}}
+%\providecommand\emcyr{{\cyr em}}
+%\providecommand\ya{{\cyr ya}}
+%\providecommand\Scyr{{\cyr S}}
+%%</somecyrillicmacros>
+
+%\voffset=-2cm
+\voffset=-1cm
+\hoffset=-2cm
+\textheight=21cm
+\textwidth=15cm
+
+\begin{document}
+
+\vspace*{1cm}
+
+\begin{center}
+{\bf{The UPLNC Compiler: Design and Implementation\\
+%\vspace*{.35cm}
+%and its implementation for compressing virtually uncompressible data 
+}}
+
+\vspace*{1cm}
+
+Evgueniy Vitchev\footnote{e-mail: vitchev@physics.rutgers.edu}
+\ \\
+
+\ \\
+Department of Physics and Astronomy, Rutgers University \\
+Piscataway, NJ 08855-0849, USA
+\end{center}
+
+
+\vspace*{.8cm}
+
+\begin{abstract}
+The implementation of the compiler of the UPLNC language is presented
+with a full source code listing.
+\end{abstract}
+
+\section{Introduction}
+\subsection{Why develop another language?}
+There were several motivations to develop the UPLNC language. One of
+them was to make a programming language which suits better one's
+personal tastes, and allows experimenting with ideas. Also, developing
+of the compiler was an amusing process 
+for the author, who hopes that this work will be instructive to the
+reader. From a certain point, one could view such a work as a work of
+art, like a poet would write a beautiful poem.
+Another reason behind this language would be the beginning of a much
+larger project- building an alternative do-it-yourself (DIY) platform,
+including programming language, developer tools, operating system
+kernel written in that language, full set of system and application
+utilities.
+If some day such a project becomes implemented, it is the author's hope
+that it will remain free, as free speech, without being threatened by
+claims of exclusive rights to use, modify and distribute. That's why the
+source code in the present work is released under the GNU General Public
+License. 
+
+This language is already quite developed- the compiler does support
+unlimited level of indirection, multiple dimensional arrays, structures,
+methods of structures, and most of the control statements inherent of
+C. On the other hand, there are some more or less essential things which
+would be desirable to be implemented, e.g. floating point support,
+initializers and optimization phase before the code generation. 
+
+An open question is whether this language will evolve as a
+general-purpose one like C and C++, or will have some more sophisticated
+features as combinatoric control statements(CCS). An lyrical diversion
+which gives 
+some notion of CCS is a calculation of the form
+\be
+R=\sum_{1\le i_1\le i_2\le\ldots\le i_k\le N}f(i_1,i_2,\ldots,i_k).
+\ee
+When $k$ (the number of indices) is not known, the simplest way is to
+write some recursive or iterative algorithm which cycles the $k$ indices
+in the appropriate way. This can be done also with a standard library
+function/template. A non-trivial way to deal with this situation is
+post-compile code generation: the program can generate machine code
+corresponding to something like
+\begin{verbatim}
+for(i[k-1]=1;i[k-1]<=N;++i[k-1])
+ for(i[k-2]=1;i[k-2]<=i[k-1];++i[k-2])
+  for(i[k-3]=1;i[k-3]<=i[k-2];++i[k-3])
+   ...
+     R+=f(i);
+\end{verbatim}
+and run that machine code, or it can output the source code to a file,
+invoke an external compiler which would produce a shared object, which
+then would be loaded and run.
+\subsection{Development}
+In part, this work was inspired by  Small C compiler \cite{SmCfiles} and
+its variant RatC \cite{ABookOnC}. When the author encountered RatC
+around one decade ago, he made a rough implementation(or translation) of it
+in Turbo Pascal. That project was ultimately abandoned, mainly because
+it was a compiler written in a quite high-level language, translating(by
+design) a rather primitive language, so a bootstrap procedure was not
+possible. Its source code is probably lost. 
+
+Much later, when I saw several other implementations of Small C,
+decided that it would be better, instead of making subsets and
+dialects, which will probably never be as good as the complete language, to
+make one's own language, referred to as UPLNC, which will allow more
+choices of its design. Still, I decided to use Small C as the first language to
+implement the UPLNC compiler-- to that end I ported a version of Small C
+to \texttt{i386-linux} \cite{SmCport}. Those preliminary versions of the
+compiler 
+were pretty much constrained by the paradigms of the Small C compiler--
+no use of structures at all, so that tables were implemented by means of
+several arrays, corresponding to the different fields of the missing
+structures. Even in the present version one can find similarities of the
+syntax parser of UPLNC to the one of Small C, as well as artefacts of
+code borrowed from the Small C compiler. Nevertheless, the author
+wanted to escape the constraints of Small C, that's why, when the
+compiler was already able to produce correct code, the author wrote a
+utility for translating Small C to UPLNC (one can see its traces by some
+truncated identifiers like \texttt{expressi}). The result was a compiler for
+UPLNC, written in the same language, so it could compile itself.
+
+A next step was to replace the implementation of the tables as arrays of
+scalar types with arrays or lists of structures. The processing of
+expressions was completely rewritten. The old Small C-style approach of
+code generation being done while parsing, was replaced by a three-stage
+process: parsing and building a tree, generating from that three an
+intermediate representation of the program code, producing of assembly
+code. It is possible in the future to include an optimization stage
+after the second 
+stage of this process.
+
+Later, methods of structures were introduced in the language, much
+similar to the methods in C++: the method has a default parameter
+{\textsf{this}} which points to the instance of the structure, and within
+the method the members of the structure are visible.
+
+It is possible to declare variables in different styles:
+\begin{verbatim}
+var a,b,c:[3]*char;
+var [3]*char:d,e,f;
+var extern a1,a2:int;
+var extern int:a3;
+var int extern:a4;
+var a5:extern int;
+var a6:int extern;
+var extern a7:extern int extern;
+var extern **int extern: extern a8;
+\end{verbatim}
+
+Currently, the only supported target of the compiler is Linux on
+\textsf{i386}-compatible processors. The code generated is
+link-compatible with C, 
+that's why it is possible to link programs with the GNU C library
+\textsf{glibc}, which is used by the compiler itself. It is plausible
+that with small modifications the compiler could support other operating
+systems running on \textsf{i386}-compatible microprocessors. In order to
+support other architectures, it is possible to rewrite the code
+generating part of the compiler. This was the main reason behind
+separating the code generation in a different stage and even in the
+different module \texttt{codegen.e}.
+
+\begin{figure}[h]
+\begin{center}
+%\includegraphics[width=10cm]{cylfig1.eps}
+%\epsfxsize=0.3\textwidth
+%\epsfbox{tlgraph}
+%\\
+%\epsfxsize=0.42\textwidth
+%\epsfbox{tlgraph2}
+%\epsfxsize=0.7\textwidth
+%\epsfbox{tlgraph3}
+\epsfxsize=0.99\textwidth
+\epsfbox{tlgraph4}
+\end{center}
+\caption{Scheme of \texttt{grph.e}}
+\label{lfig1}
+\end{figure}
+
+A feature introduced in the compiler was the possibility of redefining
+certain syntax elements. An illustrative, albeit not quite readable
+example is this program for calculating of primes:
+\begin{verbatim}
+%%takeoff lcomp "<font>" ;
+%%takeoff rcomp "</font>" ;
+%%takeoff tfunc "<p>" ;
+%%takeoff larg "<arg>" ;
+%%takeoff rarg "$</arg>" ;
+
+#define MAXNUM 1000
+#define TABSZ  1001
+
+var tab:[TABSZ]int;/*factorizes?*/
+
+<p> doprimes<arg>$</arg>
+<font>
+  var int:i,k;
+  printf<arg>"Calculating the primes>=3...\n"$</arg>;
+  for<arg>i=2;i<TABSZ;i++$</arg>
+    tab[i]=0;
+  for<arg>i=3;i<TABSZ;i=i+2$</arg>
+    <font>
+      if<arg>tab[i]$</arg>
+        continue;
+      printf<arg>"%d\n",i$</arg>;
+      for<arg>k=i;k<TABSZ;k=k+i$</arg>
+        <font>
+          tab[k]=1;
+        </font>
+    </font>
+</font>
+<p> main<arg>$</arg>
+<font>
+  doprimes<arg>$</arg>;
+</font>
+\end{verbatim}
+\begin{figure}[h]
+\begin{center}
+%\includegraphics[width=10cm]{cylfig1.eps}
+%\epsfxsize=0.3\textwidth
+%\epsfbox{tlgraph}
+%\\
+%\epsfxsize=0.42\textwidth
+%\epsfbox{tlgraph2}
+%\epsfxsize=0.7\textwidth
+%\epsfbox{tlgraph3}
+\epsfxsize=0.99\textwidth
+\epsfbox{tlgraph5}
+\end{center}
+\caption{Scheme of \texttt{langc.e}}
+\label{lfig2}
+\end{figure}
+
+Another feature which was implemented lately was the code graphing,
+namely producing a \verb+gnuplot+ \cite{GnuPlot} input file containing a
+graphical 
+scheme of the referrals between global symbol names in a particular
+module. For example, the scheme produced for some of the modules in
+the compiler are shown in  Fig.\ref{lfig1} and Fig.\ref{lfig2}.
+
+
+The compiler driver was written in Perl \cite{PerlOrg}. It runs the
+preprocessor \texttt{lpp1} 
+and redirects its output as input of the compiler
+\texttt{langc}. Linking is done by using the driver of \texttt{gcc}
+\cite{GNUCC}. 
+
+\section{Source}
+In this section a full source code listing of the compiler is
+presented. An archive of previous versions is in \cite{UPLNChome}.
+\subsection{langc.e}
+\input{langc.e.inc}
+\subsection{codegen.e}
+\input{codegen.e.inc}
+\subsection{grph.e}
+\input{grph.e.inc}
+\subsection{tlangc.he}
+\input{tlangc.he.inc}
+\subsection{codegen.he}
+\input{codegen.he.inc}
+\subsection{autodyn.e}
+\input{autodyn.e.inc}
+\subsection{lpp1.e}
+\input{lpp1.e.inc}
+\subsection{langdrv.pl}
+\input{langdrv.pl.inc}
+
+\begin{thebibliography}{99}
+
+\bibitem{SmCfiles}
+\href{http://www.cpm.z80.de/small_c.html}
+{\texttt{http://www.cpm.z80.de/small\_{}c.html}}
+
+\bibitem{RonCain} Ron Cain, ``A Small C Compiler for the 8080'',
+  Dr. Dobb's Journal, May 1980.
+
+\bibitem{ABookOnC}
+R.~E.~.Berry, B.~A.~Meekings, ``A Book on C''.
+
+\bibitem{SmCport} Small C port to i386-linux by Evgueniy Vitchev, \\
+\href{http://www.physics.rutgers.edu/~vitchev/smallc-i386.html}
+{\texttt{http://www.physics.rutgers.edu/$\sim$vitchev/smallc-i386.html}}
+
+\bibitem{UPLNChome} Home page of the UPLNC programming language,\\
+\href{http://www.physics.rutgers.edu/~vitchev/thelang/thelang.html}
+{\texttt{http://www.physics.rutgers.edu/$\sim$vitchev/thelang/thelang.html}}.
+
+\bibitem{GnuPlot}\href{http://www.gnuplot.info/}{http://www.gnuplot.info/}
+
+\bibitem{GNUCC}\href{http://gcc.gnu.org/}{http://gcc.gnu.org/}
+
+\bibitem{PerlOrg}\href{http://www.perl.org/}{http://www.perl.org/}
+
+\end{thebibliography}
+
+\end{document}
+
