@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Build + test (stage 0, 64-bit)
+    name: Build + test (host x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,25 @@ jobs:
         run: ./build.sh
         working-directory: transpiler
       - name: Run test suite (19 checks)
+        run: bash tests/run_tests.sh
+        working-directory: transpiler
+
+  test-arm64:
+    name: Build + test (host arm64)
+    # Confirms host-portability: the transpiled compiler builds and runs (and
+    # self-compiles to .s) on a non-x86 host. Output is still i386 asm, which is
+    # not assembled here -- run_tests.sh links nothing target-specific. The build
+    # uses -fsigned-char so ARM's unsigned-char default matches i386 semantics.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build stage-0 tools on arm64
+        run: ./build.sh
+        working-directory: transpiler
+      - name: Run test suite (19 checks) on arm64
         run: bash tests/run_tests.sh
         working-directory: transpiler
 

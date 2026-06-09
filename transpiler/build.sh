@@ -28,7 +28,10 @@ $T "$SRC/langc.e"    $(ctx "$SRC/langc.e")    -o "$OUT/langc.c"
 $T "$SRC/autodyn.e"  $(ctx "$SRC/autodyn.e")  -o "$OUT/autodyn.c"
 $T "$SRC/grph.e"     $(ctx "$SRC/grph.e")     -o "$OUT/grph.c"
 
-CC="gcc -std=gnu89 -w"
+# -fsigned-char: the original i386 compiler assumes signed `char`; force it on
+# all hosts so the transpiled compiler behaves identically on ARM/RISC-V, where
+# `char` is unsigned by default (host-portability; see RETARGET.md).
+CC="gcc -std=gnu89 -fsigned-char -w"
 # UPLNC is an i386 (4-byte int == 4-byte pointer) language. Prefer -m32.
 if echo 'int main(void){return 0;}' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then
     M="-m32"

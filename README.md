@@ -40,6 +40,8 @@ unmodified). The original paper and raw archive are kept alongside for reference
 | [`src/`](src/) | Clean compiler source (self-hosting; written in UPLNC) |
 | [`transpiler/`](transpiler/) | `uplnc2c` — UPLNC→C transpiler that bootstraps the compiler |
 | [`BOOTSTRAP.md`](BOOTSTRAP.md) | Bootstrapping plan + UPLNC feature/grammar inventory |
+| [`ROADMAP.md`](ROADMAP.md) | Direction: multi-target, multi-host, floating point, optimization, usability |
+| [`RETARGET.md`](RETARGET.md) | Design plan for a retargetable, multi-host backend |
 | `uplnc-compiler-paper.pdf` | The full 134-page paper (design + implementation) |
 | `uplnc-eprint.tar.gz`, `uplnc-eprint/` | Original arXiv e-print archive and its extracted contents |
 
@@ -93,6 +95,10 @@ The compiler is **provably self-hosting from this transpiler**: CI builds it via
 `uplnc2c`, has it recompile its own source twice more, and confirms stage-2 and
 stage-3 assembly are byte-identical. See [`transpiler/README.md`](transpiler/README.md)
 for the design and full status writeup.
+
+Where it goes from here — retargetable backend, other host CPUs, floating point,
+optimization, and real-world usability — is laid out in [`ROADMAP.md`](ROADMAP.md)
+(with the backend design in [`RETARGET.md`](RETARGET.md)).
 
 ## License
 
