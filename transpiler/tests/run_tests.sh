@@ -64,6 +64,29 @@ else
     bad "langc not built"
 fi
 
+echo "[6] x86_64 backend: programs compile (-march=x86_64), assemble + run correctly"
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ "$(uname -m)" != "x86_64" ] || ! command -v gcc >/dev/null; then
+    echo "  skip - host $(uname -m) cannot natively assemble x86_64 (need an x86_64 host)"
+else
+    while read -r name want; do
+        [ -z "$name" ] && continue
+        asm="/tmp/uplnc_x64_$name.s"; bin="/tmp/uplnc_x64_$name"
+        "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march=x86_64 > "$asm" 2>/dev/null
+        if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
+            bad "x86_64 $name.e (compile)"
+        elif ! gcc "$asm" -o "$bin" 2>/dev/null; then
+            bad "x86_64 $name.e (assemble/link)"
+        else
+            "$bin"; got=$?
+            [ "$got" = "$want" ] && ok "x86_64 $name.e -> exit $got" \
+                                 || bad "x86_64 $name.e (got $got, want $want)"
+        fi
+    done < tests/progs/expected.txt
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]
