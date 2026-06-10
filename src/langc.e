@@ -1122,15 +1122,15 @@ func dofunc()
   ccg=&codeg;
   if(gp->dfd)error("this function was already defined");
   gp->dfd=1;
-  ol(".text");
-  ol(".align 16");
-  outasm(".globl ");
+  ol(target.dir_text);
+  ol(target.dir_align);
+  outasm(target.dir_globl);
   outname(n);
   nl();
-  ot(".type");
+  ot(target.dir_type);
   tab();
   outname(n);
-  outasm(",@function");
+  outasm(target.dir_func);
   nl();
   outname(n);
   col();
@@ -1863,6 +1863,13 @@ func inittarget()
   target.label_prefix=".L";
   target.sym_prefix="";
   target.wordsize=WORDSIZE;
+  target.dir_text=".text";
+  target.dir_align=".align 16";
+  target.dir_globl=".globl ";
+  target.dir_type=".type";
+  target.dir_func=",@function";
+  target.dir_section=".section";
+  target.dir_rodata=".rodata";
 }
 func printlab(label:int)
 {
@@ -4156,8 +4163,8 @@ func dumplits()
   var int:j;
   var int:k;
   if(!stptr)return ;
-  ot(".section");
-  ot(".rodata");
+  ot(target.dir_section);
+  ot(target.dir_rodata);
   nl();
   printlab(stlab);
   col();

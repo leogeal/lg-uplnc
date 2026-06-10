@@ -194,6 +194,14 @@ struct starget{
   *char label_prefix;   /* local label prefix, e.g. ".L"        */
   *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
   int wordsize;         /* TARGET word size in bytes            */
+  /* assembler directives (ELF/GAS) */
+  *char dir_text;       /* code section,   e.g. ".text"         */
+  *char dir_align;      /* function align, e.g. ".align 16"     */
+  *char dir_globl;      /* global symbol,  e.g. ".globl "       */
+  *char dir_type;       /* symbol type,    e.g. ".type"         */
+  *char dir_func;       /* function tag,   e.g. ",@function"    */
+  *char dir_section;    /* section directive, e.g. ".section"   */
+  *char dir_rodata;     /* rodata section name, e.g. ".rodata"  */
 };
 var extern starget:target;
 
