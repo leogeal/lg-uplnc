@@ -690,18 +690,18 @@ func inittypes()
   chkmem(typtab=calloc(numtyp,sizeof(styp)));
   strcp(typtab[T_INT].name,"int");
   typtab[T_INT].sort=V_FND;
-  typtab[T_INT].size=WORDSIZE;
+  typtab[T_INT].size=target.wordsize;
   strcp(typtab[T_CHAR].name,"char");
   typtab[T_CHAR].sort=V_FND;
   typtab[T_CHAR].size=BYTESIZE;
   typtab[T_INTP].name[0]=0;
   typtab[T_INTP].sort=V_PTR;
   typtab[T_INTP].type=T_INT;
-  typtab[T_INTP].size=WORDSIZE;
+  typtab[T_INTP].size=target.wordsize;
   typtab[T_CHARP].name[0]=0;
   typtab[T_CHARP].sort=V_PTR;
   typtab[T_CHARP].type=T_CHAR;
-  typtab[T_CHARP].size=WORDSIZE;
+  typtab[T_CHARP].size=target.wordsize;
 }
 func initst()
 {
@@ -2822,7 +2822,7 @@ func ct_FUNC(node:*enode,lval:*elval)
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
       zpush();
-      nargs=nargs+WORDSIZE;
+      nargs=nargs+target.wordsize;
       r=r->r;
     }
     zcall(l->leaf.idx->name);
@@ -2839,7 +2839,7 @@ func ct_FUNC(node:*enode,lval:*elval)
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
       zpush();
-      nargs=nargs+WORDSIZE;
+      nargs=nargs+target.wordsize;
       r=r->r;
     }
     /*zcall(l->leaf.idx->name);*/
@@ -2860,7 +2860,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     if(k)rvalue(&lval2);
     zpush();
-    nargs=nargs+WORDSIZE;
+    nargs=nargs+target.wordsize;
     var [NAMESIZE]char:methodname;
     strcp(methodname,typtab[typtab[lval2.typ].type].name);
     strcat(strcat(methodname,"."),l->name);/* DANGEROUS!!! FixMe! */
@@ -2947,7 +2947,7 @@ func store(lval:*elval)
     zpop();
     if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
     zstob2(lval->offset);
-    else if(typtab[lval->typ].size==WORDSIZE)/*ot("movl %eax, ");*/
+    else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
     zstow2(lval->offset);
     else error("error storing object if strange size");
     /*outdec(lval->offset);outstr("(%edx)");nl();*/
@@ -2978,7 +2978,7 @@ func loadbyre(lval:*elval)
 {
   if(typtab[lval->typ].size==BYTESIZE)/*ot("movsbl ");*/
   zlbrb(lval->offset);
-  else if(typtab[lval->typ].size==WORDSIZE)/*ot("movl ");*/
+  else if(typtab[lval->typ].size==target.wordsize)/*ot("movl ");*/
   zlbrw(lval->offset);
   else if(typtab[lval->typ].sort==V_ARR)/*ot("leal ");*/
   zlbra(lval->offset);
@@ -3915,10 +3915,10 @@ func issigned(t:int)
 }
 func gettsize(t:int)
 {
-  if(t==T_INT)return WORDSIZE;
+  if(t==T_INT)return target.wordsize;
   else if(t==T_CHAR)return BYTESIZE;
-  else if(t==T_INTP)return WORDSIZE;
-  else if(t==T_CHARP)return WORDSIZE;
+  else if(t==T_INTP)return target.wordsize;
+  else if(t==T_CHARP)return target.wordsize;
   else if((t>=F_TYPE)&&(t<typptr))return typtab[t].size;
   else
   {
@@ -3974,7 +3974,7 @@ func getptrty(t:int)
   typtab[typptr].name[0]=0;
   typtab[typptr].sort=V_PTR;
   typtab[typptr].type=t;
-  typtab[typptr].size=WORDSIZE;
+  typtab[typptr].size=target.wordsize;
   return typptr++;
 }
 func cbtype()
@@ -4048,7 +4048,7 @@ func gettypen()
   typtab[typptr].name[0]=0;
   typtab[typptr].sort=V_PTR;
   typtab[typptr].type=t;
-  typtab[typptr].size=WORDSIZE;
+  typtab[typptr].size=target.wordsize;
   return typptr++;
   }
   if(match("[")){
