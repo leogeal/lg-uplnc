@@ -1860,6 +1860,7 @@ func _zcall(sname:*char)
 func inittarget()
 {
   /* i386 target description. ELF symbols have no prefix; local labels are .L. */
+  target.arch=ARCH_I386;
   target.label_prefix=".L";
   target.sym_prefix="";
   target.wordsize=WORDSIZE;
