@@ -40,8 +40,8 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - ✅ Phase 0: i386 coupling audit ([`RETARGET-AUDIT.md`](RETARGET-AUDIT.md))
 - ✅ Invariance oracle: `transpiler/invariance.sh` (diff emitted `.s`; no `-m32`)
 - 🟡 Phase 1: **target descriptor + backend seam**, i386-only, each step proven
-  byte-identical — `target.label_prefix`, `target.sym_prefix` done;
-  directives / word size next
+  byte-identical — label prefix, symbol prefix, assembler directives done;
+  target word size next
 - ⏳ Split `WORDSIZE` into `HOST_WORDSIZE` / `TARGET_WORDSIZE`
 - ⏳ `-march=` target selection flag
 

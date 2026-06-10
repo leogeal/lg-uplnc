@@ -25,12 +25,12 @@ Pure target *data*; varying it needs no logic changes. Wired incrementally:
 
 | Item | i386 value | Where | Status |
 |------|-----------|-------|:------:|
-| local label prefix | `.L` | `printlab` `langc.e:1858` | ✅ `target.label_prefix` |
-| symbol prefix | `""` (ELF; no `_`) | `outname` `langc.e:4066` | ⏳ `target.sym_prefix` |
-| target word size | `4` | `WORDSIZE` `tlangc.he:18`; used `langc.e:691,698,702` | ⏳ `target.wordsize` |
-| function-header directives | `.text` / `.align 16` / `.globl` / `.type …,@function` / `name:` | `header` `langc.e:1123-1135` | ⏳ |
-| read-only data section | `.section` `.rodata` | `dumplits` `langc.e:4149` | ⏳ |
-| globals / bss emission | (`.comm`/`.long`/…) | `dumpglbs` `langc.e:4195` | ⏳ audit |
+| local label prefix | `.L` | `printlab` | ✅ `target.label_prefix` |
+| symbol prefix | `""` (ELF; no `_`) | `outname` | ✅ `target.sym_prefix` |
+| function-header directives | `.text` / `.align 16` / `.globl` / `.type …,@function` | `header` | ✅ `target.dir_*` |
+| read-only data section | `.section` `.rodata` | `dumplits` | ✅ `target.dir_section`/`dir_rodata` |
+| target word size | `4` | `WORDSIZE` `tlangc.he:18`; used in type-size init | ⏳ `target.wordsize` |
+| globals / bss emission | (`.comm`/`.long`/…) | `dumpglbs` | ⏳ audit |
 
 ## Code coupling → per-target backend
 
@@ -69,8 +69,8 @@ multi-target must split them into `HOST_WORDSIZE` / `TARGET_WORDSIZE`
 ## Phase 1 plan (data slices, each invariance-checked)
 
 1. ✅ label prefix → `target.label_prefix`
-2. ⏳ symbol prefix → `target.sym_prefix` (`outname`)
-3. ⏳ assembler directives (function header + rodata section) → `target` fields
+2. ✅ symbol prefix → `target.sym_prefix` (`outname`)
+3. ✅ assembler directives (function header + rodata section) → `target.dir_*`
 4. ⏳ target word size → `target.wordsize` (type-size init)
 
 Once the data seam is in place and proven invariant, Phase 2 introduces the
