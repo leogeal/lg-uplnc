@@ -39,11 +39,14 @@ Make output target a pluggable choice instead of hard-wired i386. See
 
 - ✅ Phase 0: i386 coupling audit ([`RETARGET-AUDIT.md`](RETARGET-AUDIT.md))
 - ✅ Invariance oracle: `transpiler/invariance.sh` (diff emitted `.s`; no `-m32`)
-- 🟡 Phase 1: **target descriptor + backend seam**, i386-only, each step proven
-  byte-identical — label prefix, symbol prefix, assembler directives done;
-  target word size next
-- ⏳ Split `WORDSIZE` into `HOST_WORDSIZE` / `TARGET_WORDSIZE`
+- ✅ Phase 1: **target descriptor + backend seam** (data), i386-only, every step
+  proven byte-identical — label prefix, symbol prefix, assembler directives,
+  target word size all routed through `struct starget`
+- 🟡 `WORDSIZE` split: all *target* sizing now reads `target.wordsize` (the host
+  side is the seed toolchain's, never `WORDSIZE`); a distinct `HOST_WORDSIZE`
+  only matters once cross-compiling
 - ⏳ `-march=` target selection flag
+- ⏳ Phase 2: backend *interface* (instruction lowering + calling convention)
 
 ## M3 — Real targets ⏳
 

@@ -29,7 +29,7 @@ Pure target *data*; varying it needs no logic changes. Wired incrementally:
 | symbol prefix | `""` (ELF; no `_`) | `outname` | ✅ `target.sym_prefix` |
 | function-header directives | `.text` / `.align 16` / `.globl` / `.type …,@function` | `header` | ✅ `target.dir_*` |
 | read-only data section | `.section` `.rodata` | `dumplits` | ✅ `target.dir_section`/`dir_rodata` |
-| target word size | `4` | `WORDSIZE` `tlangc.he:18`; used in type-size init | ⏳ `target.wordsize` |
+| target word size | `4` | type-size init, `gettsize`, arg-slot sizing, ptr sizing | ✅ `target.wordsize` |
 | globals / bss emission | (`.comm`/`.long`/…) | `dumpglbs` | ⏳ audit |
 
 ## Code coupling → per-target backend
@@ -71,8 +71,9 @@ multi-target must split them into `HOST_WORDSIZE` / `TARGET_WORDSIZE`
 1. ✅ label prefix → `target.label_prefix`
 2. ✅ symbol prefix → `target.sym_prefix` (`outname`)
 3. ✅ assembler directives (function header + rodata section) → `target.dir_*`
-4. ⏳ target word size → `target.wordsize` (type-size init)
+4. ✅ target word size → `target.wordsize` (type sizes, `gettsize`, arg slots)
 
-Once the data seam is in place and proven invariant, Phase 2 introduces the
-backend *interface* (instruction lowering + calling convention) and adds the
-x86_64 backend behind it.
+**Phase 1 data seam complete.** Every target-specific *datum* now flows through
+`struct starget`, each step proven byte-identical with `invariance.sh`. Phase 2
+introduces the backend *interface* (instruction lowering + calling convention)
+and adds the x86_64 backend behind it.
