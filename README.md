@@ -30,8 +30,12 @@ published as a full listing inside the paper:
 > arXiv: [`cs/0402043`](https://arxiv.org/abs/cs/0402043) (submitted 18 Feb 2004; only version)
 
 The files in [`src/`](src/) were extracted verbatim from the arXiv e-print
-archive (the LaTeX `verbatim` listing wrappers were stripped; the code itself is
-unmodified). The original paper and raw archive are kept alongside for reference.
+archive (the LaTeX `verbatim` listing wrappers were stripped). The code began as
+an unmodified extraction; from the **M2 retargeting** work onward `src/` evolves
+(see [`ROADMAP.md`](ROADMAP.md) and [`RETARGET-AUDIT.md`](RETARGET-AUDIT.md)).
+The **pristine original is always recoverable** — preserved verbatim in the
+e-print archive (`uplnc-eprint.tar.gz`, `uplnc-eprint/`) and in the initial git
+commit. The original paper and raw archive are kept alongside for reference.
 
 ## Layout
 
