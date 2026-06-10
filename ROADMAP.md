@@ -46,7 +46,8 @@ Make output target a pluggable choice instead of hard-wired i386. See
   side is the seed toolchain's, never `WORDSIZE`); a distinct `HOST_WORDSIZE`
   only matters once cross-compiling
 - ⏳ `-march=` target selection flag
-- ⏳ Phase 2: backend *interface* (instruction lowering + calling convention)
+- ⏳ Phase 2: backend *interface* (instruction lowering + calling convention) —
+  design note: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
 
 ## M3 — Real targets ⏳
 

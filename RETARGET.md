@@ -54,6 +54,10 @@ interface **without changing the emitted i386 a single byte**. The existing
 fixpoint check is the correctness oracle — if i386 output drifts, the refactor
 has a bug. This is uniquely safe for a self-hosting compiler.
 
+Phase 1 (the data seam) is complete; Phase 2 (the instruction-lowering and
+calling-convention backend interface, plus the x86_64 target) is designed in
+[`RETARGET-PHASE2.md`](RETARGET-PHASE2.md).
+
 ### A.2 What becomes *data* vs. *code*
 
 Most variation collapses into a **target descriptor** (data):
