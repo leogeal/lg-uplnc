@@ -32,14 +32,16 @@ Run the compiler on non-x86 CPUs. Cheap, thanks to the portable C seed.
 - ⏳ Audit remaining host assumptions (endianness; LP64 vs ILP32)
 - 💭 Big-endian host support (s390x) — only if anyone needs it
 
-## M2 — Retargetable backend (the seam) ⏳
+## M2 — Retargetable backend (the seam) 🟡
 
 Make output target a pluggable choice instead of hard-wired i386. See
-[`RETARGET.md`](RETARGET.md) Part A.
+[`RETARGET.md`](RETARGET.md) Part A. *(Work in progress on the `retarget` branch.)*
 
-- ⏳ Phase 0: audit every i386 assumption in `codegen.e`
-- ⏳ Phase 1: introduce a **target descriptor + backend seam**, i386-only,
-  proven by byte-identical fixpoint output
+- ✅ Phase 0: i386 coupling audit ([`RETARGET-AUDIT.md`](RETARGET-AUDIT.md))
+- ✅ Invariance oracle: `transpiler/invariance.sh` (diff emitted `.s`; no `-m32`)
+- 🟡 Phase 1: **target descriptor + backend seam**, i386-only, each step proven
+  byte-identical — `target.label_prefix` done; symbol prefix / directives /
+  word size next
 - ⏳ Split `WORDSIZE` into `HOST_WORDSIZE` / `TARGET_WORDSIZE`
 - ⏳ `-march=` target selection flag
 
