@@ -107,3 +107,26 @@ var extern *scodegen:ccg;
 var extern scodegen:cgglb;
 
 var extern int :Zsp;
+
+/* target description (M2 backend seam; see RETARGET.md / RETARGET-PHASE2.md).
+   Holds the target-specific *data* that codegen reads. Lives here (not in
+   tlangc.he) so both langc.e and codegen.e see it -- codegen.e includes only
+   codegen.he, and the headers have no include guards. The `arch` selects the
+   per-target instruction-lowering backend (see cd_write). */
+#define ARCH_I386   0
+#define ARCH_X86_64 1
+struct starget{
+  int arch;             /* ARCH_* -- selects the lowering backend */
+  *char label_prefix;   /* local label prefix, e.g. ".L"        */
+  *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
+  int wordsize;         /* TARGET word size in bytes            */
+  /* assembler directives (ELF/GAS) */
+  *char dir_text;       /* code section,   e.g. ".text"         */
+  *char dir_align;      /* function align, e.g. ".align 16"     */
+  *char dir_globl;      /* global symbol,  e.g. ".globl "       */
+  *char dir_type;       /* symbol type,    e.g. ".type"         */
+  *char dir_func;       /* function tag,   e.g. ",@function"    */
+  *char dir_section;    /* section directive, e.g. ".section"   */
+  *char dir_rodata;     /* rodata section name, e.g. ".rodata"  */
+};
+var extern starget:target;

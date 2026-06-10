@@ -79,7 +79,19 @@ func cg_insert(*scodegen this,*scode s)
   d->str=0;
   /*fprintf(stderr,"!insert()\n");*/
 }
+/* cd_write lowers one IR opcode to assembly. It dispatches to the per-target
+   backend selected by target.arch (M2 Phase 2a). UPLNC has no function
+   pointers, so this is an arch-id switch rather than a vtable. */
 func cd_write(*scode:this)
+{
+  if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
+  else cd_write_i386(this);
+}
+func cd_write_x86_64(*scode:this)
+{
+  error("x86_64 codegen not yet implemented (M2 Phase 2b)");
+}
+func cd_write_i386(*scode:this)
 {
   if(this->code==CD_ZCALL)
   {

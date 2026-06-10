@@ -45,9 +45,12 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - 🟡 `WORDSIZE` split: all *target* sizing now reads `target.wordsize` (the host
   side is the seed toolchain's, never `WORDSIZE`); a distinct `HOST_WORDSIZE`
   only matters once cross-compiling
+- 🟡 Phase 2: backend interface + x86_64 — design: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
+  - ✅ 2a: arch-id dispatch; `cd_write` split into `cd_write_i386` + x86_64 stub
+    (descriptor moved to `codegen.he`; byte-identical i386 output)
+  - ⏳ 2b: x86_64 backend (`cd_write_x86_64` + SysV calling convention)
+  - ⏳ 2c: native x86_64 self-host fixpoint (retires `-m32`)
 - ⏳ `-march=` target selection flag
-- ⏳ Phase 2: backend *interface* (instruction lowering + calling convention) —
-  design note: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
 
 ## M3 — Real targets ⏳
 

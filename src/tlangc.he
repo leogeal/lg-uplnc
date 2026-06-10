@@ -185,25 +185,9 @@ struct elval{
 };
 /*return value: 0: on register, 1: not on register */
 
-/* target description (M2 backend seam; see RETARGET.md).
-   Holds the target-specific *data* that codegen reads, so a backend can vary
-   it without touching instruction-lowering logic. Currently i386 only; values
-   are wired in incrementally, each step proven byte-identical by
-   transpiler/invariance.sh. */
-struct starget{
-  *char label_prefix;   /* local label prefix, e.g. ".L"        */
-  *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
-  int wordsize;         /* TARGET word size in bytes            */
-  /* assembler directives (ELF/GAS) */
-  *char dir_text;       /* code section,   e.g. ".text"         */
-  *char dir_align;      /* function align, e.g. ".align 16"     */
-  *char dir_globl;      /* global symbol,  e.g. ".globl "       */
-  *char dir_type;       /* symbol type,    e.g. ".type"         */
-  *char dir_func;       /* function tag,   e.g. ",@function"    */
-  *char dir_section;    /* section directive, e.g. ".section"   */
-  *char dir_rodata;     /* rodata section name, e.g. ".rodata"  */
-};
-var extern starget:target;
+/* The target descriptor `starget`/`target` lives in codegen.he, so that the
+   instruction lowering in codegen.e can read it (the headers have no include
+   guards, so codegen.e cannot include this file). See RETARGET-PHASE2.md. */
 
 var extern *char:graphname;
 var extern stderr,stdin,stdout:*int;
