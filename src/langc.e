@@ -19,6 +19,7 @@
 #include "codegen.he"
 
 
+var starget:target;
 var errcnt:int;
 var ncmp:int;
 var nfunc:int;
@@ -406,6 +407,7 @@ func main(argc:int,argv:**char)
   *quote='"';
   methodcls=0;methodidx=0;/*methodstr=0;*/
   initdyn();
+  inittarget();
   var *char:pp,pp2;pp=autodynstr("Hello ");pp2=autodynstr("world\n");
   stlab=getlabel();
   parseopt(argc,argv);
@@ -1855,9 +1857,16 @@ func _zcall(sname:*char)
   outname(sname);
   nl();
 }
+func inittarget()
+{
+  /* i386 target description. ELF symbols have no prefix; local labels are .L. */
+  target.label_prefix=".L";
+  target.sym_prefix="";
+  target.wordsize=WORDSIZE;
+}
 func printlab(label:int)
 {
-  outasm(".L");
+  outasm(target.label_prefix);
   outdec(label);
 }
 func indirect(lval:*int)

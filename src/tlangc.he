@@ -185,5 +185,17 @@ struct elval{
 };
 /*return value: 0: on register, 1: not on register */
 
+/* target description (M2 backend seam; see RETARGET.md).
+   Holds the target-specific *data* that codegen reads, so a backend can vary
+   it without touching instruction-lowering logic. Currently i386 only; values
+   are wired in incrementally, each step proven byte-identical by
+   transpiler/invariance.sh. */
+struct starget{
+  *char label_prefix;   /* local label prefix, e.g. ".L"        */
+  *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
+  int wordsize;         /* TARGET word size in bytes            */
+};
+var extern starget:target;
+
 var extern *char:graphname;
 var extern stderr,stdin,stdout:*int;
