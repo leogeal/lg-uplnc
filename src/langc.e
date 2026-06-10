@@ -4074,6 +4074,7 @@ func gettypen()
 }
 func outname(n:*char)
 {
+  outasm(target.sym_prefix);
   outasm(n);
 }
 func inbyte()
