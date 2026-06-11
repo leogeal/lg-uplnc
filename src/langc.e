@@ -1120,8 +1120,14 @@ func dofunc()
     if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
     if(target.arch==ARCH_X86_64)
     {
-      /* SysV: one register per param, spilled to -(slot)(%rbp) in the prologue */
+      /* SysV: params 1-6 arrive in registers and are spilled to -(slot)(%rbp);
+         params 7+ arrive on the stack at +(2*wordsize)(%rbp) (caller-pushed). */
+      var int:pidx;
+      pidx=argstk/target.wordsize;
+      if(pidx<6)
       addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
+      else
+      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.wordsize,argtype);
       argstk=argstk+target.wordsize;
     }
     else
@@ -1167,11 +1173,17 @@ func dofunc()
   ol("movl %esp, %ebp");*/
   zenter();
   if(target.arch==ARCH_X86_64)
-  if(argstk>0)
   {
-    /* reserve the param spill area and spill the incoming arg registers */
-    Zsp=modstk(Zsp-argstk);
-    spillargs(argstk/target.wordsize);
+    /* reserve slots for and spill only the register params (1-6); params 7+ are
+       on the caller's stack at positive offsets and need no spill. */
+    var int:nsp;
+    nsp=argstk/target.wordsize;
+    if(nsp>6)nsp=6;
+    if(nsp>0)
+    {
+      Zsp=modstk(Zsp-nsp*target.wordsize);
+      spillargs(nsp);
+    }
   }
   statemen();
   /*ol("movl %ebp, %esp");
@@ -2934,13 +2946,18 @@ func ct_FUNC(node:*enode,lval:*elval)
     nargs=0;
     if(target.arch==ARCH_X86_64)
     {
-      var int:savezsp;var int:cnt;var *enode:rr;var int:pad;
+      var int:savezsp;var int:cnt;var *enode:rr;var int:pad;var int:nstack;
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
-      pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+      nstack=cnt-6;if(nstack<0)nstack=0;
+      /* align for the args left on the stack at the call: all of them for
+         cnt<=6 (they stay), or only the nstack overflow args for cnt>6 */
+      if(cnt>6)pad=(((Zsp-nstack*target.wordsize)%16)+16)%16;
+      else pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
       if(pad)Zsp=modstk(Zsp-pad);
       while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
-      marshal(cnt);
+      if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
+      else marshal(cnt);
       zcall(l->leaf.idx->name);
       Zsp=modstk(savezsp);
     }
@@ -2969,7 +2986,8 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       savezsp2=Zsp;
       cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
-      pad2=(((Zsp-cnt2*target.wordsize)%16)+16)%16;
+      if(cnt2>6)pad2=(((Zsp-(cnt2-6)*target.wordsize)%16)+16)%16;
+      else pad2=(((Zsp-cnt2*target.wordsize)%16)+16)%16;
       if(pad2)Zsp=modstk(Zsp-pad2);
     }
     while(r)
@@ -3005,7 +3023,8 @@ func ct_FUNC(node:*enode,lval:*elval)
     cnmlst->addm(methodname);
     if(target.arch==ARCH_X86_64)
     {
-      marshal(cnt2);
+      if(cnt2>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
+      else marshal(cnt2);
       zcall(methodname);
       Zsp=modstk(savezsp2);
     }

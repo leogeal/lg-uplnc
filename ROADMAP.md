@@ -60,7 +60,8 @@ Make output target a pluggable choice instead of hard-wired i386. See
       `rdi…r9` with 16-byte stack alignment (computed from `Zsp`) + `%al=0`;
       callee spills the arg registers to negative param slots. Functions,
       recursion, methods, and **libc** (`printf`/`putchar`/`strlen`) all run
-      natively. (≤6 args; >6 is a clean error.) Output is non-PIC → link `-no-pie`.
+      natively. Args 1-6 in registers, 7+ on the stack (mixed param frame).
+      Output is non-PIC → link `-no-pie`.
     - 18 golden programs in `transpiler/tests/progs/`
   - ✅ 2c: **native x86_64 self-host fixpoint** — `langc -march=x86_64` compiles
     its own source to native x86_64 (`gcc -no-pie`, **no -m32**); stage-2 ≡
