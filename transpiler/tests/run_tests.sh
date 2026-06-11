@@ -77,7 +77,8 @@ else
             | "$TDIR/build/langc" -march=x86_64 > "$asm" 2>/dev/null
         if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
             bad "x86_64 $name.e (compile)"
-        elif ! gcc "$asm" -o "$bin" 2>/dev/null; then
+        # -no-pie: the backend emits non-PIC absolute addressing (like i386)
+        elif ! gcc -no-pie "$asm" -o "$bin" 2>/dev/null; then
             bad "x86_64 $name.e (assemble/link)"
         else
             "$bin"; got=$?

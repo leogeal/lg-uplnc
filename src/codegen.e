@@ -87,20 +87,62 @@ func cd_write(*scode:this)
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else cd_write_i386(this);
 }
+/* System V AMD64 integer/pointer argument registers, in order. */
+func sysvargreg(i:int)
+{
+  if(i==0)return "%rdi";
+  else if(i==1)return "%rsi";
+  else if(i==2)return "%rdx";
+  else if(i==3)return "%rcx";
+  else if(i==4)return "%r8";
+  else if(i==5)return "%r9";
+  error("x86_64: more than 6 arguments not supported");
+  return "%rax";
+}
 /* x86_64 (System V) instruction lowering. Mirrors cd_write_i386 with 64-bit
    registers and `q` suffixes; UPLNC's word is 8 bytes here (int==pointer).
-   The calling convention (CD_ZCALL) is M2 Phase 2b-iii -- this covers call-free
-   integer/pointer programs. */
+   Calls follow the SysV ABI (register args, 16-byte alignment) -- see
+   CD_ZCALL / CD_MARSHAL / CD_SPILLARGS and the caller code in langc.e. */
 func cd_write_x86_64(*scode:this)
 {
   if(this->code==CD_ZCALL)
   {
-    /* UPLNC<->UPLNC calls use the stack convention (args pushed; callee reads
-       them at 2*wordsize(%rbp)+). libc calls (SysV register args + 16-byte
-       alignment) are M2 Phase 2b-iii-b. */
+    /* System V AMD64: args are already in %rdi.. (via CD_MARSHAL) and %rsp is
+       16-byte aligned (the caller padded by Zsp). %al = number of vector
+       registers used by a variadic callee = 0. */
+    ol("movb $0, %al");
     ot("call ");
     outname(this->str);
     nl();
+  }
+  else if(this->code==CD_SPILLARGS)
+  {
+    /* callee prologue: spill the incoming arg registers to their param slots
+       (-8(%rbp), -16(%rbp), ...), so params resolve as ordinary stack slots. */
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    {
+      ot("movq ");
+      outstr(sysvargreg(i));
+      outstr(", ");
+      outdec(-(i+1)*target.wordsize);
+      outstr("(%rbp)");
+      nl();
+    }
+  }
+  else if(this->code==CD_MARSHAL)
+  {
+    /* caller: load the pushed args (arg1 at (%rsp), arg2 at wordsize(%rsp), ...)
+       into the SysV argument registers. */
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    {
+      ot("movq ");
+      outdec(i*target.wordsize);
+      outstr("(%rsp), ");
+      outstr(sysvargreg(i));
+      nl();
+    }
   }
   else if(this->code==CD_LAB)
   {
@@ -1271,6 +1313,20 @@ func zcall(sname:*char)
   cd=cg_getitem(ccg);
   cd->code=CD_ZCALL;
   cd->str=strdyn(sname);
+}
+func spillargs(n:int)   /* x86_64 SysV: spill n arg registers to param slots */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_SPILLARGS;
+  cd->arg=n;
+}
+func marshal(n:int)     /* x86_64 SysV: load n pushed args into arg registers */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_MARSHAL;
+  cd->arg=n;
 }
 func cmodstk(k:int)
 {

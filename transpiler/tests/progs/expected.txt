@@ -12,3 +12,7 @@ call_add 42
 call_3arg 6
 recursion 120
 fib 13
+call_sub 42
+method 42
+libc_strlen 5
+global 42

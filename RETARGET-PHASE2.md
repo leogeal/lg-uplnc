@@ -130,7 +130,23 @@ two more for the new target:
 So the i386 path is protected by byte-identity throughout, and the x86_64 path is
 proven first by running real programs, then by the native fixpoint.
 
-## Open decisions (to confirm before coding 2b)
+## Decision: uniform System V (Path A) — implemented
+
+Rather than the localized libc-only marshaling above, we chose **uniform SysV**:
+*every* x86_64 call follows the platform ABI. This drops the fragile
+libc-name-detection, gives C interop and standard tooling, and keeps one
+alignment invariant. Implementation (all x86_64-only; i386 stays byte-identical):
+- **Callee**: params get negative offsets `-(i·wordsize)(%rbp)`; the prologue
+  reserves that space and `CD_SPILLARGS` spills `rdi…r9` into the slots.
+- **Caller**: count args → pad so `Zsp ≡ 0 (mod 16)` at the `call` → push args →
+  `CD_MARSHAL` loads them into `rdi…r9` → `%al=0` → `call` → unwind.
+- Max 6 params in the whole compiler, so it's register-only; >6 is a clean error.
+- Output is non-PIC (absolute addressing, like i386) → link with `-no-pie`.
+
+Verified: non-commutative arg order, recursion, methods, and libc (`printf`,
+`putchar`, `strlen`) all run natively; i386 unchanged.
+
+## Open decisions (resolved / historical)
 
 - **Convention approach:** localized call-opcode lowering (recommended) vs. a
   `pass_arg`/`emit_call` backend interface. Start localized?
