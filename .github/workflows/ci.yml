@@ -99,4 +99,14 @@ jobs:
           UPLNC_NATIVE=1 ./build.sh
           file build/langc | grep -q 'ELF 64-bit' || { echo "stage-0 is not native 64-bit"; exit 1; }
           ./fixpoint.sh i386
+          # Host-independence GATE: stage-1 (i386 emitted by the x86_64-host
+          # compiler) must be byte-identical to stage-2 (i386 emitted by the
+          # i386-host compiler). If they differ, the i386 output depends on the
+          # host word size -- the WORDSIZE split would be incomplete. cmp fails
+          # the job on any difference.
+          echo "Proving host-independence: stage-1 (x86_64 host) vs stage-2 (i386 host)"
+          for u in langc codegen autodyn grph lpp1; do
+            cmp "build/i386/s1/$u.s" "build/i386/s2/$u.s"
+          done
+          echo "PROVEN: emitted i386 is identical regardless of host word size."
         working-directory: transpiler
