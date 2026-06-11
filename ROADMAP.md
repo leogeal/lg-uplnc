@@ -79,16 +79,21 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - ⏳ **ARM64** backend (developed as a cross-compiler first, tested under QEMU)
 - 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
 
-## M4 — Floating-point arithmetic ⏳
+## M4 — Floating-point arithmetic 🟡
 
-Currently integer-only (`int`/`char`). FP is cross-cutting — it touches every
-layer:
+Currently integer-only (`int`/`char`). FP is cross-cutting. Design + slice
+breakdown: [`FLOAT.md`](FLOAT.md). **x86_64/SSE2 first** (i386 x87 deferred);
+the compiler stays integer-only so the self-host bootstrap is unaffected; float
+literals are emitted as `.double <text>` so the assembler computes the IEEE bits
+(no float math in the compiler).
 
-- ⏳ Lexer: float/double literals (`1.5`, `2e10`)
-- ⏳ Types: `float`/`double` in the type system; usual arithmetic conversions
-- ⏳ Codegen: SSE2 (`xmm`) on x86_64 / VFP-NEON on ARM; the FP register file and
-  FP calling convention (xmm args in SysV)
-- ⏳ Library glue: `printf` `%f`, math functions
+- ✅ Design ([`FLOAT.md`](FLOAT.md)) — `%xmm0` FP accumulator, type-routed codegen,
+  the slice plan
+- ⏳ Slice 1: `double` literals + `T_DOUBLE` + `double`→`int` at return
+  (`return 42.0;` → exit 42)
+- ⏳ Slice 2: double locals + `+ - * /`; Slice 3: int↔double conversions / mixed
+- ⏳ Slice 4: FP calling convention (xmm args, return, `printf("%f")` + `%al`)
+- ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
 ## M5 — Optimization ⏳
