@@ -21,6 +21,12 @@
 
 var starget:target;
 var archsel:int;   /* target arch selected by -march (default ARCH_I386=0) */
+/* M4 float-literal pool: literals are kept as text and emitted as `.double
+   <text>` so the assembler computes the IEEE-754 bits. */
+var fpoolbuf:[4000]char;
+var fpooloff:[200]int;
+var fpoolptr:int;
+var fpoolbp:int;
 var errcnt:int;
 var ncmp:int;
 var nfunc:int;
@@ -425,6 +431,7 @@ func main(argc:int,argv:**char)
   header();
   parse();
   dumplits();
+  dumpfloats();
   dumpglbs();
   if(tomap)
   printmap();
@@ -707,6 +714,9 @@ func inittypes()
   typtab[T_CHARP].sort=V_PTR;
   typtab[T_CHARP].type=T_CHAR;
   typtab[T_CHARP].size=target.wordsize;
+  strcp(typtab[T_DOUBLE].name,"double");
+  typtab[T_DOUBLE].sort=V_FND;
+  typtab[T_DOUBLE].size=8;
 }
 func initst()
 {
@@ -1236,7 +1246,10 @@ func statemen()
 }
 func doreturn()
 {
-  if(!endst())expressi();
+  if(!endst())
+  {
+    if(expressi()==T_DOUBLE)zf2i();   /* double result -> int return (M4) */
+  }
   zleave();
   /*ol("movl %ebp, %esp");
   ol("popl %ebp");*/
@@ -1932,6 +1945,8 @@ func pretree(node:*enode,ofil:*int)
   {
     if(node->leaf.vid==L_NUM)
     fprintf(ofil,"%d",node->leaf.val);
+    else if(node->leaf.vid==L_FNUM)
+    fprintf(ofil,"%s",fpoolbuf+fpooloff[node->leaf.val]);
     else if(node->leaf.vid==L_STR)
     fprintf(ofil,"\"\"",litq+node->leaf.val);
     else if(node->leaf.vid==L_ID)
@@ -2088,6 +2103,8 @@ func cttype(node:*enode)
   {
     if(node->leaf.vid==L_NUM)
     return T_INT;
+    else if(node->leaf.vid==L_FNUM)
+    return T_DOUBLE;
     else if(node->leaf.vid==L_ID)
     return node->leaf.idx->type;
     else if(node->leaf.vid==L_STR)
@@ -2131,6 +2148,15 @@ func treetocode(node:*enode,lval:*elval)
       lval->offset=0;
       lval->typ=T_INT;
       lval->val=node->leaf.val;
+      return 1;
+    }
+    else if(node->leaf.vid==L_FNUM)
+    {
+      lval->sort=L_FNUM;
+      lval->idx=0;
+      lval->offset=0;
+      lval->typ=T_DOUBLE;
+      lval->val=node->leaf.val;   /* float-pool index */
       return 1;
     }
     else if(node->leaf.vid==L_ID)
@@ -3034,6 +3060,8 @@ func rvalue(lval:*elval)
   {error("rvalue(0)");return;}
   if(lval->sort==L_NUM)
   loadnum(lval);
+  else if(lval->sort==L_FNUM)/*float literal -> %xmm0*/
+  cloadflit(lval->val);
   else if(lval->sort==L_ID&&lval->idx)/*variable...*/
   getmem(lval);
   else if(lval->sort==L_POI)
@@ -3150,10 +3178,13 @@ func expressi()
 {
   var *enode:node;
   var elval:lval;
+  var int:rt;
   node=bexptree();
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
-  if(treetocode(node,&lval))rvalue(&lval);
+  rt=T_INT;
+  if(treetocode(node,&lval)){rvalue(&lval);rt=lval.typ;}
   delenode(node);
+  return rt;   /* result type, so callers can convert (M4) */
 }
 func bexptree()
 {
@@ -3788,14 +3819,19 @@ func primary()
     node->leaf.val=s;
     return node;
   }
-  if(number(num))
   {
-    node=getenode();
-    node->l=node->r=node->third=0;
-    node->op=OP_LEAF;
-    node->leaf.vid=L_NUM;
-    node->leaf.val=num[0];
-    return node;
+    var int:nr;
+    nr=number(num);
+    if(nr)
+    {
+      node=getenode();
+      node->l=node->r=node->third=0;
+      node->op=OP_LEAF;
+      if(nr==2)node->leaf.vid=L_FNUM;   /* 2 => float literal */
+      else node->leaf.vid=L_NUM;
+      node->leaf.val=num[0];
+      return node;
+    }
   }
   if(pstr(num))
   {
@@ -3927,13 +3963,38 @@ func qstr(val:*int)
   litq[stptr++]=0;
   return 1;
 }
+func addfloat(s:*char)  /* store a float-literal's text, return its pool index */
+{
+  var int:i;
+  if(fpoolptr>=200){error("too many float literals");return 0;}
+  i=fpoolptr++;
+  fpooloff[i]=fpoolbp;
+  while(*s)fpoolbuf[fpoolbp++]=*s++;
+  fpoolbuf[fpoolbp++]=0;
+  return i;
+}
+func dumpfloats()       /* emit .LF<i>: .double <text> for each float literal */
+{
+  var int:i;
+  if(!fpoolptr)return ;
+  ot(target.dir_section);
+  ot(target.dir_rodata);
+  nl();
+  for(i=0;i<fpoolptr;i++)
+  {
+    outstr(".LF");outdec(i);col();nl();
+    ot(".double ");outstr(fpoolbuf+fpooloff[i]);nl();
+  }
+}
 func number(val:*int)
 {
   var int:k;
   var int:d;
   var int:minus;
   var char:c;
-  k=minus=1;
+  var [48]char:buf;
+  var int:bp;
+  k=minus=1;bp=0;
   if(match("0x")){
   k=0;
   while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
@@ -3955,12 +4016,30 @@ func number(val:*int)
   if(match("-")){
     minus=-1;
     k=1;
+    buf[bp++]='-';
   }
   }
   if(!numeric(ch()))return 0;
   while(numeric(ch())){
   c=inbyte();
+  buf[bp++]=c;
   k=k*10+(c-'0');
+  }
+  /* a '.' or exponent makes this a floating-point literal: keep the text and
+     hand it to the assembler as a .double (M4). */
+  if((ch()=='.')||(ch()=='e')||(ch()=='E')){
+    if(ch()=='.'){
+      buf[bp++]=inbyte();
+      while(numeric(ch()))buf[bp++]=inbyte();
+    }
+    if((ch()=='e')||(ch()=='E')){
+      buf[bp++]=inbyte();
+      if((ch()=='+')||(ch()=='-'))buf[bp++]=inbyte();
+      while(numeric(ch()))buf[bp++]=inbyte();
+    }
+    buf[bp]=0;
+    val[0]=addfloat(buf);
+    return 2;
   }
   if(minus<0)k=(-k);
   val[0]=k;

@@ -71,10 +71,11 @@ var extern glbsymtab,locsymtab:ssymtab;
 #define S_FUNC 1 
 #define S_VARG 2 
 #define S_VARL 3 
-#define T_INT 1 
-#define T_CHAR 2 
-#define T_INTP 3 
-#define T_CHARP 5 
+#define T_INT 1
+#define T_CHAR 2
+#define T_INTP 3
+#define T_DOUBLE 4 /* M4: 8-byte double (x86_64/SSE2) */
+#define T_CHARP 5
 #define F_TYPE 6 /*first user-defined type*/
 
 #define NUMTYP 50
@@ -161,6 +162,7 @@ struct sfield{
 #define L_SP 5
 /* on %eax */
 #define L_ONREG 5
+#define L_FNUM 6 /* M4: floating-point literal (index into the float pool) */
 struct eleaf{
   int vid;
   int val;/* number or index in the symbol table*/

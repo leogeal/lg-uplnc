@@ -74,6 +74,8 @@
 #define CD_TESTJUMP  66 /*  */
 #define CD_SPILLARGS 67 /* x86_64 SysV: spill arg registers to param slots */
 #define CD_MARSHAL   68 /* x86_64 SysV: load pushed args into arg registers */
+#define CD_FLDLIT    69 /* M4: load float literal .LF<arg> into the FP accum */
+#define CD_F2I       70 /* M4: convert FP accumulator (double) to int accum */
 
 
 struct scode

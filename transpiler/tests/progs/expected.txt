@@ -16,3 +16,6 @@ call_sub 42
 method 42
 libc_strlen 5
 global 42
+float_lit 42
+float_trunc 255
+float_sci 42
