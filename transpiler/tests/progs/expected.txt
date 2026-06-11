@@ -8,3 +8,7 @@ pointer 42
 array 42
 struct 42
 factorial 120
+call_add 42
+call_3arg 6
+recursion 120
+fib 13

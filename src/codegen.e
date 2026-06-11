@@ -95,7 +95,12 @@ func cd_write_x86_64(*scode:this)
 {
   if(this->code==CD_ZCALL)
   {
-    error("x86_64: function calls not yet implemented (M2 Phase 2b-iii)");
+    /* UPLNC<->UPLNC calls use the stack convention (args pushed; callee reads
+       them at 2*wordsize(%rbp)+). libc calls (SysV register args + 16-byte
+       alignment) are M2 Phase 2b-iii-b. */
+    ot("call ");
+    outname(this->str);
+    nl();
   }
   else if(this->code==CD_LAB)
   {

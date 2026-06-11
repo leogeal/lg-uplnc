@@ -1075,8 +1075,8 @@ func dofunc()
   ssymtabfree(&locsymtab);
   if(methodcls&&methodidx)
   {
-    addloc("this",S_VARL,1,argstk+8,getptrty(methodcls));
-    argstk=argstk+sizeof(*int);
+    addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));
+    argstk=argstk+target.wordsize;
   }
   while(!match(trarg/*")"*/))
   {
@@ -1103,8 +1103,9 @@ func dofunc()
       argtype=gettypen();
     }
     k=gettsize(argtype);
-    if(k&3)k=k+4-(k&3);
-    addloc(argn,S_VARL,1,argstk+8,argtype);
+    /* round arg slot up to a target word (i386: 4, x86_64: 8) */
+    if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
+    addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
     argstk=argstk+k;
     if(!match(","))if(ch()!=')')
     {
