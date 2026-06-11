@@ -2241,7 +2241,29 @@ func treetocode(node:*enode,lval:*elval)
   return ct_FUNC(node,lval);
   else if(node->op==OP_DOT)
   return ct_DOT(node,lval);
+  else if(node->op==OP_COND)
+  return ct_COND(node,lval);
   else error("to be implemented");
+}
+func ct_COND(node:*enode,lval:*elval)
+{
+  /* c ? a : b  -- node->l = c, node->r = a, node->third = b */
+  var elval:lc,la,lb;
+  var int:elselab,exitlab;
+  elselab=getlabel();
+  exitlab=getlabel();
+  if(treetocode(node->l,&lc))rvalue(&lc);   /* condition -> accumulator */
+  testjump(elselab);                        /* if zero, take the else branch */
+  if(treetocode(node->r,&la))rvalue(&la);   /* then  -> accumulator */
+  jump(exitlab);
+  clab(elselab);
+  if(treetocode(node->third,&lb))rvalue(&lb);/* else -> accumulator */
+  clab(exitlab);
+  lval->sort=L_ONREG;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=la.typ;   /* result type taken from the 'then' branch */
+  return 0;
 }
 func ct_COMMA(node:*enode,lval:*elval)
 {
@@ -3827,8 +3849,7 @@ func primary()
       node=getenode();
       node->l=node->r=node->third=0;
       node->op=OP_LEAF;
-      if(nr==2)node->leaf.vid=L_FNUM;   /* 2 => float literal */
-      else node->leaf.vid=L_NUM;
+      node->leaf.vid=(nr==2)?L_FNUM:L_NUM;   /* 2 => float literal; uses ?: */
       node->leaf.val=num[0];
       return node;
     }

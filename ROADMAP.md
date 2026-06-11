@@ -118,6 +118,8 @@ What turns a teaching compiler into something you'd build a project with:
   warnings
 - ⏳ A small **standard library** (instead of calling libc via bare `extern`s)
 - ⏳ **Debug info** (DWARF) so `gdb` works
+- ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
+  via `ct_COND`, dogfooded in the compiler's own source)
 - ⏳ Language gaps: `unsigned` types, `enum`, `switch`/`case`, robust function
   pointers, proper varargs, `const`
 - ⏳ A written **language specification** (the paper is the only spec today)

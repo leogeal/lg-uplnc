@@ -19,3 +19,5 @@ global 42
 float_lit 42
 float_trunc 255
 float_sci 42
+ternary 100
+ternary_nested 42
