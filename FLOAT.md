@@ -1,0 +1,69 @@
+# M4 — floating point: design
+
+Plan for adding floating-point arithmetic to UPLNC. Status/tracking lives in
+[`ROADMAP.md`](ROADMAP.md); this is the design and slice breakdown.
+
+## Scope decisions
+
+- **x86_64 / SSE2 first.** Doubles live in `%xmm` registers; arithmetic is
+  `addsd`/`subsd`/`mulsd`/`divsd`. i386's x87 FPU stack is painful and is
+  **deferred** — on i386 the FP paths emit a clean "float not supported on
+  i386 yet" error.
+- **`double` first** (8 bytes). `float` (4 bytes, `movss`/`cvtss2sd`) is a later
+  slice.
+- **The compiler stays integer-only.** It never does float arithmetic itself, so
+  the **self-host bootstrap is unaffected** (the FP codegen paths simply go
+  unexercised when compiling the float-free compiler — i386 and x86_64 self-host
+  exactly as before).
+
+## The key trick: the assembler computes the bits
+
+The integer-only compiler can't evaluate `1.5` into IEEE-754. It doesn't need to:
+it stores the literal **as text** and emits `.double 1.5` into `.rodata`, letting
+**gas** compute the bit pattern. The compiler only ever copies/loads 8-byte
+blobs. So float literals need a text pool, not float math.
+
+## Codegen model (x86_64)
+
+- **FP accumulator = `%xmm0`** (parallel to the integer accumulator `%rax`).
+- **FP temporaries** spill to the stack: `subq $8,%rsp; movsd %xmm0,(%rsp)` /
+  `movsd (%rsp),%xmm1; addq $8,%rsp` (mirrors the integer push/pop).
+- **Load/store** doubles with `movsd` (local: `n(%rbp)`, global: `sym`, literal:
+  `.LFn` in `.rodata`).
+- **Conversions**: `cvttsd2si %xmm0,%rax` (double→int), `cvtsi2sd %rax,%xmm0`
+  (int→double).
+- **Compare**: `ucomisd` + `setcc` (+ unordered handling later).
+
+Codegen is **type-routed**: the existing dispatch points (`getmem`, the store
+paths, `loadnum`, the `ct_*` binary-op handlers, `return`) gain a `T_DOUBLE`
+branch that emits the FP form. New `CD_*` opcodes carry the FP operations; only
+`cd_write_x86_64` lowers them (i386 errors).
+
+## Calling convention (SysV, later slice)
+
+Doubles are passed in `%xmm0–7` (a separate sequence from the integer
+`%rdi–r9`), the return value is in `%xmm0`, and a variadic call (`printf("%f")`)
+must set `%al` = number of vector registers used. This extends the marshaling
+(`CD_MARSHAL`/`CD_SPILLARGS`) with a parallel xmm track — it is the trickiest
+slice and is sequenced after scalar FP works.
+
+## Slices (each verified; i386 self-host stays byte-identical throughout)
+
+1. **Literal → int.** Lex `double` literals; add `T_DOUBLE`; load a double
+   literal into `%xmm0`; convert to int at a return. Test: `return 42.0;` → exit
+   42. *(This slice — the minimal end-to-end path.)*
+2. **Locals + arithmetic.** `var double:x;` load/store (`movsd`); `+ - * /` via
+   the xmm push/pop pattern; double→int return. Test: `x=20.0+22.0; return x;`.
+3. **Conversions + mixed.** int↔double at assignment/return; usual arithmetic
+   conversions for `1.5 + 2`.
+4. **Calling convention.** double params (`%xmm0–7`), return double, and
+   `printf("%f", x)` (xmm + `%al`). Validated by stdout.
+5. **Globals + `float`.** global doubles; the 4-byte `float` type.
+6. **i386 x87** *(optional)* — only if i386 FP is wanted.
+
+## Testing
+
+Scalar slices (1–3) are validated by **exit code** (convert the double result to
+int and return it). The calling-convention slice (4) is validated by **stdout**
+(`printf("%f", …)`). All go in `transpiler/tests/progs/` and run on the x86_64
+CI job; i386 self-host fixpoints confirm the compiler is unchanged.
