@@ -533,6 +533,50 @@ func cd_write_x86_64(*scode:this)
   {
     ol("cvttsd2si %xmm0, %rax");
   }
+  else if(this->code==CD_FLDLOC)
+  {
+    ot("movsd ");outdec(this->arg);outstr("(%rbp), %xmm0");nl();
+  }
+  else if(this->code==CD_FLDGLB)
+  {
+    ot("movsd ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    outstr(", %xmm0");nl();
+  }
+  else if(this->code==CD_FSTLOC)
+  {
+    ot("movsd %xmm0, ");outdec(this->arg);outstr("(%rbp)");nl();
+  }
+  else if(this->code==CD_FSTGLB)
+  {
+    ot("movsd %xmm0, ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_FPUSH)
+  {
+    ol("subq $8, %rsp");
+    ol("movsd %xmm0, (%rsp)");
+  }
+  else if(this->code==CD_FPOP)
+  {
+    ol("movsd (%rsp), %xmm1");
+    ol("addq $8, %rsp");
+  }
+  else if(this->code==CD_FADD)
+  ol("addsd %xmm1, %xmm0");
+  else if(this->code==CD_FMUL)
+  ol("mulsd %xmm1, %xmm0");
+  else if(this->code==CD_FSUB)
+  {
+    ol("subsd %xmm0, %xmm1");
+    ol("movsd %xmm1, %xmm0");
+  }
+  else if(this->code==CD_FDIV)
+  {
+    ol("divsd %xmm0, %xmm1");
+    ol("movsd %xmm1, %xmm0");
+  }
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1032,7 +1076,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code==CD_FLDLIT)||(this->code==CD_F2I))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FDIV))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1363,6 +1407,56 @@ func zf2i()             /* M4: convert FP accumulator to int accumulator */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_F2I;
+}
+func cfldloc(offset:int)   /* M4: load local double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLDLOC;
+  cd->arg=offset;
+}
+func cfldglb(name:*char,offset:int)   /* M4: load global double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLDGLB;
+  cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func cfstloc(offset:int)   /* M4: store to local double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTLOC;
+  cd->arg=offset;
+}
+func cfstglb(name:*char,offset:int)   /* M4: store to global double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTGLB;
+  cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func fpush()            /* M4: push the FP accumulator */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FPUSH;
+  Zsp=Zsp-target.wordsize;
+}
+func fpop()             /* M4: pop into %xmm1 */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FPOP;
+  Zsp=Zsp+target.wordsize;
+}
+func fbinop(op:int)     /* M4: emit one FP arithmetic opcode */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=op;
 }
 func cmodstk(k:int)
 {

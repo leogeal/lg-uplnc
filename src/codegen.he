@@ -76,6 +76,16 @@
 #define CD_MARSHAL   68 /* x86_64 SysV: load pushed args into arg registers */
 #define CD_FLDLIT    69 /* M4: load float literal .LF<arg> into the FP accum */
 #define CD_F2I       70 /* M4: convert FP accumulator (double) to int accum */
+#define CD_FLDLOC    71 /* M4: load local double  arg(%rbp) -> %xmm0 */
+#define CD_FLDGLB    72 /* M4: load global double <str>+arg -> %xmm0 */
+#define CD_FSTLOC    73 /* M4: store %xmm0 -> local double  arg(%rbp) */
+#define CD_FSTGLB    74 /* M4: store %xmm0 -> global double <str>+arg */
+#define CD_FPUSH     75 /* M4: push %xmm0 onto the stack */
+#define CD_FPOP      76 /* M4: pop the stack top into %xmm1 */
+#define CD_FADD      77 /* M4: %xmm0 = %xmm1 + %xmm0 */
+#define CD_FSUB      78 /* M4: %xmm0 = %xmm1 - %xmm0 */
+#define CD_FMUL      79 /* M4: %xmm0 = %xmm1 * %xmm0 */
+#define CD_FDIV      80 /* M4: %xmm0 = %xmm1 / %xmm0 */
 
 
 struct scode

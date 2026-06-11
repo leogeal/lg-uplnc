@@ -2539,8 +2539,10 @@ func ct_MINUS(node:*enode,lval:*elval)
   var int:isptr;
   isptr=0;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(lval1.typ==T_DOUBLE)fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  if(fparith(&lval1,&lval2,CD_FSUB))
+  {lval->sort=L_ONREG;lval->idx=0;lval->offset=0;lval->typ=T_DOUBLE;return 0;}
   zpop();
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -2581,11 +2583,12 @@ func ct_PLUS(node:*enode,lval:*elval)
   var int:isptr;
   isptr=0;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(lval1.typ==T_DOUBLE)fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
+  if(fparith(&lval1,&lval2,CD_FADD)){lval->typ=T_DOUBLE;return 0;}
   lval->typ=T_INT;
   if(typtab[lval1.typ].sort==V_PTR||
    typtab[lval1.typ].sort==V_ARR)
@@ -2606,17 +2609,33 @@ func ct_PLUS(node:*enode,lval:*elval)
   zadd();
   return 0;/*on register*/
 }
+/* M4: if either operand is double, finish a binary op as FP (xmm) and return 1;
+   else return 0 (the caller does the integer path). The left operand must
+   already have been pushed with fpush when it is double (see callers). */
+func fparith(l1:*elval,l2:*elval,op:int)
+{
+  if((l1->typ==T_DOUBLE)||(l2->typ==T_DOUBLE))
+  {
+    if((l1->typ!=T_DOUBLE)||(l2->typ!=T_DOUBLE))
+    error("mixed int/double arithmetic not yet supported");
+    fpop();
+    fbinop(op);
+    return 1;
+  }
+  return 0;
+}
 func ct_MUL(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(lval1.typ==T_DOUBLE)fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  mult();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
+  if(fparith(&lval1,&lval2,CD_FMUL)){lval->typ=T_DOUBLE;return 0;}
+  zpop();
+  mult();
   lval->typ=T_INT;
   return 0;
 }
@@ -2624,13 +2643,14 @@ func ct_DIV(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(lval1.typ==T_DOUBLE)fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  div();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
+  if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
+  zpop();
+  div();
   lval->typ=T_INT;
   return 0;
 }
@@ -3042,6 +3062,8 @@ func store(lval:*elval)
       else if(lval->typ==T_CHAR)
       /*ot("movb %al, ");*/
       zstob(lval->idx->name,lval->offset);
+      else if(lval->typ==T_DOUBLE)
+      cfstglb(lval->idx->name,lval->offset);
       else error("error in global storing");
       /*outname(lval->idx->name);
       if(lval->offset)
@@ -3057,6 +3079,8 @@ func store(lval:*elval)
       else if(lval->typ==T_CHAR)
       /*ot("movb %al, ");*/
       zstlb(lval->idx->offset+lval->offset);
+      else if(lval->typ==T_DOUBLE)
+      cfstloc(lval->idx->offset+lval->offset);
       else error("error in local storing");
       /*outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp)");
@@ -3137,6 +3161,14 @@ func getmem(lval:*elval)
     }
     else error("error loading 'char' object");
   }
+  else if(lval->typ==T_DOUBLE)
+  {
+    if(lval->idx->sort==S_VARG)
+    cfldglb(lval->name,lval->offset);
+    else if(lval->idx->sort==S_VARL)
+    cfldloc(lval->idx->offset+lval->offset);
+    else error("error loading 'double' object");
+  }
   else if(lval->typ==T_INT||lval->typ==T_INTP
       ||lval->typ==T_CHARP
       ||typtab[lval->typ].sort==V_PTR)
@@ -3204,7 +3236,8 @@ func expressi()
   node=bexptree();
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
   rt=T_INT;
-  if(treetocode(node,&lval)){rvalue(&lval);rt=lval.typ;}
+  if(treetocode(node,&lval))rvalue(&lval);
+  rt=lval.typ;   /* treetocode fills lval.typ whether or not rvalue was needed */
   delenode(node);
   return rt;   /* result type, so callers can convert (M4) */
 }
@@ -4091,6 +4124,7 @@ func gettsize(t:int)
 {
   if(t==T_INT)return target.wordsize;
   else if(t==T_CHAR)return BYTESIZE;
+  else if(t==T_DOUBLE)return 8;
   else if(t==T_INTP)return target.wordsize;
   else if(t==T_CHARP)return target.wordsize;
   else if((t>=F_TYPE)&&(t<typptr))return typtab[t].size;
@@ -4177,6 +4211,7 @@ func gettypen()
   trc("gettypename");
   if(amatch("char",4))return T_CHAR;
   if(amatch("int",3))return T_INT;
+  if(amatch("double",6))return T_DOUBLE;
   if(alpha(ch())){
   k=l=0;
   while(an(c=line[lptr+k])){
