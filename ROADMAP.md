@@ -45,10 +45,10 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - 🟡 `WORDSIZE` split: all *target* sizing now reads `target.wordsize` (the host
   side is the seed toolchain's, never `WORDSIZE`); a distinct `HOST_WORDSIZE`
   only matters once cross-compiling
-- 🟡 Phase 2: backend interface + x86_64 — design: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
+- ✅ Phase 2: backend interface + x86_64 — design: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
   - ✅ 2a: arch-id dispatch; `cd_write` split into `cd_write_i386` + x86_64 stub
     (descriptor moved to `codegen.he`; byte-identical i386 output)
-  - 🟡 2b: x86_64 backend
+  - ✅ 2b: x86_64 backend
     - ✅ `-march=x86_64` flag; `inittarget_x86_64` (wordsize 8); per-arch `regnames`
     - ✅ `cd_write_x86_64` straight-line opcodes — arithmetic, compares,
       loads/stores, loops, pointers, arrays, structs run **natively (no -m32)**
@@ -59,15 +59,21 @@ Make output target a pluggable choice instead of hard-wired i386. See
       recursion, methods, and **libc** (`printf`/`putchar`/`strlen`) all run
       natively. (≤6 args; >6 is a clean error.) Output is non-PIC → link `-no-pie`.
     - 18 golden programs in `transpiler/tests/progs/`
-  - ⏳ 2c: native x86_64 self-host fixpoint (retires `-m32`)
+  - ✅ 2c: **native x86_64 self-host fixpoint** — `langc -march=x86_64` compiles
+    its own source to native x86_64 (`gcc -no-pie`, **no -m32**); stage-2 ≡
+    stage-3, byte-identical (even stage-1 ≡ stage-2). `fixpoint.sh x86_64`; CI
+    gate. One x86_64-specific subtlety fixed: sign-extend `%eax`→`%rax` after
+    `getchar`/`fgetc` only (their `int` result is compared), never after
+    pointer-returning calls.
 - ✅ `-march=` target selection flag
+- ✅ **The compiler self-hosts on both i386 (`-m32`) and x86_64 (native).**
 
-## M3 — Real targets ⏳
+## M3 — Real targets 🟡
 
-- ⏳ **x86_64** backend (SysV ABI; 16-byte stack alignment; varargs `%al`).
-  Bonus: removes the `-m32` dependency — the whole bootstrap runs natively.
+- ✅ **x86_64** backend (SysV ABI; 16-byte alignment; varargs `%al`) —
+  self-hosts natively, removing the `-m32` dependency.
+- ✅ Per-target **fixpoint in CI** — x86_64 native + i386 under `-m32`
 - ⏳ **ARM64** backend (developed as a cross-compiler first, tested under QEMU)
-- ⏳ Per-target **fixpoint in CI** (x86_64 native; i386 under `-m32`; arm64)
 - 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
 
 ## M4 — Floating-point arithmetic ⏳

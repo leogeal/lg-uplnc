@@ -58,5 +58,21 @@ jobs:
       - name: Build with -m32 and run the fixpoint check
         run: |
           ./build.sh
-          ./fixpoint.sh
+          ./fixpoint.sh i386
+        working-directory: transpiler
+
+  fixpoint-x86_64:
+    name: Self-host fixpoint (x86_64, native)
+    runs-on: ubuntu-latest
+    # The x86_64 backend self-hosts natively -- no 32-bit toolchain. langc emits
+    # System V x86_64, links with gcc -no-pie, and stage-2 == stage-3. A gate.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build and run the x86_64 fixpoint check
+        run: |
+          ./build.sh
+          ./fixpoint.sh x86_64
         working-directory: transpiler

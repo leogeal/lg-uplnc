@@ -114,6 +114,14 @@ func cd_write_x86_64(*scode:this)
     ot("call ");
     outname(this->str);
     nl();
+    /* getchar/fgetc return a 32-bit int in %eax with the upper half of %rax
+       undefined, and the compiler compares that result (EOF / char value), so
+       sign-extend %eax->%rax. Do NOT extend other calls: pointer/long returns
+       (strcat/strcpy return a possibly-high stack address, calloc/fopen a heap
+       pointer, UPLNC functions set the full %rax) would be corrupted. */
+    if(this->str)
+    if(strid(this->str,"getchar")||strid(this->str,"fgetc")||strid(this->str,"getc"))
+    ol("cltq");
   }
   else if(this->code==CD_SPILLARGS)
   {
