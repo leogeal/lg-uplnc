@@ -72,6 +72,8 @@
 #define CD_STOW2     64
 #define CD_STOB2     65
 #define CD_TESTJUMP  66 /*  */
+#define CD_SPILLARGS 67 /* x86_64 SysV: spill arg registers to param slots */
+#define CD_MARSHAL   68 /* x86_64 SysV: load pushed args into arg registers */
 
 
 struct scode

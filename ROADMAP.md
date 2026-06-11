@@ -52,12 +52,13 @@ Make output target a pluggable choice instead of hard-wired i386. See
     - ✅ `-march=x86_64` flag; `inittarget_x86_64` (wordsize 8); per-arch `regnames`
     - ✅ `cd_write_x86_64` straight-line opcodes — arithmetic, compares,
       loads/stores, loops, pointers, arrays, structs run **natively (no -m32)**
-    - 🟡 calling convention
-      - ✅ 2b-iii-a: UPLNC↔UPLNC calls (stack convention; param base
-        `2*wordsize`) — **functions and recursion run on x86_64**
-      - ⏳ 2b-iii-b: libc calls (SysV register marshaling + 16-byte alignment +
-        `%al`) → libc I/O; prerequisite for 2c
-    - 14 golden programs in `transpiler/tests/progs/`
+    - ✅ 2b-iii: **uniform System V calling convention** (Path A) — *every* call
+      (UPLNC and libc alike) follows the platform ABI: caller marshals args to
+      `rdi…r9` with 16-byte stack alignment (computed from `Zsp`) + `%al=0`;
+      callee spills the arg registers to negative param slots. Functions,
+      recursion, methods, and **libc** (`printf`/`putchar`/`strlen`) all run
+      natively. (≤6 args; >6 is a clean error.) Output is non-PIC → link `-no-pie`.
+    - 18 golden programs in `transpiler/tests/progs/`
   - ⏳ 2c: native x86_64 self-host fixpoint (retires `-m32`)
 - ✅ `-march=` target selection flag
 

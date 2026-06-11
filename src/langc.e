@@ -1075,6 +1075,9 @@ func dofunc()
   ssymtabfree(&locsymtab);
   if(methodcls&&methodidx)
   {
+    if(target.arch==ARCH_X86_64)
+    addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));
+    else
     addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));
     argstk=argstk+target.wordsize;
   }
@@ -1105,8 +1108,17 @@ func dofunc()
     k=gettsize(argtype);
     /* round arg slot up to a target word (i386: 4, x86_64: 8) */
     if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
-    addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
-    argstk=argstk+k;
+    if(target.arch==ARCH_X86_64)
+    {
+      /* SysV: one register per param, spilled to -(slot)(%rbp) in the prologue */
+      addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
+      argstk=argstk+target.wordsize;
+    }
+    else
+    {
+      addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
+      argstk=argstk+k;
+    }
     if(!match(","))if(ch()!=')')
     {
       error("comma or ')' expected");
@@ -1144,6 +1156,13 @@ func dofunc()
   /*ol("pushl %ebp");
   ol("movl %esp, %ebp");*/
   zenter();
+  if(target.arch==ARCH_X86_64)
+  if(argstk>0)
+  {
+    /* reserve the param spill area and spill the incoming arg registers */
+    Zsp=modstk(Zsp-argstk);
+    spillargs(argstk/target.wordsize);
+  }
   statemen();
   /*ol("movl %ebp, %esp");
   ol("popl %ebp");*/
@@ -2840,6 +2859,20 @@ func ct_FUNC(node:*enode,lval:*elval)
     var int:nargs;
     r=node->r;
     nargs=0;
+    if(target.arch==ARCH_X86_64)
+    {
+      var int:savezsp;var int:cnt;var *enode:rr;var int:pad;
+      savezsp=Zsp;
+      cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
+      pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+      if(pad)Zsp=modstk(Zsp-pad);
+      while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
+      marshal(cnt);
+      zcall(l->leaf.idx->name);
+      Zsp=modstk(savezsp);
+    }
+    else
+    {
     while(r)
     {
       k=treetocode(r->l,&lval2);
@@ -2850,6 +2883,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     zcall(l->leaf.idx->name);
     Zsp=modstk(Zsp+nargs);
+    }
   }
   else if(l&&l->op==OP_DOT)
   {
@@ -2857,6 +2891,14 @@ func ct_FUNC(node:*enode,lval:*elval)
     var int:nargs;
     r=node->r;
     nargs=0;
+    var int:savezsp2;var int:cnt2;var *enode:rr2;var int:pad2;
+    if(target.arch==ARCH_X86_64)
+    {
+      savezsp2=Zsp;
+      cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
+      pad2=(((Zsp-cnt2*target.wordsize)%16)+16)%16;
+      if(pad2)Zsp=modstk(Zsp-pad2);
+    }
     while(r)
     {
       k=treetocode(r->l,&lval2);
@@ -2888,8 +2930,17 @@ func ct_FUNC(node:*enode,lval:*elval)
     strcp(methodname,typtab[typtab[lval2.typ].type].name);
     strcat(strcat(methodname,"."),l->name);/* DANGEROUS!!! FixMe! */
     cnmlst->addm(methodname);
-    zcall(methodname);
-    Zsp=modstk(Zsp+nargs);
+    if(target.arch==ARCH_X86_64)
+    {
+      marshal(cnt2);
+      zcall(methodname);
+      Zsp=modstk(savezsp2);
+    }
+    else
+    {
+      zcall(methodname);
+      Zsp=modstk(Zsp+nargs);
+    }
   }
   else
   {
