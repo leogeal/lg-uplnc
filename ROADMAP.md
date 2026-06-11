@@ -51,10 +51,13 @@ Make output target a pluggable choice instead of hard-wired i386. See
   - 🟡 2b: x86_64 backend
     - ✅ `-march=x86_64` flag; `inittarget_x86_64` (wordsize 8); per-arch `regnames`
     - ✅ `cd_write_x86_64` straight-line opcodes — arithmetic, compares,
-      loads/stores, loops, pointers, arrays, structs run **natively (no -m32)**;
-      10 golden programs in `transpiler/tests/progs/`
-    - ⏳ SysV calling convention (`CD_ZCALL`: register args, 16-byte align,
-      `%al`) → enables functions, recursion, libc I/O
+      loads/stores, loops, pointers, arrays, structs run **natively (no -m32)**
+    - 🟡 calling convention
+      - ✅ 2b-iii-a: UPLNC↔UPLNC calls (stack convention; param base
+        `2*wordsize`) — **functions and recursion run on x86_64**
+      - ⏳ 2b-iii-b: libc calls (SysV register marshaling + 16-byte alignment +
+        `%al`) → libc I/O; prerequisite for 2c
+    - 14 golden programs in `transpiler/tests/progs/`
   - ⏳ 2c: native x86_64 self-host fixpoint (retires `-m32`)
 - ✅ `-march=` target selection flag
 
