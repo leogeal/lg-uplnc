@@ -26,3 +26,8 @@ double_mul 42
 double_div 42
 double_prec 42
 double_loop 42
+mixed_di 42
+mixed_id 42
+conv_i2d 42
+conv_d2i 42
+mixed_intvar 42
