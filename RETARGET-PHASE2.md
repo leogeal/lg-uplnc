@@ -140,7 +140,10 @@ alignment invariant. Implementation (all x86_64-only; i386 stays byte-identical)
   reserves that space and `CD_SPILLARGS` spills `rdi…r9` into the slots.
 - **Caller**: count args → pad so `Zsp ≡ 0 (mod 16)` at the `call` → push args →
   `CD_MARSHAL` loads them into `rdi…r9` → `%al=0` → `call` → unwind.
-- Max 6 params in the whole compiler, so it's register-only; >6 is a clean error.
+- Args 1-6 go in registers; args 7+ are pushed on the stack (the caller marshals
+  6 into registers and leaves the rest positioned for the callee, whose params
+  7+ live at positive `(%rbp)` offsets). The compiler's own source never exceeds
+  6, so its self-hosting exercises only the register path.
 - Output is non-PIC (absolute addressing, like i386) → link with `-no-pie`.
 
 Verified: non-commutative arg order, recursion, methods, and libc (`printf`,
