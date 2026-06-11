@@ -96,7 +96,9 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
 - ✅ Slice 2: `var double:x;` locals (`movsd` load/store), `+ - * /` via the
   xmm push/pop pattern (`fpush`/`fpop`/`addsd`/`subsd`/`mulsd`/`divsd`). Both
   fixpoints hold; mixed int/double errors cleanly (that's slice 3)
-- ⏳ Slice 3: int↔double conversions / mixed arithmetic
+- ✅ Slice 3: int↔double conversions / mixed arithmetic — `cvtsi2sd` promotes an
+  int operand in mixed `+ - * /` (either side); assignment converts the RHS to
+  the target type (`x=5` int→double, `i=1.5` double→int). Both fixpoints hold
 - ⏳ Slice 4: FP calling convention (xmm args, return, `printf("%f")` + `%al`)
 - ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside

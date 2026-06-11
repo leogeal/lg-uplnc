@@ -2290,10 +2290,13 @@ func ct_ASSIGN(node:*enode,lval:*elval)
     lval1.sort=L_SP;
   }
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  /* convert the RHS (in the accumulator) to the target's type (M4) */
+  if((lval1.typ==T_DOUBLE)&&(lval2.typ!=T_DOUBLE))i2f();    /* int -> double */
+  else if((lval1.typ!=T_DOUBLE)&&(lval2.typ==T_DOUBLE))zf2i();/* double -> int */
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=lval2.typ;
+  lval->typ=lval1.typ;   /* assigned value is now the target type */
   store(&lval1);
   return 0;
 }
@@ -2616,9 +2619,11 @@ func fparith(l1:*elval,l2:*elval,op:int)
 {
   if((l1->typ==T_DOUBLE)||(l2->typ==T_DOUBLE))
   {
-    if((l1->typ!=T_DOUBLE)||(l2->typ!=T_DOUBLE))
-    error("mixed int/double arithmetic not yet supported");
-    fpop();
+    /* right operand is in the accumulator: promote it if it is an int */
+    if(l2->typ!=T_DOUBLE)i2f();        /* (double)%rax -> %xmm0 */
+    /* left operand is on the stack (fpush if double, zpush if int) */
+    if(l1->typ==T_DOUBLE)fpop();       /* double -> %xmm1 */
+    else{zpop();i2f1();}               /* int -> %rdx -> (double)%xmm1 */
     fbinop(op);
     return 1;
   }

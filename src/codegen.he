@@ -86,6 +86,8 @@
 #define CD_FSUB      78 /* M4: %xmm0 = %xmm1 - %xmm0 */
 #define CD_FMUL      79 /* M4: %xmm0 = %xmm1 * %xmm0 */
 #define CD_FDIV      80 /* M4: %xmm0 = %xmm1 / %xmm0 */
+#define CD_I2F       81 /* M4: %xmm0 = (double)%rax   (promote right operand) */
+#define CD_I2F1      82 /* M4: %xmm1 = (double)%rdx   (promote left operand) */
 
 
 struct scode

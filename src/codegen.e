@@ -577,6 +577,10 @@ func cd_write_x86_64(*scode:this)
     ol("divsd %xmm0, %xmm1");
     ol("movsd %xmm1, %xmm0");
   }
+  else if(this->code==CD_I2F)
+  ol("cvtsi2sd %rax, %xmm0");
+  else if(this->code==CD_I2F1)
+  ol("cvtsi2sd %rdx, %xmm1");
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1076,7 +1080,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FDIV))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_I2F1))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1457,6 +1461,18 @@ func fbinop(op:int)     /* M4: emit one FP arithmetic opcode */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=op;
+}
+func i2f()              /* M4: promote int accumulator -> FP accumulator */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_I2F;
+}
+func i2f1()             /* M4: promote %rdx (popped left int) -> %xmm1 */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_I2F1;
 }
 func cmodstk(k:int)
 {
