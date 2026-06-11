@@ -89,8 +89,10 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
 
 - ✅ Design ([`FLOAT.md`](FLOAT.md)) — `%xmm0` FP accumulator, type-routed codegen,
   the slice plan
-- ⏳ Slice 1: `double` literals + `T_DOUBLE` + `double`→`int` at return
-  (`return 42.0;` → exit 42)
+- ✅ Slice 1: `double` literals + `T_DOUBLE` + `double`→`int` at return
+  (`return 42.0;`/`255.9`/`4.2e1` → exit 42/255/42). Literals lex to text and
+  emit `.double`; load `movsd .LF<n>(%rip),%xmm0`; `cvttsd2si` at return.
+  Both self-host fixpoints still hold; i386 emits a clean "float not supported"
 - ⏳ Slice 2: double locals + `+ - * /`; Slice 3: int↔double conversions / mixed
 - ⏳ Slice 4: FP calling convention (xmm args, return, `printf("%f")` + `%al`)
 - ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)

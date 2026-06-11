@@ -520,6 +520,19 @@ func cd_write_x86_64(*scode:this)
     outasm("(%rbp), %rax");
     nl();
   }
+  else if(this->code==CD_FLDLIT)
+  {
+    /* load a double literal from .rodata into the FP accumulator %xmm0 */
+    ot("movsd ");
+    outstr(".LF");
+    outdec(this->arg);
+    outstr("(%rip), %xmm0");
+    nl();
+  }
+  else if(this->code==CD_F2I)
+  {
+    ol("cvttsd2si %xmm0, %rax");
+  }
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1019,6 +1032,8 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
+  else if((this->code==CD_FLDLIT)||(this->code==CD_F2I))
+  error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1335,6 +1350,19 @@ func marshal(n:int)     /* x86_64 SysV: load n pushed args into arg registers */
   cd=cg_getitem(ccg);
   cd->code=CD_MARSHAL;
   cd->arg=n;
+}
+func cloadflit(idx:int) /* M4: load float literal .LF<idx> into the FP accum */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLDLIT;
+  cd->arg=idx;
+}
+func zf2i()             /* M4: convert FP accumulator to int accumulator */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_F2I;
 }
 func cmodstk(k:int)
 {
