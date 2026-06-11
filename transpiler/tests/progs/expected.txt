@@ -21,3 +21,8 @@ float_trunc 255
 float_sci 42
 ternary 100
 ternary_nested 42
+double_add 42
+double_mul 42
+double_div 42
+double_prec 42
+double_loop 42

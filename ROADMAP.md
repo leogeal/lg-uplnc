@@ -93,7 +93,10 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   (`return 42.0;`/`255.9`/`4.2e1` → exit 42/255/42). Literals lex to text and
   emit `.double`; load `movsd .LF<n>(%rip),%xmm0`; `cvttsd2si` at return.
   Both self-host fixpoints still hold; i386 emits a clean "float not supported"
-- ⏳ Slice 2: double locals + `+ - * /`; Slice 3: int↔double conversions / mixed
+- ✅ Slice 2: `var double:x;` locals (`movsd` load/store), `+ - * /` via the
+  xmm push/pop pattern (`fpush`/`fpop`/`addsd`/`subsd`/`mulsd`/`divsd`). Both
+  fixpoints hold; mixed int/double errors cleanly (that's slice 3)
+- ⏳ Slice 3: int↔double conversions / mixed arithmetic
 - ⏳ Slice 4: FP calling convention (xmm args, return, `printf("%f")` + `%al`)
 - ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
