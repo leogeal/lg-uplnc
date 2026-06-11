@@ -42,9 +42,12 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - ✅ Phase 1: **target descriptor + backend seam** (data), i386-only, every step
   proven byte-identical — label prefix, symbol prefix, assembler directives,
   target word size all routed through `struct starget`
-- 🟡 `WORDSIZE` split: all *target* sizing now reads `target.wordsize` (the host
-  side is the seed toolchain's, never `WORDSIZE`); a distinct `HOST_WORDSIZE`
-  only matters once cross-compiling
+- ✅ `WORDSIZE` split: target sizing reads `target.wordsize`; host sizing uses
+  the host `sizeof` — they never cross, so no separate `HOST_WORDSIZE` is needed.
+  Proven host-independent in CI (the *cross-compile* job): a native x86_64 langc
+  (8-byte host word) cross-emits i386 (4-byte target word) that self-hosts, and
+  its i386 output is byte-identical to the i386-host compiler's (stage-1 ==
+  stage-2)
 - ✅ Phase 2: backend interface + x86_64 — design: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
   - ✅ 2a: arch-id dispatch; `cd_write` split into `cd_write_i386` + x86_64 stub
     (descriptor moved to `codegen.he`; byte-identical i386 output)

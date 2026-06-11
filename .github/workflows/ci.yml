@@ -76,3 +76,27 @@ jobs:
           ./build.sh
           ./fixpoint.sh x86_64
         working-directory: transpiler
+
+  cross-compile:
+    name: Cross-compile self-host (x86_64 host -> i386)
+    runs-on: ubuntu-latest
+    # Proves the HOST/TARGET word-size split: a NATIVE x86_64 langc (8-byte host
+    # word) cross-emits i386 (4-byte target word), which is linked with -m32 and
+    # self-hosts. fixpoint.sh's "stage-1 == stage-2" line is the proof -- stage-1
+    # is the x86_64-host compiler's i386 output, stage-2 the i386-host compiler's;
+    # identical => the emitted i386 does not depend on the host word size.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install 32-bit toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libc6-dev-i386
+      - name: Native-host stage-0, cross-emit i386, self-host
+        run: |
+          UPLNC_NATIVE=1 ./build.sh
+          file build/langc | grep -q 'ELF 64-bit' || { echo "stage-0 is not native 64-bit"; exit 1; }
+          ./fixpoint.sh i386
+        working-directory: transpiler

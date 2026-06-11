@@ -33,7 +33,13 @@ $T "$SRC/grph.e"     $(ctx "$SRC/grph.e")     -o "$OUT/grph.c"
 # `char` is unsigned by default (host-portability; see RETARGET.md).
 CC="gcc -std=gnu89 -fsigned-char -w"
 # UPLNC is an i386 (4-byte int == 4-byte pointer) language. Prefer -m32.
-if echo 'int main(void){return 0;}' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then
+# UPLNC_NATIVE=1 forces a native (host-arch) stage-0 build even when -m32 is
+# available -- used to prove host/target word-size independence by cross-emitting
+# i386 from an x86_64-host langc (see fixpoint.sh / the CI cross-compile job).
+if [ "${UPLNC_NATIVE:-}" = 1 ]; then
+    M=""
+    echo "[build] UPLNC_NATIVE=1: native stage-0 (host word size may differ from target)"
+elif echo 'int main(void){return 0;}' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then
     M="-m32"
     echo "[build] using -m32 (correct i386 target)"
 else
