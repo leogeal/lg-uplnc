@@ -87,9 +87,446 @@ func cd_write(*scode:this)
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else cd_write_i386(this);
 }
+/* x86_64 (System V) instruction lowering. Mirrors cd_write_i386 with 64-bit
+   registers and `q` suffixes; UPLNC's word is 8 bytes here (int==pointer).
+   The calling convention (CD_ZCALL) is M2 Phase 2b-iii -- this covers call-free
+   integer/pointer programs. */
 func cd_write_x86_64(*scode:this)
 {
-  error("x86_64 codegen not yet implemented (M2 Phase 2b)");
+  if(this->code==CD_ZCALL)
+  {
+    error("x86_64: function calls not yet implemented (M2 Phase 2b-iii)");
+  }
+  else if(this->code==CD_LAB)
+  {
+    printlab(this->arg);
+    col();
+    nl();
+  }
+  else if(this->code==CD_JUMP)
+  {
+    ot("jmp ");
+    printlab(this->arg);
+    nl();
+  }
+  else if(this->code==CD_TESTJUMP)
+  {
+    ol("testq %rax, %rax");
+    ot("je");
+    tab();
+    printlab(this->arg);
+    nl();
+  }
+  else if(this->code==CD_TESTNEJUMP)
+  {
+    ol("testq %rax, %rax");
+    ot("jne");
+    tab();
+    printlab(this->arg);
+    nl();
+  }
+  else if(this->code==CD_NEG)
+  {
+    ol("negq %rax");
+  }
+  else if(this->code==CD_LNOT)
+  {
+    ol("testq %rax,%rax");
+    ol("sete %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_BNOT)
+  {
+    ol("notq %rax");
+  }
+  else if(this->code==CD_EQ)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("sete %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_NEQ)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setne %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ZGE)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setge %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_UGE)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setae %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ZLE)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setle %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ULE)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setbe %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ZLT)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setl %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ULT)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setb %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_ZGT)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("setg %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_UGT)
+  {
+    ol("cmpq %rax, %rdx");
+    ol("seta %al");
+    ol("movzbq %al, %rax");
+  }
+  else if(this->code==CD_BOR2REGS)
+  {
+    ol("orq %rdx, %rax");
+  }
+  else if(this->code==CD_BXOR2REGS)
+  {
+    ol("xorq %rdx, %rax");
+  }
+  else if(this->code==CD_BAND2REGS)
+  {
+    ol("andq %rdx, %rax");
+  }
+  else if(this->code==CD_ADD2REGS)
+  {
+    ol("addq %rdx, %rax");
+  }
+  else if(this->code==CD_SUB2REGS)
+  {
+    ol("subq %rax, %rdx");
+    ol("movq %rdx, %rax");
+  }
+  else if(this->code==CD_MUL2REGS)
+  {
+    ol("imulq %rdx");
+  }
+  else if(this->code==CD_DIV2REGS)
+  {
+    ol("xchgq %rax, %rdx");
+    ol("movq %rdx, %rcx");
+    ol("cqto");
+    ol("idivq %rcx");
+  }
+  else if(this->code==CD_MOD2REGS)
+  {
+    ol("xchgq %rax, %rdx");
+    ol("movq %rdx, %rcx");
+    ol("cqto");
+    ol("idivq %rcx");
+    ol("movq %rdx, %rax");
+  }
+  else if(this->code==CD_STKENTER)
+  {
+    ol("pushq %rbp");
+    ol("movq %rsp, %rbp");
+  }
+  else if(this->code==CD_STKLEAVE)
+  {
+    ol("movq %rbp, %rsp");
+    ol("popq %rbp");
+  }
+  else if(this->code==CD_INCREG)
+  {
+    if(this->arg>0)
+    {
+      if(this->arg<3)
+      while(this->arg--)
+        ol("incq %rax");
+      else
+      {
+        ot("addq $");
+        outdec(this->arg);
+        outstr(", %rax");
+        nl();
+      }
+    }
+  }
+  else if(this->code==CD_DECREG)
+  {
+    if(this->arg>0)
+    {
+      if(this->arg<3)
+      while(this->arg--)
+        ol("decq %rax");
+      else
+      {
+        ot("subq $");
+        outdec(this->arg);
+        outstr(", %rax");
+        nl();
+      }
+    }
+  }
+  else if(this->code==CD_MODSTK)
+  {
+    if(this->arg>0)
+    {
+      ot("addq $");
+      outdec(this->arg);
+      outasm(", %rsp");
+      nl();
+    }
+    else if(this->arg<0)
+    {
+      ot("subq $");
+      outdec(-this->arg);
+      outasm(", %rsp");
+      nl();
+    }
+  }
+  else if(this->code==CD_SHL)
+  {
+    ol("movq %rax, %rcx");
+    ol("movq %rdx, %rax");
+    ol("salq %cl, %rax");
+  }
+  else if(this->code==CD_ASR)
+  {
+    ol("movq %rax, %rcx");
+    ol("movq %rdx, %rax");
+    ol("sarq %cl, %rax");
+  }
+  else if(this->code==CD_SHR)
+  {
+    ol("movq %rax, %rcx");
+    ol("movq %rdx, %rax");
+    ol("shrq %cl, %rax");
+  }
+  else if(this->code==CD_MULREG)
+  {
+    xmulreg_x86_64(this->arg,this->reg[regnames]);
+  }
+  else if(this->code==CD_DIVCONST)
+  {
+    xdivconst_x86_64(this->arg);
+  }
+  else if(this->code==CD_PUSH)
+  {
+    ol("pushq %rax");
+  }
+  else if(this->code==CD_POP)
+  {
+    ol("popq %rdx");
+  }
+  else if(this->code==CD_RET)
+  {
+    ol("ret");
+  }
+  else if(this->code==CD_LDLIT)
+  {
+    ot("movq $");
+    printlab(stlab);
+    outstr("+");
+    outdec(this->arg);
+    outstr(", %rax");
+    nl();
+  }
+  else if(this->code==CD_LDN)
+  {
+    if(this->arg==0)
+    ol("xorq %rax, %rax");
+    else
+    {
+      ot("movq $");
+      outdec(this->arg);
+      outstr(", %rax");
+      nl();
+    }
+  }
+  else if(this->code==CD_LDA)
+  {
+    ot("movq $");
+    outname(this->str);
+    if(this->arg)
+    {outasm("+");outdec(this->arg);}
+    outasm(", %rax");
+    nl();
+  }
+  else if(this->code==CD_LEA)
+  {
+    ot("leaq ");
+    outdec(this->arg);
+    outasm("(%rbp), %rax");
+    nl();
+  }
+  else if(this->code==CD_STOW)
+  {
+    ot("movq %rax, ");
+    outname(this->str);
+    if(this->arg)
+    {outstr("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_STOB)
+  {
+    ot("movb %al, ");
+    outname(this->str);
+    if(this->arg)
+    {outstr("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_STOB2)
+  {
+    ot("movb %al, ");
+    outdec(this->arg);
+    outstr("(%rdx)");nl();
+  }
+  else if(this->code==CD_STOW2)
+  {
+    ot("movq %rax, ");
+    outdec(this->arg);
+    outstr("(%rdx)");nl();
+  }
+  else if(this->code==CD_STLW)
+  {
+    ot("movq %rax, ");
+    outdec(this->arg);outasm("(%rbp)");nl();
+  }
+  else if(this->code==CD_STLB)
+  {
+    ot("movb %al, ");
+    outdec(this->arg);outasm("(%rbp)");nl();
+  }
+  else if(this->code==CD_LBRB)
+  {
+    ot("movsbq ");
+    outdec(this->arg);
+    outstr("(%rax), %rax");nl();
+  }
+  else if(this->code==CD_LBRW)
+  {
+    ot("movq ");
+    outdec(this->arg);
+    outstr("(%rax), %rax");nl();
+  }
+  else if(this->code==CD_LBRA)
+  {
+    ot("leaq ");
+    outdec(this->arg);
+    outstr("(%rax), %rax");nl();
+  }
+  else if(this->code==CD_LDW)
+  {
+    ot("movq ");
+    outname(this->str);
+    if(this->arg)
+    {
+      outasm("+");
+      outdec(this->arg);
+    }
+    outasm(", %rax");nl();
+  }
+  else if(this->code==CD_LDB)
+  {
+    ot("movsbq ");
+    outname(this->str);
+    if(this->arg)
+    {
+      outasm("+");
+      outdec(this->arg);
+    }
+    outasm(", %rax");nl();
+  }
+  else if(this->code==CD_LDLW)
+  {
+    ot("movq ");
+    outdec(this->arg);
+    outasm("(%rbp), %rax");
+    nl();
+  }
+  else if(this->code==CD_LDLB)
+  {
+    ot("movsbq ");
+    outdec(this->arg);
+    outasm("(%rbp), %rax");
+    nl();
+  }
+  else if(this->code==CD_IGNORE)
+  ;
+  else
+  {
+    fprintf(stderr,"%d ",this->code);
+    error("unknown opcode (x86_64)");
+  }
+}
+func xdivconst_x86_64(k:int)
+{
+  var int:l;
+  if(k==1)return ;
+  if(!k){
+  error("division by zero");
+  return ;
+  }
+  l=1;
+  while(l<15)if(k==(1<<l)){
+  ot("sarq $");
+  outdec(l);
+  outstr(", %rax");
+  nl();
+  return ;
+  }
+  else
+  l++;
+  ol("cqto");
+  ot("divq $");
+  outdec(k);
+  nl();
+}
+func xmulreg_x86_64(k:int,s:*char)
+{
+  var int:l;
+  if(k==1)return ;
+  else
+  if(k==0){
+    ot("xorq ");
+    outstr(s);
+    outstr(", ");
+    outstr(s);
+    nl();
+  }
+  else
+    {
+    l=1;
+    while(l<15)if(k==(1<<l)){
+      ot("salq $");
+      outdec(l);
+      outstr(", ");
+      outstr(s);
+      nl();
+      return ;
+    }
+    else
+      l++;
+    }
+  ot("imulq $");
+  outdec(k);
+  outstr(", ");
+  outstr(s);
+  nl();
 }
 func cd_write_i386(*scode:this)
 {
@@ -660,14 +1097,14 @@ func zpop()
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_POP;
-  Zsp=Zsp+4;
+  Zsp=Zsp+target.wordsize;
 }
 func zpush()
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_PUSH;
-  Zsp=Zsp-4;
+  Zsp=Zsp-target.wordsize;
 }
 func zret()
 {
@@ -1008,10 +1445,20 @@ func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
   chkmem(regnames=calloc(4,sizeof(*char)));
-  regnames[RG_A]="%eax";
-  regnames[RG_B]="%ebx";
-  regnames[RG_C]="%ecx";
-  regnames[RG_D]="%edx";
+  if(target.arch==ARCH_X86_64)
+  {
+    regnames[RG_A]="%rax";
+    regnames[RG_B]="%rbx";
+    regnames[RG_C]="%rcx";
+    regnames[RG_D]="%rdx";
+  }
+  else
+  {
+    regnames[RG_A]="%eax";
+    regnames[RG_B]="%ebx";
+    regnames[RG_C]="%ecx";
+    regnames[RG_D]="%edx";
+  }
   ccg=&cgglb;
   cg_init(ccg);
   /*fprintf(stderr,"ccg=%d\n",ccg);*/

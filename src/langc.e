@@ -20,6 +20,7 @@
 
 
 var starget:target;
+var archsel:int;   /* target arch selected by -march (default ARCH_I386=0) */
 var errcnt:int;
 var ncmp:int;
 var nfunc:int;
@@ -334,7 +335,11 @@ func parseopt(argc:int,argv:**char)
   var int:i;
   for(i=1;i<argc;i++)
   {
-    if(*argv[i]=='-')
+    if(strid(argv[i],"-march=x86_64"))
+    {archsel=ARCH_X86_64;}
+    else if(strid(argv[i],"-march=i386"))
+    {archsel=ARCH_I386;}
+    else if(*argv[i]=='-')
     {
       fprintf(stderr,"option:\n");
       var k:int;
@@ -407,10 +412,10 @@ func main(argc:int,argv:**char)
   *quote='"';
   methodcls=0;methodidx=0;/*methodstr=0;*/
   initdyn();
-  inittarget();
   var *char:pp,pp2;pp=autodynstr("Hello ");pp2=autodynstr("world\n");
   stlab=getlabel();
   parseopt(argc,argv);
+  inittarget();   /* after parseopt so -march has been seen */
   initsyms();
   inittoke();
   inittypes();
@@ -1859,11 +1864,15 @@ func _zcall(sname:*char)
 }
 func inittarget()
 {
-  /* i386 target description. ELF symbols have no prefix; local labels are .L. */
-  target.arch=ARCH_I386;
+  if(archsel==ARCH_X86_64)inittarget_x86_64();
+  else inittarget_i386();
+}
+/* ELF/GAS directives are shared by i386 and x86_64; only arch + word size
+   (and, in icodegen, the register names) differ. */
+func inittarget_elf()
+{
   target.label_prefix=".L";
   target.sym_prefix="";
-  target.wordsize=WORDSIZE;
   target.dir_text=".text";
   target.dir_align=".align 16";
   target.dir_globl=".globl ";
@@ -1871,6 +1880,18 @@ func inittarget()
   target.dir_func=",@function";
   target.dir_section=".section";
   target.dir_rodata=".rodata";
+}
+func inittarget_i386()
+{
+  inittarget_elf();
+  target.arch=ARCH_I386;
+  target.wordsize=WORDSIZE;
+}
+func inittarget_x86_64()
+{
+  inittarget_elf();
+  target.arch=ARCH_X86_64;
+  target.wordsize=8;   /* int==pointer==8 bytes (UPLNC's word model) */
 }
 func printlab(label:int)
 {

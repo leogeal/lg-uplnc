@@ -48,9 +48,15 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - 🟡 Phase 2: backend interface + x86_64 — design: [`RETARGET-PHASE2.md`](RETARGET-PHASE2.md)
   - ✅ 2a: arch-id dispatch; `cd_write` split into `cd_write_i386` + x86_64 stub
     (descriptor moved to `codegen.he`; byte-identical i386 output)
-  - ⏳ 2b: x86_64 backend (`cd_write_x86_64` + SysV calling convention)
+  - 🟡 2b: x86_64 backend
+    - ✅ `-march=x86_64` flag; `inittarget_x86_64` (wordsize 8); per-arch `regnames`
+    - ✅ `cd_write_x86_64` straight-line opcodes — arithmetic, compares,
+      loads/stores, loops, pointers, arrays, structs run **natively (no -m32)**;
+      10 golden programs in `transpiler/tests/progs/`
+    - ⏳ SysV calling convention (`CD_ZCALL`: register args, 16-byte align,
+      `%al`) → enables functions, recursion, libc I/O
   - ⏳ 2c: native x86_64 self-host fixpoint (retires `-m32`)
-- ⏳ `-march=` target selection flag
+- ✅ `-march=` target selection flag
 
 ## M3 — Real targets ⏳
 

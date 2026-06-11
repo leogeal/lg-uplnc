@@ -1,0 +1,10 @@
+ret_const 42
+locals 42
+arith 42
+loop_sum 36
+cond 9
+modulo 1
+pointer 42
+array 42
+struct 42
+factorial 120
