@@ -64,8 +64,15 @@ slice and is sequenced after scalar FP works.
      arg by type, then marshals to registers walking the int/fp sequences in
      source order (`CD_MARGINT`/`CD_MARGFP`). Verified by stdout *and* by exit
      code (round-trip a double through `sprintf`/`atoi`).
-   - **4b — callee + return.** Receive double *params* (spill `%xmm0–7` to slots)
-     and return a double in `%xmm0`. Lets UPLNC functions take/return doubles.
+   - **4b — callee + return (done).** Receive double *params* and return a double
+     in `%xmm0`, so UPLNC functions take *and* return doubles. The prologue spills
+     each register param to its slot by SysV class — doubles from `%xmm0–7`
+     (`CD_SARGFP`), ints/ptrs from `%rdi–r9` (`CD_SARGINT`) — keeping the existing
+     all-integer `CD_SPILLARGS` path byte-identical. A new optional return-type
+     annotation `func f(x:double):double` (default `int`, fully backward-compatible)
+     disambiguates "return a double" from "return a double literal truncated to int"
+     (which `main` relies on); `cttype` learns that a call yields its callee's type,
+     so a double-returning call used as an argument is itself routed through `%xmm`.
 5. **Globals + `float`.** global doubles; the 4-byte `float` type.
 6. **i386 x87** *(optional)* — only if i386 FP is wanted.
 
@@ -75,6 +82,9 @@ Scalar slices (1–3) are validated by **exit code** (convert the double result 
 int and return it). The calling-convention slice (4) is validated by **stdout**
 (`printf("%f", …)`) and — so it gates in the exit-code CI harness — by
 round-tripping the formatted double back through `sprintf`/`atoi`
-(`fparg_printf`/`fparg_sum`/`fparg_mixed`). All go in `transpiler/tests/progs/`
-and run on the x86_64 CI job; i386 self-host fixpoints confirm the compiler is
-unchanged.
+(`fparg_printf`/`fparg_sum`/`fparg_mixed` for 4a). 4b is exit-code-checkable on its
+own: a double param truncated to int, mixed int/double params, and a `:double`
+return assigned to a double local or fed into another double param
+(`fpparam`/`fpparam_mixed`/`fpret`/`fpret_chain`). All go in
+`transpiler/tests/progs/` and run on the x86_64 CI job; both self-host fixpoints
+stay byte-identical (the compiler's own source uses no doubles).
