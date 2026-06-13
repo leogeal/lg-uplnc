@@ -36,8 +36,15 @@ die() { echo "fixpoint: $*" >&2; exit 1; }
 case "$ARCH" in
 i386)
     MARCH=""                       # langc default target is i386
-    LINKER="gcc -m32 -w"
-    if ! echo 'int main(void){return 0;}' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then
+    # Find a working 32-bit toolchain. The default 'gcc' may lack 32-bit libgcc
+    # on some hosts, so fall back to a versioned gcc that has it.
+    LINKER=""
+    for cc in "gcc -m32" "gcc-12 -m32" "gcc-11 -m32" "gcc-10 -m32" "gcc-9 -m32"; do
+        if echo 'int main(void){return 0;}' | $cc -x c - -o /dev/null 2>/dev/null; then
+            LINKER="$cc -w"; break
+        fi
+    done
+    if [ -z "$LINKER" ]; then
         cat >&2 <<'EOF'
 fixpoint: i386 needs a 32-bit toolchain (gcc-multilib / libc6-dev-i386).
   Install it, or run the native x86_64 fixpoint instead:  ./fixpoint.sh x86_64

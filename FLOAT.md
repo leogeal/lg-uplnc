@@ -97,7 +97,23 @@ slice and is sequenced after scalar FP works.
      / `*4`) and `*double`/`*float` pointers, including the compact-storage use
      case `float` was added for. Address arithmetic was already correct; only the
      load/store at the deref needed FP awareness.
-6. **i386 x87** *(optional)* — only if i386 FP is wanted.
+6. **i386 x87 (done).** Floating point on the 32-bit target via the x87 FPU.
+   The flat-register FP IR maps onto the x87 register *stack* with `st(0)` as the
+   accumulator (mirroring `%xmm0`): loads push (`fldl`/`flds`), stores pop
+   (`fstpl`/`fstps`), and binary-op operands spill to the integer stack via
+   `FPUSH`/`FPOP`, so the x87 depth stays ≤ 2 during evaluation and 0 between
+   statements. After `FPOP` the stack is `st0=left, st1=right`; the GAS mnemonics
+   `faddp`/`fsubp`/`fmulp`/`fdivp` then give `left OP right` — **verified
+   empirically**, because GAS reverses `fsub`/`fdiv` operand order vs Intel
+   syntax (the `fsubr`/`fdivr` you'd reach for give `right OP left`). `double→int`
+   truncation is the control-word dance (save CW, set RC=11/chop, `fistpl`,
+   restore); `int↔double` is `fildl`; `float` is just `flds`/`fstps` (the x87
+   loads/stores the narrower width directly — no explicit convert). A double is
+   8 bytes even though the target word is 4, so `FPUSH` reserves 8 and `Zsp`
+   tracks 8. **Scope: scalar only** — the i386 FP *calling convention* (passing
+   doubles on the cdecl stack, `st(0)` returns) is not implemented; FP function
+   arguments are rejected with a clear error. Both self-host fixpoints stay
+   byte-identical (the compiler uses no FP).
 
 ## Testing
 
@@ -117,3 +133,11 @@ load/store (`double_array`/`double_array_write`/`double_ptr`/`float_array`/
 `float_ptr`). All go in `transpiler/tests/progs/` and run on the x86_64 CI job;
 both self-host fixpoints stay byte-identical (the compiler's own source uses no
 doubles or floats).
+
+Slice 6 (i386 x87) reuses the **same** exit-code progs: `run_tests.sh` gained an
+i386 run-correctness section that compiles every prog with `-march=i386`,
+assembles/links/runs it under `-m32`, and checks the exit code — so the i386
+backend is finally *run*, not just fixpoint-checked. The scalar FP progs produce
+the same exit codes on i386 x87 as on x86_64/SSE2; the seven FP-calling-convention
+progs (`fparg_*`/`fpparam*`/`fpret*`) are skipped on i386 by design. The CI test
+job installs `gcc-multilib` so this section gates there too.

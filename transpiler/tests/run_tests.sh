@@ -88,6 +88,45 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[7] i386 x87 backend: programs compile (-march=i386), assemble + run (-m32)"
+# Find a working 32-bit toolchain. The default 'gcc' may lack 32-bit libgcc on
+# some hosts (e.g. gcc-8 here), so fall back to a versioned gcc that has it.
+M32=""
+for cc in "gcc -m32" "gcc-12 -m32" "gcc-11 -m32" "gcc-10 -m32" "gcc-9 -m32"; do
+    if echo 'int main(void){return 0;}' | $cc -x c - -o /tmp/uplnc_m32probe 2>/dev/null; then
+        M32="$cc"; break
+    fi
+done
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ -z "$M32" ]; then
+    echo "  skip - no working -m32 toolchain (need gcc-multilib / libc6-dev-i386)"
+else
+    while read -r name want; do
+        [ -z "$name" ] && continue
+        # The FP *calling convention* (double args / params / returns) is
+        # x86_64-only; these progs error cleanly on i386 by design -- skip them.
+        case "$name" in
+            fparg_*|fpparam*|fpret*)
+                echo "  skip - i386 $name.e (FP calling convention is x86_64-only)"
+                continue;;
+        esac
+        asm="/tmp/uplnc_i386_$name.s"; bin="/tmp/uplnc_i386_$name"
+        "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march=i386 > "$asm" 2>/dev/null
+        if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
+            bad "i386 $name.e (compile)"
+        # -no-pie: non-PIC absolute addressing; -fsigned-char to match i386 char
+        elif ! $M32 -no-pie -fsigned-char "$asm" -o "$bin" 2>/dev/null; then
+            bad "i386 $name.e (assemble/link)"
+        else
+            "$bin"; got=$?
+            [ "$got" = "$want" ] && ok "i386 $name.e -> exit $got" \
+                                 || bad "i386 $name.e (got $got, want $want)"
+        fi
+    done < tests/progs/expected.txt
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]
