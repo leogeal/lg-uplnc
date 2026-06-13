@@ -2124,28 +2124,36 @@ func cttype(node:*enode)
   }
   else if(node->op==OP_STAR)
   {
+    /* dereference / index: yield the element type of a ptr or array.
+       cttype is a pure type oracle (no error(), no side effects) -- it is
+       walked over arbitrary call-argument trees, so it must be total. */
     var int:t;
     t=cttype(node->r);
-    if(typtab[t].sort!=V_PTR&&typtab[t].sort!=V_PTR)
-    {error("star of non-ptr");return T_INT;}
-    return(typtab[t].type);
+    if(typtab[t].sort==V_PTR||typtab[t].sort==V_ARR)
+    return typtab[t].type;
+    return T_INT;
   }
   else if(node->op==OP_ADDR)
-  {
-    var int:t;
-    t=cttype(node->r);
-    if(typtab[t].sort==V_ARR)
-    {error("extre '&' for array");return t;}
-    return getptrty(t);
-  }
-  else if(node->op==OP_PLUS)
+  /* address-of yields a pointer -- never a double; T_INTP suffices for the
+     only consumer (the FP-argument counter). Avoid getptrty (it mutates the
+     type table and can error). */
+  return T_INTP;
+  else if(node->op==OP_PLUS||node->op==OP_MINUS||node->op==OP_MUL
+       ||node->op==OP_DIV||node->op==OP_REM)
   {
     var int:t1,t2;
+    t1=cttype(node->l);
+    t2=cttype(node->r);
+    if((t1==T_DOUBLE)||(t2==T_DOUBLE))return T_DOUBLE;
+    if((typtab[t1].sort==V_PTR)||(typtab[t1].sort==V_ARR))return t1;
+    if((typtab[t2].sort==V_PTR)||(typtab[t2].sort==V_ARR))return t2;
+    return T_INT;
   }
-  else if(node->op==OP_MINUS)
-  {
-  }
-  else error("don't know the type");
+  else if(node->op==OP_COND)
+  return cttype(node->r);
+  else if(node->op==OP_ASSIGN)
+  return cttype(node->l);
+  return T_INT;   /* default: treat as int (e.g. call results) */
 }
 func treetocode(node:*enode,lval:*elval)
 {
@@ -2947,19 +2955,44 @@ func ct_FUNC(node:*enode,lval:*elval)
     if(target.arch==ARCH_X86_64)
     {
       var int:savezsp;var int:cnt;var *enode:rr;var int:pad;var int:nstack;
+      var int:cfp;var int:cint;var int:ireg;var int:freg;var int:i;var int:j;
+      var [32]int:atypes;
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
-      nstack=cnt-6;if(nstack<0)nstack=0;
-      /* align for the args left on the stack at the call: all of them for
-         cnt<=6 (they stay), or only the nstack overflow args for cnt>6 */
-      if(cnt>6)pad=(((Zsp-nstack*target.wordsize)%16)+16)%16;
-      else pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
-      if(pad)Zsp=modstk(Zsp-pad);
-      while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
-      if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
-      else marshal(cnt);
-      zcall(l->leaf.idx->name);
-      Zsp=modstk(savezsp);
+      cfp=0;rr=r;while(rr){if(cttype(rr->l)==T_DOUBLE)cfp=cfp+1;rr=rr->r;}
+      if(cfp>0)
+      {
+        /* System V FP marshaling: doubles in %xmm0.., ints/ptrs in %rdi.. */
+        cint=cnt-cfp;
+        if(cint>6)error("x86_64: >6 integer args alongside floats");
+        if(cfp>8)error("x86_64: >8 floating-point args");
+        pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+        if(pad)Zsp=modstk(Zsp-pad);
+        j=cnt-1;rr=r;
+        while(rr){k=treetocode(rr->l,&lval2);if(k)rvalue(&lval2);
+          if(lval2.typ==T_DOUBLE)fpush();else zpush();
+          atypes[j]=lval2.typ;j=j-1;rr=rr->r;}
+        ireg=0;freg=0;
+        for(i=0;i<cnt;i++)
+        {
+          if(atypes[i]==T_DOUBLE){margfp(i*target.wordsize,freg);freg=freg+1;}
+          else{margint(i*target.wordsize,ireg);ireg=ireg+1;}
+        }
+        zcall(l->leaf.idx->name,freg);   /* %al = #xmm regs (varargs) */
+        Zsp=modstk(savezsp);
+      }
+      else
+      {
+        nstack=cnt-6;if(nstack<0)nstack=0;
+        if(cnt>6)pad=(((Zsp-nstack*target.wordsize)%16)+16)%16;
+        else pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+        if(pad)Zsp=modstk(Zsp-pad);
+        while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
+        if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
+        else marshal(cnt);
+        zcall(l->leaf.idx->name,0);
+        Zsp=modstk(savezsp);
+      }
     }
     else
     {
@@ -2971,7 +3004,7 @@ func ct_FUNC(node:*enode,lval:*elval)
       nargs=nargs+target.wordsize;
       r=r->r;
     }
-    zcall(l->leaf.idx->name);
+    zcall(l->leaf.idx->name,0);
     Zsp=modstk(Zsp+nargs);
     }
   }
@@ -3025,12 +3058,12 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       if(cnt2>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
       else marshal(cnt2);
-      zcall(methodname);
+      zcall(methodname,0);
       Zsp=modstk(savezsp2);
     }
     else
     {
-      zcall(methodname);
+      zcall(methodname,0);
       Zsp=modstk(Zsp+nargs);
     }
   }

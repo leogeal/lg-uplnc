@@ -56,8 +56,16 @@ slice and is sequenced after scalar FP works.
    the xmm push/pop pattern; double→int return. Test: `x=20.0+22.0; return x;`.
 3. **Conversions + mixed.** int↔double at assignment/return; usual arithmetic
    conversions for `1.5 + 2`.
-4. **Calling convention.** double params (`%xmm0–7`), return double, and
-   `printf("%f", x)` (xmm + `%al`). Validated by stdout.
+4. **Calling convention.** Split in two:
+   - **4a — caller (done).** Pass double *arguments* in `%xmm0–7` (a separate
+     sequence from the integer `%rdi–r9`), set `%al` = number of vector registers
+     for variadic callees. Enables `printf("%f", x)`. The caller counts FP args
+     via `cttype` (a pure type oracle), pads for 16-byte alignment, pushes each
+     arg by type, then marshals to registers walking the int/fp sequences in
+     source order (`CD_MARGINT`/`CD_MARGFP`). Verified by stdout *and* by exit
+     code (round-trip a double through `sprintf`/`atoi`).
+   - **4b — callee + return.** Receive double *params* (spill `%xmm0–7` to slots)
+     and return a double in `%xmm0`. Lets UPLNC functions take/return doubles.
 5. **Globals + `float`.** global doubles; the 4-byte `float` type.
 6. **i386 x87** *(optional)* — only if i386 FP is wanted.
 
@@ -65,5 +73,8 @@ slice and is sequenced after scalar FP works.
 
 Scalar slices (1–3) are validated by **exit code** (convert the double result to
 int and return it). The calling-convention slice (4) is validated by **stdout**
-(`printf("%f", …)`). All go in `transpiler/tests/progs/` and run on the x86_64
-CI job; i386 self-host fixpoints confirm the compiler is unchanged.
+(`printf("%f", …)`) and — so it gates in the exit-code CI harness — by
+round-tripping the formatted double back through `sprintf`/`atoi`
+(`fparg_printf`/`fparg_sum`/`fparg_mixed`). All go in `transpiler/tests/progs/`
+and run on the x86_64 CI job; i386 self-host fixpoints confirm the compiler is
+unchanged.

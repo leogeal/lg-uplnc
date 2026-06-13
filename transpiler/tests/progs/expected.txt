@@ -35,3 +35,6 @@ args7_sum 42
 args7_stack 42
 args8_stack 42
 args7_recursive 42
+fparg_printf 42
+fparg_sum 42
+fparg_mixed 42
