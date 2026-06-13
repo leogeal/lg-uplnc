@@ -3213,13 +3213,22 @@ func store(lval:*elval)
   }
   else if(lval->sort==L_SP)
   {
-    zpop();
-    if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
-    zstob2(lval->offset);
-    else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
-    zstow2(lval->offset);
-    else error("error storing object if strange size");
-    /*outdec(lval->offset);outstr("(%edx)");nl();*/
+    /* store through a popped address (%rdx). FP values come from %xmm0; a float
+       is narrowed back to 4 bytes on the way out. */
+    if(lval->typ==T_DOUBLE)
+    {zpop();cfstbre2(lval->offset);}
+    else if(lval->typ==T_FLOAT)
+    {zpop();cfstbre2s(lval->offset);}
+    else
+    {
+      zpop();
+      if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
+      zstob2(lval->offset);
+      else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
+      zstow2(lval->offset);
+      else error("error storing object if strange size");
+      /*outdec(lval->offset);outstr("(%edx)");nl();*/
+    }
   }
   else error("how to store?");
 }
@@ -3247,7 +3256,13 @@ func rvalue(lval:*elval)
 }
 func loadbyre(lval:*elval)
 {
-  if(typtab[lval->typ].size==BYTESIZE)/*ot("movsbl ");*/
+  /* FP element/pointee: load into %xmm0 (not %rax). A float widens to a double
+     and the type decays, exactly as for named float variables (slice 5). */
+  if(lval->typ==T_DOUBLE)
+  cfldbre(lval->offset);
+  else if(lval->typ==T_FLOAT)
+  {cfldbres(lval->offset);lval->typ=T_DOUBLE;}
+  else if(typtab[lval->typ].size==BYTESIZE)/*ot("movsbl ");*/
   zlbrb(lval->offset);
   else if(typtab[lval->typ].size==target.wordsize)/*ot("movl ");*/
   zlbrw(lval->offset);

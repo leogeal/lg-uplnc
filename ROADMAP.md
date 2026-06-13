@@ -122,6 +122,11 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   paths (an `isfp()` helper covers the few spots). Scalar locals + globals only;
   float params/returns are rejected cleanly (single-precision ABI deferred).
   5 golden tests; both fixpoints byte-identical
+- ✅ FP arrays + pointer deref (follow-up to slice 5): reading/writing a double or
+  float through a pointer or array element now loads into `%xmm0`
+  (`movsd`/`cvtss2sd`) and stores from it (`movsd`/`cvtsd2ss`+`movss`) — the
+  `loadbyre`/`store` `L_SP` paths gained FP branches. Unlocks `[N]double`/`[N]float`
+  arrays and `*double`/`*float`; 5 golden tests; fixpoints byte-identical
 - ⏳ Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 

@@ -47,3 +47,8 @@ float_global 42
 float_arith 42
 float_fromint 42
 global_double 42
+double_array 42
+double_ptr 42
+double_array_write 42
+float_array 42
+float_ptr 42

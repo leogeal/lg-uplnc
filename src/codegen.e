@@ -594,6 +594,26 @@ func cd_write_x86_64(*scode:this)
     if(this->arg){outasm("+");outdec(this->arg);}
     nl();
   }
+  else if(this->code==CD_FLBR)
+  {
+    /* load a double from the address in %rax (deref / array element) */
+    ot("movsd ");outdec(this->arg);outstr("(%rax), %xmm0");nl();
+  }
+  else if(this->code==CD_FLBRS)
+  {
+    /* load a 4-byte float from %rax and widen it to a double */
+    ot("cvtss2sd ");outdec(this->arg);outstr("(%rax), %xmm0");nl();
+  }
+  else if(this->code==CD_FSTBR2)
+  {
+    /* store the double accumulator to the popped address in %rdx */
+    ot("movsd %xmm0, ");outdec(this->arg);outstr("(%rdx)");nl();
+  }
+  else if(this->code==CD_FSTBR2S)
+  {
+    ol("cvtsd2ss %xmm0, %xmm1");
+    ot("movss %xmm1, ");outdec(this->arg);outstr("(%rdx)");nl();
+  }
   else if(this->code==CD_FPUSH)
   {
     ol("subq $8, %rsp");
@@ -1141,7 +1161,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTGLBS))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1564,6 +1584,34 @@ func cfstglbs(name:*char,offset:int)   /* M4 slice 5: narrow & store to global f
   cd=cg_getitem(ccg);
   cd->code=CD_FSTGLBS;
   cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func cfldbre(offset:int)   /* M4: load double through the pointer in %rax */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLBR;
+  cd->arg=offset;
+}
+func cfldbres(offset:int)  /* M4: load float through %rax, widen to double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLBRS;
+  cd->arg=offset;
+}
+func cfstbre2(offset:int)  /* M4: store double through the popped address in %rdx */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTBR2;
+  cd->arg=offset;
+}
+func cfstbre2s(offset:int) /* M4: narrow & store float through %rdx */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTBR2S;
   cd->arg=offset;
 }
 func fpush()            /* M4: push the FP accumulator */

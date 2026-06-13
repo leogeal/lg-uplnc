@@ -96,6 +96,10 @@
 #define CD_FLDGLBS   88 /* M4 slice 5: load global float, widen -> %xmm0 */
 #define CD_FSTLOCS   89 /* M4 slice 5: narrow %xmm0 -> local float (cvtsd2ss/movss) */
 #define CD_FSTGLBS   90 /* M4 slice 5: narrow %xmm0 -> global float */
+#define CD_FLBR      91 /* M4: load double through ptr  off(%rax) -> %xmm0 */
+#define CD_FLBRS     92 /* M4: load float through ptr   off(%rax) -> %xmm0 (widen) */
+#define CD_FSTBR2    93 /* M4: store double %xmm0 -> off(%rdx)  (popped address) */
+#define CD_FSTBR2S   94 /* M4: store float (narrow %xmm0) -> off(%rdx) */
 
 
 struct scode

@@ -85,8 +85,18 @@ slice and is sequenced after scalar FP works.
    double was special-cased. Single-precision rounding is real (`0.1f` loads back
    as `0.100000001…`). Scope: scalar locals + globals only — `float` *params* and
    *returns* are rejected with a clear error (they need single-precision ABI
-   handling), matching the fact that double arrays/`*double` deref don't work yet
-   either (the index/deref path has no FP case — a separate fix).
+   handling).
+   - **FP arrays + pointer deref (done, follow-up to 5).** Reading/writing a
+     double or float through a pointer or array element used to load the FP bits
+     into `%rax` as an integer (`movq off(%rax),%rax`) — or, for `float`, error
+     outright — because the deref/index path (`loadbyre`, the `store` `L_SP` case)
+     had no FP branch. Now an FP element loads into `%xmm0` (`movsd off(%rax)` /
+     `cvtss2sd` widening a float) and stores from `%xmm0` to the popped address in
+     `%rdx` (`movsd ->off(%rdx)` / `cvtsd2ss`+`movss` narrowing a float). This
+     unlocks `[N]double`/`[N]float` arrays (element stride is the type size — `*8`
+     / `*4`) and `*double`/`*float` pointers, including the compact-storage use
+     case `float` was added for. Address arithmetic was already correct; only the
+     load/store at the deref needed FP awareness.
 6. **i386 x87** *(optional)* — only if i386 FP is wanted.
 
 ## Testing
@@ -101,6 +111,9 @@ return assigned to a double local or fed into another double param
 (`fpparam`/`fpparam_mixed`/`fpret`/`fpret_chain`). Slice 5 is exit-code-checkable
 too: float store/load truncation, a global float, float arithmetic, int→float
 round-trip, and a global double (`float_store`/`float_global`/`float_arith`/
-`float_fromint`/`global_double`). All go in `transpiler/tests/progs/` and run on
-the x86_64 CI job; both self-host fixpoints stay byte-identical (the compiler's
-own source uses no doubles or floats).
+`float_fromint`/`global_double`). The FP array/deref follow-up adds
+variable-indexed `[N]double`/`[N]float` read and write and `*double`/`*float`
+load/store (`double_array`/`double_array_write`/`double_ptr`/`float_array`/
+`float_ptr`). All go in `transpiler/tests/progs/` and run on the x86_64 CI job;
+both self-host fixpoints stay byte-identical (the compiler's own source uses no
+doubles or floats).
