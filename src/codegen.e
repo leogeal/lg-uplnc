@@ -96,8 +96,21 @@ func sysvargreg(i:int)
   else if(i==3)return "%rcx";
   else if(i==4)return "%r8";
   else if(i==5)return "%r9";
-  error("x86_64: more than 6 arguments not supported");
+  error("x86_64: more than 6 register arguments not supported");
   return "%rax";
+}
+func xmmreg(i:int)   /* M4: System V floating-point argument registers */
+{
+  if(i==0)return "%xmm0";
+  else if(i==1)return "%xmm1";
+  else if(i==2)return "%xmm2";
+  else if(i==3)return "%xmm3";
+  else if(i==4)return "%xmm4";
+  else if(i==5)return "%xmm5";
+  else if(i==6)return "%xmm6";
+  else if(i==7)return "%xmm7";
+  error("x86_64: more than 8 floating-point arguments not supported");
+  return "%xmm0";
 }
 /* x86_64 (System V) instruction lowering. Mirrors cd_write_i386 with 64-bit
    registers and `q` suffixes; UPLNC's word is 8 bytes here (int==pointer).
@@ -107,10 +120,13 @@ func cd_write_x86_64(*scode:this)
 {
   if(this->code==CD_ZCALL)
   {
-    /* System V AMD64: args are already in %rdi.. (via CD_MARSHAL) and %rsp is
-       16-byte aligned (the caller padded by Zsp). %al = number of vector
-       registers used by a variadic callee = 0. */
-    ol("movb $0, %al");
+    /* System V AMD64: args are already in %rdi../%xmm.. (via CD_MARSHAL etc.)
+       and %rsp is 16-byte aligned. %al = number of vector (xmm) registers used,
+       required for variadic callees like printf (this->arg). */
+    ot("movb $");
+    outdec(this->arg);
+    outstr(", %al");
+    nl();
     ot("call ");
     outname(this->str);
     nl();
@@ -581,6 +597,16 @@ func cd_write_x86_64(*scode:this)
   ol("cvtsi2sd %rax, %xmm0");
   else if(this->code==CD_I2F1)
   ol("cvtsi2sd %rdx, %xmm1");
+  else if(this->code==CD_MARGINT)
+  {
+    ot("movq ");outdec(this->arg);outstr("(%rsp), ");
+    outstr(sysvargreg(this->reg));nl();
+  }
+  else if(this->code==CD_MARGFP)
+  {
+    ot("movsd ");outdec(this->arg);outstr("(%rsp), ");
+    outstr(xmmreg(this->reg));nl();
+  }
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1080,7 +1106,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_I2F1))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_MARGFP))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1378,12 +1404,29 @@ func jump(label:int)
   cd->code=CD_JUMP;
   cd->arg=label;
 }
-func zcall(sname:*char)
+func zcall(sname:*char,alval:int)   /* alval = #vector regs for %al (SysV varargs) */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_ZCALL;
   cd->str=strdyn(sname);
+  cd->arg=alval;
+}
+func margint(slot:int,reg:int)   /* M4: load int arg from stack into arg register */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_MARGINT;
+  cd->arg=slot;
+  cd->reg=reg;
+}
+func margfp(slot:int,reg:int)    /* M4: load double arg from stack into %xmm<reg> */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_MARGFP;
+  cd->arg=slot;
+  cd->reg=reg;
 }
 func spillargs(n:int)   /* x86_64 SysV: spill n arg registers to param slots */
 {

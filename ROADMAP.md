@@ -100,7 +100,14 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
 - ✅ Slice 3: int↔double conversions / mixed arithmetic — `cvtsi2sd` promotes an
   int operand in mixed `+ - * /` (either side); assignment converts the RHS to
   the target type (`x=5` int→double, `i=1.5` double→int). Both fixpoints hold
-- ⏳ Slice 4: FP calling convention (xmm args, return, `printf("%f")` + `%al`)
+- 🟡 Slice 4: FP calling convention
+  - ✅ 4a: **caller** passes double args in `%xmm0–7` (separate from the integer
+    `%rdi–r9` sequence) with `%al` = #vector regs for varargs — enables
+    `printf("%f", x)`. Caller counts FP args via `cttype` (a pure, total type
+    oracle), 16-byte-aligns, pushes by type, marshals in source order
+    (`CD_MARGINT`/`CD_MARGFP`). Both fixpoints byte-identical (the compiler's own
+    double-free source is unaffected); 3 `fparg_*` golden tests
+  - ⏳ 4b: **callee** double params (spill `%xmm0–7` to slots) + double return (`%xmm0`)
 - ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 

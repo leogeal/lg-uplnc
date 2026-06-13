@@ -88,6 +88,8 @@
 #define CD_FDIV      80 /* M4: %xmm0 = %xmm1 / %xmm0 */
 #define CD_I2F       81 /* M4: %xmm0 = (double)%rax   (promote right operand) */
 #define CD_I2F1      82 /* M4: %xmm1 = (double)%rdx   (promote left operand) */
+#define CD_MARGINT   83 /* M4: arg(%rsp) -> integer arg register reg */
+#define CD_MARGFP    84 /* M4: arg(%rsp) -> %xmm<reg>  (double arg) */
 
 
 struct scode
