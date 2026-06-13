@@ -15,10 +15,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      - name: Install 32-bit toolchain (for the i386 x87 run-correctness section)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libc6-dev-i386
       - name: Build stage-0 tools (transpile UPLNC -> C, build lpp1 + langc)
         run: ./build.sh
         working-directory: transpiler
-      - name: Run test suite (19 checks)
+      - name: Run test suite (x86_64 + i386 run-correctness)
         run: bash tests/run_tests.sh
         working-directory: transpiler
 

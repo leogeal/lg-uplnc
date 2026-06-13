@@ -80,10 +80,10 @@ Make output target a pluggable choice instead of hard-wired i386. See
 - ⏳ **ARM64** backend (developed as a cross-compiler first, tested under QEMU)
 - 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
 
-## M4 — Floating-point arithmetic 🟡
+## M4 — Floating-point arithmetic ✅
 
 Currently integer-only (`int`/`char`). FP is cross-cutting. Design + slice
-breakdown: [`FLOAT.md`](FLOAT.md). **x86_64/SSE2 first** (i386 x87 deferred);
+breakdown: [`FLOAT.md`](FLOAT.md). **x86_64/SSE2 first, then i386 x87**;
 the compiler stays integer-only so the self-host bootstrap is unaffected; float
 literals are emitted as `.double <text>` so the assembler computes the IEEE bits
 (no float math in the compiler).
@@ -127,7 +127,15 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   (`movsd`/`cvtss2sd`) and stores from it (`movsd`/`cvtsd2ss`+`movss`) — the
   `loadbyre`/`store` `L_SP` paths gained FP branches. Unlocks `[N]double`/`[N]float`
   arrays and `*double`/`*float`; 5 golden tests; fixpoints byte-identical
-- ⏳ Slice 6: i386 x87 (optional)
+- ✅ Slice 6: i386 x87 — floating point on the 32-bit target via the x87 FPU
+  stack. `st(0)` is the accumulator (loads push, stores pop; operands spill to
+  the integer stack via `FPUSH`/`FPOP`). `faddp`/`fsubp`/`fmulp`/`fdivp` give
+  `left OP right` (GAS reverses `fsub`/`fdiv` vs Intel — verified empirically);
+  `double→int` is the control-word truncation dance, `float` is `flds`/`fstps`.
+  Scalar only (the i386 FP calling convention is deferred; FP args error
+  cleanly). `run_tests.sh` gained an i386 `-m32` run-correctness section (the
+  i386 backend is now *run*, not just fixpoint-checked) — all scalar FP progs
+  match x86_64; both fixpoints byte-identical.
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
 ## M5 — Optimization ⏳

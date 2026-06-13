@@ -3056,6 +3056,11 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
+      /* i386 x87 is scalar-only (slice 6): the FP calling convention (passing
+         a double on the cdecl stack) is not implemented, so reject it rather
+         than push a stale %eax. */
+      if(isfp(lval2.typ))
+      error("floating-point function arguments not supported on i386 yet");
       zpush();
       nargs=nargs+target.wordsize;
       r=r->r;

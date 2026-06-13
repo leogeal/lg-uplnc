@@ -1161,8 +1161,91 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
-  error("floating point not supported on i386 yet");
+  /* ---- i386 x87 floating point (M4 slice 6) -----------------------------
+     The flat-register FP IR maps onto the x87 register stack with st(0) as the
+     accumulator (mirroring %xmm0). Loads push (fld), stores pop (fstp), and
+     binary-op operands spill to the integer stack via FPUSH/FPOP, so st depth
+     stays <= 2 during evaluation and 0 between statements. After FPOP the stack
+     is st0=left, st1=right; the GAS mnemonics faddp/fsubp/fmulp/fdivp then give
+     left OP right (verified empirically -- GAS reverses fsub/fdiv vs Intel).
+     Scope: scalar arithmetic, conversions, float, arrays/deref, double->int at
+     return. The FP *calling convention* (passing/returning doubles across calls)
+     is not done here -- see the i386 caller guard in langc.e. */
+  else if(this->code==CD_FLDLIT)
+  {ot("fldl .LF");outdec(this->arg);nl();}
+  else if(this->code==CD_FLDLOC)
+  {ot("fldl ");outdec(this->arg);outstr("(%ebp)");nl();}
+  else if(this->code==CD_FLDGLB)
+  {
+    ot("fldl ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_FSTLOC)
+  {ot("fstpl ");outdec(this->arg);outstr("(%ebp)");nl();}
+  else if(this->code==CD_FSTGLB)
+  {
+    ot("fstpl ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_FPUSH)
+  {ol("subl $8, %esp");ol("fstpl (%esp)");}
+  else if(this->code==CD_FPOP)
+  {ol("fldl (%esp)");ol("addl $8, %esp");}
+  else if(this->code==CD_FADD)
+  ol("faddp %st, %st(1)");
+  else if(this->code==CD_FSUB)
+  ol("fsubp %st, %st(1)");
+  else if(this->code==CD_FMUL)
+  ol("fmulp %st, %st(1)");
+  else if(this->code==CD_FDIV)
+  ol("fdivp %st, %st(1)");
+  else if(this->code==CD_I2F)
+  {ol("pushl %eax");ol("fildl (%esp)");ol("addl $4, %esp");}
+  else if(this->code==CD_I2F1)
+  {ol("pushl %edx");ol("fildl (%esp)");ol("addl $4, %esp");}
+  else if(this->code==CD_F2I)
+  {
+    /* truncate st0 -> int %eax (round-toward-zero), popping st0. Save the x87
+       control word, set RC=11 (chop), fistpl, restore. */
+    ol("subl $8, %esp");
+    ol("fnstcw (%esp)");
+    ol("movzwl (%esp), %eax");
+    ol("orb $12, %ah");          /* set rounding-control bits (0x0C00) */
+    ol("movw %ax, 2(%esp)");
+    ol("fldcw 2(%esp)");
+    ol("fistpl 4(%esp)");
+    ol("fldcw (%esp)");
+    ol("movl 4(%esp), %eax");
+    ol("addl $8, %esp");
+  }
+  else if(this->code==CD_FLDLOCS)   /* 4-byte float: x87 loads/stores it directly */
+  {ot("flds ");outdec(this->arg);outstr("(%ebp)");nl();}
+  else if(this->code==CD_FLDGLBS)
+  {
+    ot("flds ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_FSTLOCS)
+  {ot("fstps ");outdec(this->arg);outstr("(%ebp)");nl();}
+  else if(this->code==CD_FSTGLBS)
+  {
+    ot("fstps ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
+  else if(this->code==CD_FLBR)      /* deref: address in %eax */
+  {ot("fldl ");outdec(this->arg);outstr("(%eax)");nl();}
+  else if(this->code==CD_FLBRS)
+  {ot("flds ");outdec(this->arg);outstr("(%eax)");nl();}
+  else if(this->code==CD_FSTBR2)    /* store through popped address in %edx */
+  {ot("fstpl ");outdec(this->arg);outstr("(%edx)");nl();}
+  else if(this->code==CD_FSTBR2S)
+  {ot("fstps ");outdec(this->arg);outstr("(%edx)");nl();}
+  else if((this->code>=CD_MARGINT)&&(this->code<=CD_SARGFP))
+  error("FP register marshaling is x86_64-only (no i386 FP calling convention)");
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1614,19 +1697,19 @@ func cfstbre2s(offset:int) /* M4: narrow & store float through %rdx */
   cd->code=CD_FSTBR2S;
   cd->arg=offset;
 }
-func fpush()            /* M4: push the FP accumulator */
+func fpush()            /* M4: push the FP accumulator (8-byte double slot) */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FPUSH;
-  Zsp=Zsp-target.wordsize;
+  Zsp=Zsp-8;   /* a double is 8 bytes on every target (== wordsize on x86_64) */
 }
-func fpop()             /* M4: pop into %xmm1 */
+func fpop()             /* M4: pop into %xmm1 / x87 st (8-byte double slot) */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FPOP;
-  Zsp=Zsp+target.wordsize;
+  Zsp=Zsp+8;
 }
 func fbinop(op:int)     /* M4: emit one FP arithmetic opcode */
 {
