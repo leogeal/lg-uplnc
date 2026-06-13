@@ -607,6 +607,16 @@ func cd_write_x86_64(*scode:this)
     ot("movsd ");outdec(this->arg);outstr("(%rsp), ");
     outstr(xmmreg(this->reg));nl();
   }
+  else if(this->code==CD_SARGINT)
+  {
+    ot("movq ");outstr(sysvargreg(this->reg));outstr(", ");
+    outdec(this->arg);outstr("(%rbp)");nl();
+  }
+  else if(this->code==CD_SARGFP)
+  {
+    ot("movsd ");outstr(xmmreg(this->reg));outstr(", ");
+    outdec(this->arg);outstr("(%rbp)");nl();
+  }
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1106,7 +1116,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_MARGFP))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_SARGFP))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1425,6 +1435,22 @@ func margfp(slot:int,reg:int)    /* M4: load double arg from stack into %xmm<reg
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_MARGFP;
+  cd->arg=slot;
+  cd->reg=reg;
+}
+func sargint(slot:int,reg:int)   /* M4: spill an int arg register to a param slot */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_SARGINT;
+  cd->arg=slot;
+  cd->reg=reg;
+}
+func sargfp(slot:int,reg:int)    /* M4: spill %xmm<reg> to a double param slot */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_SARGFP;
   cd->arg=slot;
   cd->reg=reg;
 }

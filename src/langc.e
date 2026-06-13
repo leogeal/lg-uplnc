@@ -35,6 +35,7 @@ var lastst:int;
 var argstk:int;
 var argtop:int;
 var Zsp:int;
+var curfunc:*ssym;   /* M4 slice 4b: the function being compiled (for its return type) */
 method snamenode.done()
 {
   if(next)
@@ -1048,6 +1049,9 @@ func dofunc()
   var int:argtype;
   var *ssym:gp;
   var int:k;
+  var [8]int:paramtyp;   /* M4 slice 4b: type of each register param, by position */
+  var int:nfpparam;      /* M4 slice 4b: how many params are doubles */
+  nfpparam=0;
   comment();
   ol(".fnc");
   if(methodcls&&methodidx)
@@ -1078,6 +1082,7 @@ func dofunc()
   {
     gp=addglb(n,S_FUNC,0,0,T_INT);
   }
+  curfunc=gp;
   if(!match(tlarg/*"("*/))error("missing '('");
   argstk=0;
   Zsp=0;
@@ -1089,6 +1094,7 @@ func dofunc()
     addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));
     else
     addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));
+    paramtyp[0]=T_INTP;   /* 'this' is a pointer (integer class), never a double */
     argstk=argstk+target.wordsize;
   }
   while(!match(trarg/*")"*/))
@@ -1124,6 +1130,8 @@ func dofunc()
          params 7+ arrive on the stack at +(2*wordsize)(%rbp) (caller-pushed). */
       var int:pidx;
       pidx=argstk/target.wordsize;
+      if(pidx<8)paramtyp[pidx]=argtype;   /* slice 4b: remember param types */
+      if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
       if(pidx<6)
       addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
       else
@@ -1142,6 +1150,9 @@ func dofunc()
     }
     if(endst())break;
   }
+  /* optional return-type annotation:  func f(...) : double  (M4 slice 4b).
+     Absent -> int (unchanged); set on gp so forward declarations carry it too. */
+  if(match(":"))gp->type=gettypen();
   if(match(";"))return ;
   nfunc++;
   var *snamelist:savenmlst;
@@ -1182,7 +1193,22 @@ func dofunc()
     if(nsp>0)
     {
       Zsp=modstk(Zsp-nsp*target.wordsize);
-      spillargs(nsp);
+      if(nfpparam==0)
+      spillargs(nsp);   /* all-integer params: unchanged, byte-identical path */
+      else
+      {
+        /* mixed/float params: route by SysV class -- doubles came in %xmm0..,
+           ints/ptrs in %rdi.., each spilled to its own slot -(pidx+1)*ws(%rbp). */
+        var int:pi;var int:ireg;var int:freg;
+        ireg=0;freg=0;
+        for(pi=0;pi<nsp;pi++)
+        {
+          if(paramtyp[pi]==T_DOUBLE)
+          {sargfp(-(pi+1)*target.wordsize,freg);freg=freg+1;}
+          else
+          {sargint(-(pi+1)*target.wordsize,ireg);ireg=ireg+1;}
+        }
+      }
     }
   }
   statemen();
@@ -1260,7 +1286,15 @@ func doreturn()
 {
   if(!endst())
   {
-    if(expressi()==T_DOUBLE)zf2i();   /* double result -> int return (M4) */
+    var int:rt;
+    rt=expressi();
+    /* convert the return value to the function's return type (M4 slice 4b).
+       A double-returning function leaves the result in %xmm0; otherwise a
+       double result is truncated to int (slice 1 behaviour, e.g. main). */
+    if(curfunc&&(curfunc->type==T_DOUBLE))
+    {if(rt!=T_DOUBLE)i2f();}
+    else
+    {if(rt==T_DOUBLE)zf2i();}
   }
   zleave();
   /*ol("movl %ebp, %esp");
@@ -2138,6 +2172,15 @@ func cttype(node:*enode)
      only consumer (the FP-argument counter). Avoid getptrty (it mutates the
      type table and can error). */
   return T_INTP;
+  else if(node->op==OP_FUNC)
+  {
+    /* a call yields the callee's return type, so a double-returning call used
+       as an argument is itself routed through the FP path (slice 4b). */
+    if(node->l&&(node->l->op==OP_LEAF)&&node->l->leaf.idx
+       &&(node->l->leaf.idx->sort==S_FUNC))
+    return node->l->leaf.idx->type;
+    return T_INT;
+  }
   else if(node->op==OP_PLUS||node->op==OP_MINUS||node->op==OP_MUL
        ||node->op==OP_DIV||node->op==OP_REM)
   {
@@ -3078,6 +3121,12 @@ func ct_FUNC(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;/*the result*/
+  /* a double-returning function leaves its result in %xmm0 (M4 slice 4b):
+     route the result through the FP path. Only triggers for functions
+     explicitly declared `: double`; everything else stays int (unchanged). */
+  if(l&&(l->op==OP_LEAF)&&l->leaf.idx&&(l->leaf.idx->sort==S_FUNC)
+     &&(l->leaf.idx->type==T_DOUBLE))
+  lval->typ=T_DOUBLE;
   return 0;
 }
 func ct_DOT(node:*enode,lval:*elval)
