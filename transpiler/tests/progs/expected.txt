@@ -42,3 +42,8 @@ fpparam 42
 fpparam_mixed 42
 fpret 42
 fpret_chain 42
+float_store 42
+float_global 42
+float_arith 42
+float_fromint 42
+global_double 42

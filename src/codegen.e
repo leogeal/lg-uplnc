@@ -569,6 +569,31 @@ func cd_write_x86_64(*scode:this)
     if(this->arg){outasm("+");outdec(this->arg);}
     nl();
   }
+  else if(this->code==CD_FLDLOCS)
+  {
+    /* load a 4-byte float and widen it into the (double) FP accumulator */
+    ot("cvtss2sd ");outdec(this->arg);outstr("(%rbp), %xmm0");nl();
+  }
+  else if(this->code==CD_FLDGLBS)
+  {
+    ot("cvtss2sd ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    outstr(", %xmm0");nl();
+  }
+  else if(this->code==CD_FSTLOCS)
+  {
+    /* narrow the double accumulator to single in %xmm1 (preserving %xmm0) and
+       store its 4 bytes */
+    ol("cvtsd2ss %xmm0, %xmm1");
+    ot("movss %xmm1, ");outdec(this->arg);outstr("(%rbp)");nl();
+  }
+  else if(this->code==CD_FSTGLBS)
+  {
+    ol("cvtsd2ss %xmm0, %xmm1");
+    ot("movss %xmm1, ");outname(this->str);
+    if(this->arg){outasm("+");outdec(this->arg);}
+    nl();
+  }
   else if(this->code==CD_FPUSH)
   {
     ol("subq $8, %rsp");
@@ -1116,7 +1141,7 @@ func cd_write_i386(*scode:this)
     outasm("(%ebp), %eax");
     nl();
   }
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_SARGFP))
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTGLBS))
   error("floating point not supported on i386 yet");
   else if(this->code==CD_IGNORE)
   ;
@@ -1508,6 +1533,36 @@ func cfstglb(name:*char,offset:int)   /* M4: store to global double */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FSTGLB;
+  cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func cfldlocs(offset:int)   /* M4 slice 5: load local float (widen to double) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLDLOCS;
+  cd->arg=offset;
+}
+func cfldglbs(name:*char,offset:int)   /* M4 slice 5: load global float */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FLDGLBS;
+  cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func cfstlocs(offset:int)   /* M4 slice 5: narrow & store to local float */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTLOCS;
+  cd->arg=offset;
+}
+func cfstglbs(name:*char,offset:int)   /* M4 slice 5: narrow & store to global float */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FSTGLBS;
   cd->str=strdyn(name);
   cd->arg=offset;
 }

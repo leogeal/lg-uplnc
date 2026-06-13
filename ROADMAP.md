@@ -115,7 +115,14 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
     so double-returning calls used as args route through `%xmm`. UPLNC functions
     now take *and* return doubles; 4 `fpparam*`/`fpret*` golden tests; both
     fixpoints byte-identical
-- ⏳ Slice 5: globals + 4-byte `float`; Slice 6: i386 x87 (optional)
+- ✅ Slice 5: globals + 4-byte `float`. Global doubles already worked (slice-2
+  global opcodes). New `float` (`T_FLOAT`) is a 4-byte *storage* type widened to
+  double on load (`cvtss2sd`) and narrowed on store (`cvtsd2ss`+`movss`); since it
+  decays to a double in registers, arithmetic/conversions/calls reuse the double
+  paths (an `isfp()` helper covers the few spots). Scalar locals + globals only;
+  float params/returns are rejected cleanly (single-precision ABI deferred).
+  5 golden tests; both fixpoints byte-identical
+- ⏳ Slice 6: i386 x87 (optional)
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
 ## M5 — Optimization ⏳
