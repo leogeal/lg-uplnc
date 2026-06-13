@@ -92,6 +92,10 @@
 #define CD_MARGFP    84 /* M4: arg(%rsp) -> %xmm<reg>  (double arg) */
 #define CD_SARGINT   85 /* M4: spill integer arg register reg -> slot(%rbp) */
 #define CD_SARGFP    86 /* M4: spill %xmm<reg> -> slot(%rbp)  (double param) */
+#define CD_FLDLOCS   87 /* M4 slice 5: load local float, widen -> %xmm0 (cvtss2sd) */
+#define CD_FLDGLBS   88 /* M4 slice 5: load global float, widen -> %xmm0 */
+#define CD_FSTLOCS   89 /* M4 slice 5: narrow %xmm0 -> local float (cvtsd2ss/movss) */
+#define CD_FSTGLBS   90 /* M4 slice 5: narrow %xmm0 -> global float */
 
 
 struct scode

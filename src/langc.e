@@ -718,7 +718,12 @@ func inittypes()
   strcp(typtab[T_DOUBLE].name,"double");
   typtab[T_DOUBLE].sort=V_FND;
   typtab[T_DOUBLE].size=8;
+  strcp(typtab[T_FLOAT].name,"float");
+  typtab[T_FLOAT].sort=V_FND;
+  typtab[T_FLOAT].size=4;
 }
+/* M4: a value of floating-point class (held in %xmm as a double once loaded). */
+func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
 func initst()
 {
 }
@@ -1130,6 +1135,8 @@ func dofunc()
          params 7+ arrive on the stack at +(2*wordsize)(%rbp) (caller-pushed). */
       var int:pidx;
       pidx=argstk/target.wordsize;
+      if(argtype==T_FLOAT)   /* slice 5: float at the ABI boundary is single-prec */
+      error("float parameter not supported yet -- use double");
       if(pidx<8)paramtyp[pidx]=argtype;   /* slice 4b: remember param types */
       if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
       if(pidx<6)
@@ -1152,7 +1159,12 @@ func dofunc()
   }
   /* optional return-type annotation:  func f(...) : double  (M4 slice 4b).
      Absent -> int (unchanged); set on gp so forward declarations carry it too. */
-  if(match(":"))gp->type=gettypen();
+  if(match(":"))
+  {
+    gp->type=gettypen();
+    if(gp->type==T_FLOAT)   /* slice 5: float return is single-prec at the ABI */
+    error("float return not supported yet -- use double");
+  }
   if(match(";"))return ;
   nfunc++;
   var *snamelist:savenmlst;
@@ -2353,9 +2365,10 @@ func ct_ASSIGN(node:*enode,lval:*elval)
     lval1.sort=L_SP;
   }
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  /* convert the RHS (in the accumulator) to the target's type (M4) */
-  if((lval1.typ==T_DOUBLE)&&(lval2.typ!=T_DOUBLE))i2f();    /* int -> double */
-  else if((lval1.typ!=T_DOUBLE)&&(lval2.typ==T_DOUBLE))zf2i();/* double -> int */
+  /* convert the RHS (in the accumulator) to the target's class (M4). A float
+     destination wants a double in %xmm0 here -- the store then narrows it. */
+  if(isfp(lval1.typ)&&!isfp(lval2.typ))i2f();    /* int -> double */
+  else if(!isfp(lval1.typ)&&isfp(lval2.typ))zf2i();/* double -> int */
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3002,7 +3015,7 @@ func ct_FUNC(node:*enode,lval:*elval)
       var [32]int:atypes;
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
-      cfp=0;rr=r;while(rr){if(cttype(rr->l)==T_DOUBLE)cfp=cfp+1;rr=rr->r;}
+      cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
       if(cfp>0)
       {
         /* System V FP marshaling: doubles in %xmm0.., ints/ptrs in %rdi.. */
@@ -3013,12 +3026,12 @@ func ct_FUNC(node:*enode,lval:*elval)
         if(pad)Zsp=modstk(Zsp-pad);
         j=cnt-1;rr=r;
         while(rr){k=treetocode(rr->l,&lval2);if(k)rvalue(&lval2);
-          if(lval2.typ==T_DOUBLE)fpush();else zpush();
+          if(isfp(lval2.typ))fpush();else zpush();
           atypes[j]=lval2.typ;j=j-1;rr=rr->r;}
         ireg=0;freg=0;
         for(i=0;i<cnt;i++)
         {
-          if(atypes[i]==T_DOUBLE){margfp(i*target.wordsize,freg);freg=freg+1;}
+          if(isfp(atypes[i])){margfp(i*target.wordsize,freg);freg=freg+1;}
           else{margint(i*target.wordsize,ireg);ireg=ireg+1;}
         }
         zcall(l->leaf.idx->name,freg);   /* %al = #xmm regs (varargs) */
@@ -3170,6 +3183,8 @@ func store(lval:*elval)
       zstob(lval->idx->name,lval->offset);
       else if(lval->typ==T_DOUBLE)
       cfstglb(lval->idx->name,lval->offset);
+      else if(lval->typ==T_FLOAT)
+      cfstglbs(lval->idx->name,lval->offset);
       else error("error in global storing");
       /*outname(lval->idx->name);
       if(lval->offset)
@@ -3187,6 +3202,8 @@ func store(lval:*elval)
       zstlb(lval->idx->offset+lval->offset);
       else if(lval->typ==T_DOUBLE)
       cfstloc(lval->idx->offset+lval->offset);
+      else if(lval->typ==T_FLOAT)
+      cfstlocs(lval->idx->offset+lval->offset);
       else error("error in local storing");
       /*outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp)");
@@ -3274,6 +3291,17 @@ func getmem(lval:*elval)
     else if(lval->idx->sort==S_VARL)
     cfldloc(lval->idx->offset+lval->offset);
     else error("error loading 'double' object");
+  }
+  else if(lval->typ==T_FLOAT)
+  {
+    /* load the 4-byte float, widening it to a double in %xmm0; from here on the
+       value is an ordinary double (slice 5), so decay the type. */
+    if(lval->idx->sort==S_VARG)
+    cfldglbs(lval->name,lval->offset);
+    else if(lval->idx->sort==S_VARL)
+    cfldlocs(lval->idx->offset+lval->offset);
+    else error("error loading 'float' object");
+    lval->typ=T_DOUBLE;
   }
   else if(lval->typ==T_INT||lval->typ==T_INTP
       ||lval->typ==T_CHARP
@@ -4231,6 +4259,7 @@ func gettsize(t:int)
   if(t==T_INT)return target.wordsize;
   else if(t==T_CHAR)return BYTESIZE;
   else if(t==T_DOUBLE)return 8;
+  else if(t==T_FLOAT)return 4;
   else if(t==T_INTP)return target.wordsize;
   else if(t==T_CHARP)return target.wordsize;
   else if((t>=F_TYPE)&&(t<typptr))return typtab[t].size;
@@ -4318,6 +4347,7 @@ func gettypen()
   if(amatch("char",4))return T_CHAR;
   if(amatch("int",3))return T_INT;
   if(amatch("double",6))return T_DOUBLE;
+  if(amatch("float",5))return T_FLOAT;
   if(alpha(ch())){
   k=l=0;
   while(an(c=line[lptr+k])){

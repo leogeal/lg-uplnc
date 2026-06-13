@@ -73,7 +73,20 @@ slice and is sequenced after scalar FP works.
      disambiguates "return a double" from "return a double literal truncated to int"
      (which `main` relies on); `cttype` learns that a call yields its callee's type,
      so a double-returning call used as an argument is itself routed through `%xmm`.
-5. **Globals + `float`.** global doubles; the 4-byte `float` type.
+5. **Globals + `float` (done).** Global doubles already worked (they fell out of
+   the slice-2 global load/store opcodes — `.comm name,8,4`, `movsd name(%rip)`).
+   The new piece is the 4-byte **`float`** type (`T_FLOAT`): a *storage* type that
+   is widened to a double on load (`cvtss2sd`) and narrowed on store
+   (`cvtsd2ss`+`movss`, narrowing into `%xmm1` so the `%xmm0` accumulator is
+   preserved for chained assignments). Because a float decays to a double the
+   moment it is in a register, all arithmetic, conversions, and the calling
+   convention reuse the existing double paths unchanged — `float` awareness is
+   confined to the type table, `getmem`/`store`, and an `isfp()` helper used where
+   double was special-cased. Single-precision rounding is real (`0.1f` loads back
+   as `0.100000001…`). Scope: scalar locals + globals only — `float` *params* and
+   *returns* are rejected with a clear error (they need single-precision ABI
+   handling), matching the fact that double arrays/`*double` deref don't work yet
+   either (the index/deref path has no FP case — a separate fix).
 6. **i386 x87** *(optional)* — only if i386 FP is wanted.
 
 ## Testing
@@ -85,6 +98,9 @@ round-tripping the formatted double back through `sprintf`/`atoi`
 (`fparg_printf`/`fparg_sum`/`fparg_mixed` for 4a). 4b is exit-code-checkable on its
 own: a double param truncated to int, mixed int/double params, and a `:double`
 return assigned to a double local or fed into another double param
-(`fpparam`/`fpparam_mixed`/`fpret`/`fpret_chain`). All go in
-`transpiler/tests/progs/` and run on the x86_64 CI job; both self-host fixpoints
-stay byte-identical (the compiler's own source uses no doubles).
+(`fpparam`/`fpparam_mixed`/`fpret`/`fpret_chain`). Slice 5 is exit-code-checkable
+too: float store/load truncation, a global float, float arithmetic, int→float
+round-trip, and a global double (`float_store`/`float_global`/`float_arith`/
+`float_fromint`/`global_double`). All go in `transpiler/tests/progs/` and run on
+the x86_64 CI job; both self-host fixpoints stay byte-identical (the compiler's
+own source uses no doubles or floats).
