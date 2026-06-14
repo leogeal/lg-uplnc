@@ -28,10 +28,10 @@ jobs:
 
   test-arm64:
     name: Build + test (host arm64)
-    # Confirms host-portability: the transpiled compiler builds and runs (and
-    # self-compiles to .s) on a non-x86 host. Output is still i386 asm, which is
-    # not assembled here -- run_tests.sh links nothing target-specific. The build
-    # uses -fsigned-char so ARM's unsigned-char default matches i386 semantics.
+    # Two roles: (1) host-portability -- the transpiled compiler builds and runs
+    # on a non-x86 host (-fsigned-char matches i386 char semantics); and (2)
+    # arm64 *target* run-correctness -- on this native arm64 host run_tests.sh's
+    # arm64 section assembles + runs the -march=arm64 output with the native gcc.
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +41,11 @@ jobs:
       - name: Build stage-0 tools on arm64
         run: ./build.sh
         working-directory: transpiler
-      - name: Run test suite (19 checks) on arm64
+      - name: Run test suite (incl. native arm64 run-correctness)
         run: bash tests/run_tests.sh
+        working-directory: transpiler
+      - name: ARM64 self-host fixpoint (native)
+        run: ./fixpoint.sh arm64
         working-directory: transpiler
 
   fixpoint:

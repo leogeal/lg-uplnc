@@ -346,6 +346,8 @@ func parseopt(argc:int,argv:**char)
     {archsel=ARCH_X86_64;}
     else if(strid(argv[i],"-march=i386"))
     {archsel=ARCH_I386;}
+    else if(strid(argv[i],"-march=arm64"))
+    {archsel=ARCH_ARM64;}
     else if(*argv[i]=='-')
     {
       fprintf(stderr,"option:\n");
@@ -1095,7 +1097,7 @@ func dofunc()
   ssymtabfree(&locsymtab);
   if(methodcls&&methodidx)
   {
-    if(target.arch==ARCH_X86_64)
+    if(target.arch!=ARCH_I386)
     addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));
     else
     addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));
@@ -1129,10 +1131,10 @@ func dofunc()
     k=gettsize(argtype);
     /* round arg slot up to a target word (i386: 4, x86_64: 8) */
     if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
-    if(target.arch==ARCH_X86_64)
+    if(target.arch!=ARCH_I386)
     {
-      /* SysV: params 1-6 arrive in registers and are spilled to -(slot)(%rbp);
-         params 7+ arrive on the stack at +(2*wordsize)(%rbp) (caller-pushed). */
+      /* SysV/AAPCS64: params 1-6 arrive in registers and are spilled to
+         -(slot)(fp); params 7+ arrive on the stack (caller-pushed). */
       var int:pidx;
       pidx=argstk/target.wordsize;
       if(argtype==T_FLOAT)   /* slice 5: float at the ABI boundary is single-prec */
@@ -1142,7 +1144,9 @@ func dofunc()
       if(pidx<6)
       addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
       else
-      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.wordsize,argtype);
+      /* stack params sit above the 16-byte frame record at a per-slot stride
+         (==wordsize, but 16 on arm64 where each pushed arg is a 16-byte slot) */
+      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.stackslot,argtype);
       argstk=argstk+target.wordsize;
     }
     else
@@ -1195,7 +1199,7 @@ func dofunc()
   /*ol("pushl %ebp");
   ol("movl %esp, %ebp");*/
   zenter();
-  if(target.arch==ARCH_X86_64)
+  if(target.arch!=ARCH_I386)
   {
     /* reserve slots for and spill only the register params (1-6); params 7+ are
        on the caller's stack at positive offsets and need no spill. */
@@ -1956,6 +1960,7 @@ func _zcall(sname:*char)
 func inittarget()
 {
   if(archsel==ARCH_X86_64)inittarget_x86_64();
+  else if(archsel==ARCH_ARM64)inittarget_arm64();
   else inittarget_i386();
 }
 /* ELF/GAS directives are shared by i386 and x86_64; only arch + word size
@@ -1977,12 +1982,21 @@ func inittarget_i386()
   inittarget_elf();
   target.arch=ARCH_I386;
   target.wordsize=WORDSIZE;
+  target.stackslot=WORDSIZE;
 }
 func inittarget_x86_64()
 {
   inittarget_elf();
   target.arch=ARCH_X86_64;
   target.wordsize=8;   /* int==pointer==8 bytes (UPLNC's word model) */
+  target.stackslot=8;
+}
+func inittarget_arm64()
+{
+  inittarget_elf();
+  target.arch=ARCH_ARM64;
+  target.wordsize=8;   /* AArch64 LP64: int==pointer==8 bytes */
+  target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
 }
 func printlab(label:int)
 {
@@ -3008,7 +3022,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     var int:nargs;
     r=node->r;
     nargs=0;
-    if(target.arch==ARCH_X86_64)
+    if(target.arch!=ARCH_I386)   /* x86_64 + arm64: register-based convention */
     {
       var int:savezsp;var int:cnt;var *enode:rr;var int:pad;var int:nstack;
       var int:cfp;var int:cint;var int:ireg;var int:freg;var int:i;var int:j;
@@ -3039,12 +3053,15 @@ func ct_FUNC(node:*enode,lval:*elval)
       }
       else
       {
+        /* stackslot == wordsize except on arm64 (16), where each pushed arg
+           occupies a 16-byte slot so sp stays aligned -- so the alignment pad
+           is always 0 there and the marshal/cleanup byte counts match. */
         nstack=cnt-6;if(nstack<0)nstack=0;
-        if(cnt>6)pad=(((Zsp-nstack*target.wordsize)%16)+16)%16;
-        else pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+        if(cnt>6)pad=(((Zsp-nstack*target.stackslot)%16)+16)%16;
+        else pad=(((Zsp-cnt*target.stackslot)%16)+16)%16;
         if(pad)Zsp=modstk(Zsp-pad);
         while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
-        if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
+        if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.stackslot);}
         else marshal(cnt);
         zcall(l->leaf.idx->name,0);
         Zsp=modstk(savezsp);
@@ -3074,12 +3091,12 @@ func ct_FUNC(node:*enode,lval:*elval)
     r=node->r;
     nargs=0;
     var int:savezsp2;var int:cnt2;var *enode:rr2;var int:pad2;
-    if(target.arch==ARCH_X86_64)
+    if(target.arch!=ARCH_I386)
     {
       savezsp2=Zsp;
       cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
-      if(cnt2>6)pad2=(((Zsp-(cnt2-6)*target.wordsize)%16)+16)%16;
-      else pad2=(((Zsp-cnt2*target.wordsize)%16)+16)%16;
+      if(cnt2>6)pad2=(((Zsp-(cnt2-6)*target.stackslot)%16)+16)%16;
+      else pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
       if(pad2)Zsp=modstk(Zsp-pad2);
     }
     while(r)
@@ -3117,9 +3134,9 @@ func ct_FUNC(node:*enode,lval:*elval)
     strcp(methodname,typtab[typtab[lval2.typ].type].name);
     strcat(strcat(methodname,"."),l->name);/* DANGEROUS!!! FixMe! */
     cnmlst->addm(methodname);
-    if(target.arch==ARCH_X86_64)
+    if(target.arch!=ARCH_I386)
     {
-      if(cnt2>6){marshal(6);Zsp=modstk(Zsp+6*target.wordsize);}
+      if(cnt2>6){marshal(6);Zsp=modstk(Zsp+6*target.stackslot);}
       else marshal(cnt2);
       zcall(methodname,0);
       Zsp=modstk(savezsp2);
