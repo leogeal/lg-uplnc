@@ -872,6 +872,19 @@ func argreg_arm64(i:int)
   error("arm64: more than 6 register arguments not supported");
   return "x0";
 }
+func fpargreg_arm64(i:int)   /* AAPCS64 floating-point arg/return registers */
+{
+  if(i==0)return "d0";
+  else if(i==1)return "d1";
+  else if(i==2)return "d2";
+  else if(i==3)return "d3";
+  else if(i==4)return "d4";
+  else if(i==5)return "d5";
+  else if(i==6)return "d6";
+  else if(i==7)return "d7";
+  error("arm64: more than 8 floating-point arguments not supported");
+  return "d0";
+}
 func xmulreg_arm64(k:int,s:*char)
 {
   var int:l;
@@ -999,8 +1012,52 @@ func cd_write_arm64(*scode:this)
   {gaddr_arm64("x9",this->str,this->arg);ol("ldrsb x0, [x9]");}
   else if(this->code==CD_LDLW)framemem_arm64("ldr","x0",this->arg);
   else if(this->code==CD_LDLB)framemem_arm64("ldrsb","x0",this->arg);
-  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
-  error("floating point not supported on arm64 yet");
+  /* ---- AArch64 floating point: d0 = FP accumulator, d1 = 2nd operand ------ */
+  else if(this->code==CD_FLDLIT)
+  {
+    /* add :lo12: (unscaled reloc) then ldr -- the scaled ldr lo12 form would
+       require the .double pool to be 8-byte aligned, which it isn't. */
+    ot("adrp x9, .LF");outdec(this->arg);nl();
+    ot("add x9, x9, #:lo12:.LF");outdec(this->arg);nl();
+    ol("ldr d0, [x9]");
+  }
+  else if(this->code==CD_F2I)ol("fcvtzs x0, d0");   /* double->int, truncate */
+  else if(this->code==CD_FLDLOC)framemem_arm64("ldr","d0",this->arg);
+  else if(this->code==CD_FLDGLB)
+  {gaddr_arm64("x9",this->str,this->arg);ol("ldr d0, [x9]");}
+  else if(this->code==CD_FSTLOC)framemem_arm64("str","d0",this->arg);
+  else if(this->code==CD_FSTGLB)
+  {gaddr_arm64("x9",this->str,this->arg);ol("str d0, [x9]");}
+  else if(this->code==CD_FPUSH)ol("str d0, [sp, #-16]!");
+  else if(this->code==CD_FPOP)ol("ldr d1, [sp], #16");
+  else if(this->code==CD_FADD)ol("fadd d0, d1, d0");
+  else if(this->code==CD_FSUB)ol("fsub d0, d1, d0");   /* left-right */
+  else if(this->code==CD_FMUL)ol("fmul d0, d1, d0");
+  else if(this->code==CD_FDIV)ol("fdiv d0, d1, d0");   /* left/right */
+  else if(this->code==CD_I2F)ol("scvtf d0, x0");       /* promote right */
+  else if(this->code==CD_I2F1)ol("scvtf d1, x1");      /* promote left */
+  else if(this->code==CD_MARGINT)
+  ptrmem_arm64("ldr",argreg_arm64(this->reg),"sp",this->arg);
+  else if(this->code==CD_MARGFP)
+  ptrmem_arm64("ldr",fpargreg_arm64(this->reg),"sp",this->arg);
+  else if(this->code==CD_SARGINT)
+  framemem_arm64("str",argreg_arm64(this->reg),this->arg);
+  else if(this->code==CD_SARGFP)
+  framemem_arm64("str",fpargreg_arm64(this->reg),this->arg);
+  else if(this->code==CD_FLDLOCS)            /* 4-byte float: load + widen */
+  {framemem_arm64("ldr","s0",this->arg);ol("fcvt d0, s0");}
+  else if(this->code==CD_FLDGLBS)
+  {gaddr_arm64("x9",this->str,this->arg);ol("ldr s0, [x9]");ol("fcvt d0, s0");}
+  else if(this->code==CD_FSTLOCS)            /* narrow into s1 (preserve d0) */
+  {ol("fcvt s1, d0");framemem_arm64("str","s1",this->arg);}
+  else if(this->code==CD_FSTGLBS)
+  {ol("fcvt s1, d0");gaddr_arm64("x9",this->str,this->arg);ol("str s1, [x9]");}
+  else if(this->code==CD_FLBR)ptrmem_arm64("ldr","d0","x0",this->arg);
+  else if(this->code==CD_FLBRS)
+  {ptrmem_arm64("ldr","s0","x0",this->arg);ol("fcvt d0, s0");}
+  else if(this->code==CD_FSTBR2)ptrmem_arm64("str","d0","x1",this->arg);
+  else if(this->code==CD_FSTBR2S)
+  {ol("fcvt s1, d0");ptrmem_arm64("str","s1","x1",this->arg);}
   else if(this->code==CD_IGNORE)
   ;
   else
@@ -1980,19 +2037,26 @@ func cfstbre2s(offset:int) /* M4: narrow & store float through %rdx */
   cd->code=CD_FSTBR2S;
   cd->arg=offset;
 }
-func fpush()            /* M4: push the FP accumulator (8-byte double slot) */
+func fpslot()   /* bytes a pushed double occupies: 8, but 16 on arm64 (align) */
+{
+  var int:s;
+  s=target.stackslot;
+  if(s<8)s=8;   /* i386: a double is 8 bytes even though the word is 4 */
+  return s;
+}
+func fpush()            /* M4: push the FP accumulator */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FPUSH;
-  Zsp=Zsp-8;   /* a double is 8 bytes on every target (== wordsize on x86_64) */
+  Zsp=Zsp-fpslot();
 }
-func fpop()             /* M4: pop into %xmm1 / x87 st (8-byte double slot) */
+func fpop()             /* M4: pop into the 2nd FP register */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FPOP;
-  Zsp=Zsp+8;
+  Zsp=Zsp+fpslot();
 }
 func fbinop(op:int)     /* M4: emit one FP arithmetic opcode */
 {

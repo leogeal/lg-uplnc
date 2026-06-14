@@ -3032,11 +3032,13 @@ func ct_FUNC(node:*enode,lval:*elval)
       cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
       if(cfp>0)
       {
-        /* System V FP marshaling: doubles in %xmm0.., ints/ptrs in %rdi.. */
+        /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
+           (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
+           %al count is ignored -- AAPCS64 needs no vector-register count. */
         cint=cnt-cfp;
-        if(cint>6)error("x86_64: >6 integer args alongside floats");
-        if(cfp>8)error("x86_64: >8 floating-point args");
-        pad=(((Zsp-cnt*target.wordsize)%16)+16)%16;
+        if(cint>6)error(">6 integer args alongside floats");
+        if(cfp>8)error(">8 floating-point args");
+        pad=(((Zsp-cnt*target.stackslot)%16)+16)%16;
         if(pad)Zsp=modstk(Zsp-pad);
         j=cnt-1;rr=r;
         while(rr){k=treetocode(rr->l,&lval2);if(k)rvalue(&lval2);
@@ -3045,10 +3047,10 @@ func ct_FUNC(node:*enode,lval:*elval)
         ireg=0;freg=0;
         for(i=0;i<cnt;i++)
         {
-          if(isfp(atypes[i])){margfp(i*target.wordsize,freg);freg=freg+1;}
-          else{margint(i*target.wordsize,ireg);ireg=ireg+1;}
+          if(isfp(atypes[i])){margfp(i*target.stackslot,freg);freg=freg+1;}
+          else{margint(i*target.stackslot,ireg);ireg=ireg+1;}
         }
-        zcall(l->leaf.idx->name,freg);   /* %al = #xmm regs (varargs) */
+        zcall(l->leaf.idx->name,freg);   /* %al = #xmm regs (x86_64 varargs) */
         Zsp=modstk(savezsp);
       }
       else
