@@ -3056,13 +3056,11 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
-      /* i386 x87 is scalar-only (slice 6): the FP calling convention (passing
-         a double on the cdecl stack) is not implemented, so reject it rather
-         than push a stale %eax. */
-      if(isfp(lval2.typ))
-      error("floating-point function arguments not supported on i386 yet");
-      zpush();
-      nargs=nargs+target.wordsize;
+      /* i386 cdecl: a double is passed as 8 bytes on the stack -- fpush pops the
+         x87 accumulator (st0) into the slot. Ints/pointers are the usual 4-byte
+         push. A float argument has already decayed to a double in st0. */
+      if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
+      else{zpush();nargs=nargs+target.wordsize;}
       r=r->r;
     }
     zcall(l->leaf.idx->name,0);
@@ -3088,6 +3086,10 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
+      /* methods marshal args as integers on both targets; a floating-point
+         method argument would push a stale accumulator -- reject it cleanly. */
+      if(isfp(lval2.typ))
+      error("floating-point method arguments not supported yet");
       zpush();
       nargs=nargs+target.wordsize;
       r=r->r;

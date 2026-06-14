@@ -132,10 +132,16 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   the integer stack via `FPUSH`/`FPOP`). `faddp`/`fsubp`/`fmulp`/`fdivp` give
   `left OP right` (GAS reverses `fsub`/`fdiv` vs Intel — verified empirically);
   `double→int` is the control-word truncation dance, `float` is `flds`/`fstps`.
-  Scalar only (the i386 FP calling convention is deferred; FP args error
-  cleanly). `run_tests.sh` gained an i386 `-m32` run-correctness section (the
-  i386 backend is now *run*, not just fixpoint-checked) — all scalar FP progs
-  match x86_64; both fixpoints byte-identical.
+  `run_tests.sh` gained an i386 `-m32` run-correctness section (the i386 backend
+  is now *run*, not just fixpoint-checked) — all FP progs match x86_64; both
+  fixpoints byte-identical.
+- ✅ i386 FP calling convention (follow-up to slice 6): doubles cross i386 cdecl
+  calls — the caller pushes a `double` arg as 8 bytes on the stack (`fpush` pops
+  `st(0)`), and doubles return in `st(0)` (the callee side already worked from
+  slice 4b). Enables `printf("%f")` and double params/returns on i386; the seven
+  `fparg_*`/`fpparam*`/`fpret*` progs now run on i386 too (127 tests pass). `float`
+  params/returns and FP *method* args remain rejected cleanly. Both fixpoints
+  byte-identical
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
 ## M5 — Optimization 🟡

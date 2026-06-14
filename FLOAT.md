@@ -110,10 +110,20 @@ slice and is sequenced after scalar FP works.
    restore); `int↔double` is `fildl`; `float` is just `flds`/`fstps` (the x87
    loads/stores the narrower width directly — no explicit convert). A double is
    8 bytes even though the target word is 4, so `FPUSH` reserves 8 and `Zsp`
-   tracks 8. **Scope: scalar only** — the i386 FP *calling convention* (passing
-   doubles on the cdecl stack, `st(0)` returns) is not implemented; FP function
-   arguments are rejected with a clear error. Both self-host fixpoints stay
-   byte-identical (the compiler uses no FP).
+   tracks 8. Both self-host fixpoints stay byte-identical (the compiler uses no FP).
+   - **i386 FP calling convention (follow-up to 6, done).** Doubles cross calls
+     via i386 cdecl: the caller pushes a `double` argument as 8 bytes on the
+     stack (`fpush` pops `st(0)` into the slot; ints stay 4-byte pushes, and the
+     mixed `Zsp`/`nargs` bookkeeping just sums the per-arg sizes), and a
+     `double` is returned in `st(0)` — exactly the cdecl return register, so the
+     callee side (double params at positive `%ebp` offsets via `fldl`, the
+     `return` leaving `st(0)`, and the caller capturing it) already worked from
+     slice 4b's target-neutral logic; only the caller's arg-push was missing.
+     This enables `printf("%f")` and double params/returns on i386, so the seven
+     `fparg_*`/`fpparam*`/`fpret*` progs now run on i386 too (no longer skipped).
+     `float` params/returns remain rejected (single-precision ABI, as on x86_64);
+     floating-point *method* arguments are rejected on both targets (methods
+     marshal args as integers — a separate gap).
 
 ## Testing
 
@@ -137,7 +147,8 @@ doubles or floats).
 Slice 6 (i386 x87) reuses the **same** exit-code progs: `run_tests.sh` gained an
 i386 run-correctness section that compiles every prog with `-march=i386`,
 assembles/links/runs it under `-m32`, and checks the exit code — so the i386
-backend is finally *run*, not just fixpoint-checked. The scalar FP progs produce
-the same exit codes on i386 x87 as on x86_64/SSE2; the seven FP-calling-convention
-progs (`fparg_*`/`fpparam*`/`fpret*`) are skipped on i386 by design. The CI test
-job installs `gcc-multilib` so this section gates there too.
+backend is finally *run*, not just fixpoint-checked. **Every** FP prog now
+produces the same exit code on i386 x87 as on x86_64/SSE2, including the seven
+FP-calling-convention progs (`fparg_*`/`fpparam*`/`fpret*`) once the i386 cdecl
+convention landed — nothing is skipped any more. The CI test job installs
+`gcc-multilib` so this section gates there too.

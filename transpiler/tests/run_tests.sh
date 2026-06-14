@@ -104,13 +104,6 @@ elif [ -z "$M32" ]; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        # The FP *calling convention* (double args / params / returns) is
-        # x86_64-only; these progs error cleanly on i386 by design -- skip them.
-        case "$name" in
-            fparg_*|fpparam*|fpret*)
-                echo "  skip - i386 $name.e (FP calling convention is x86_64-only)"
-                continue;;
-        esac
         asm="/tmp/uplnc_i386_$name.s"; bin="/tmp/uplnc_i386_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=i386 > "$asm" 2>/dev/null
