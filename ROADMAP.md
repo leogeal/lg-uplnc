@@ -138,16 +138,32 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   match x86_64; both fixpoints byte-identical.
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
-## M5 — Optimization ⏳
+## M5 — Optimization 🟡
 
 The codegen is a naive stack machine (push/pop around every operation). Biggest
 wins first:
 
-- ⏳ **Peephole** pass over `scode` (kill `push`/`pop` pairs, redundant moves)
+- 🟡 **Peephole** pass over `scode` (`peephole()` in `codegen.e`, run from
+  `cg_print` before lowering, so it is target-neutral and both backends + both
+  fixpoints benefit). Two rules so far:
+  - **A — push/pop elision.** A binary op whose right operand is a single
+    accumulator-only load (`CD_LD*`/`CD_LEA`) doesn't need the stack: rewrite
+    `PUSH ; load→%rax ; POP` to `MOVAD(%rax→%rdx) ; load`, keeping the left
+    operand in `%rdx`. Eliminated **1426** push/pop pairs across the compiler's
+    own 5 units (≈2852 fewer memory accesses).
+  - **B — dead-code elimination.** Code after an unconditional `RET`/`JUMP` is
+    unreachable until the next label — dropped (e.g. the epilogue after a
+    trailing `return`).
+  - Net: the compiler's own code shrank **37991 → 36043** instructions (−5.1%);
+    120 run-correctness tests pass on both targets and both fixpoints stay
+    byte-for-byte self-reproducing (the optimizer changes output, so this is the
+    real gate). Eliminated items become `CD_IGNORE`, so a single forward pass
+    over a stable-index buffer suffices.
+- ⏳ Further peepholes: fold `load→%rax ; MOVAD` into a direct load to `%rdx`;
+  combine adjacent stack adjustments; redundant `mov` elimination
 - ⏳ **Constant folding** in the expression tree
 - ⏳ Light **register allocation** — use the register file instead of spilling
   every temporary to the stack
-- ⏳ Dead-code / unreachable elimination
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳
