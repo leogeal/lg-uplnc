@@ -76,8 +76,16 @@ Make output target a pluggable choice instead of hard-wired i386. See
 
 - ✅ **x86_64** backend (SysV ABI; 16-byte alignment; varargs `%al`) —
   self-hosts natively, removing the `-m32` dependency.
-- ✅ Per-target **fixpoint in CI** — x86_64 native + i386 under `-m32`
-- ⏳ **ARM64** backend (developed as a cross-compiler first, tested under QEMU)
+- ✅ **ARM64** (AArch64) backend — `cd_write_arm64`: `x0` accumulator, `x1` 2nd
+  operand, `x9` scratch, `x29`/`x30`/`sp` frame; load/store architecture
+  (`ldr`/`str`, `cmp`+`cset`, `adrp`+`add :lo12:` for globals), AAPCS64 calls
+  (`bl`/`ret`, args `x0–x5`). The operand stack pushes **16-byte slots** so `sp`
+  stays 16-aligned (a new `target.stackslot`, ==wordsize elsewhere). Developed as
+  a cross-compiler (validated under qemu-user; native on arm64 CI). Integer/
+  pointer only — **FP errors cleanly for now**. **Self-host fixpoint reached**
+  (stage-2 ≡ stage-3), so UPLNC now self-hosts on three ISAs (i386, x86_64, arm64)
+- ✅ Per-target **fixpoint in CI** — x86_64 native, i386 under `-m32`, arm64 native
+- ⏳ ARM64 **floating point** (NEON/`d0`) — the remaining piece for FP parity
 - 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
 
 ## M4 — Floating-point arithmetic ✅

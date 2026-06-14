@@ -144,11 +144,14 @@ var extern int :Zsp;
    per-target instruction-lowering backend (see cd_write). */
 #define ARCH_I386   0
 #define ARCH_X86_64 1
+#define ARCH_ARM64  2
 struct starget{
   int arch;             /* ARCH_* -- selects the lowering backend */
   *char label_prefix;   /* local label prefix, e.g. ".L"        */
   *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
   int wordsize;         /* TARGET word size in bytes            */
+  int stackslot;        /* operand-stack push size: ==wordsize, but 16 on arm64
+                           (AArch64 sp must stay 16-byte aligned)            */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */

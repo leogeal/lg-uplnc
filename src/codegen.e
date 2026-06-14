@@ -128,6 +128,7 @@ func cg_insert(*scodegen this,*scode s)
 func cd_write(*scode:this)
 {
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
+  else if(target.arch==ARCH_ARM64)cd_write_arm64(this);
   else cd_write_i386(this);
 }
 /* System V AMD64 integer/pointer argument registers, in order. */
@@ -769,6 +770,241 @@ func xmulreg_x86_64(k:int,s:*char)
   outstr(", ");
   outstr(s);
   nl();
+}
+/* ===================== AArch64 (ARM64) backend (M3) =======================
+   x0 = accumulator (RG_A), x1 = 2nd operand (RG_D), x9/x10 = scratch, x29 =
+   frame pointer, x30 = link register, sp = stack (must stay 16-byte aligned).
+   Load/store architecture: arithmetic is register-register; memory needs an
+   address. Calls follow AAPCS64 (args x0..x5 here, return x0, `bl`/`ret`).
+   Integer/pointer only for now -- the FP opcodes error cleanly. */
+func loadimm_arm64(reg:*char,val:int)
+{
+  /* Load a 32-bit-representable immediate: low 16 bits (movz), bits 16-31
+     (movk), then sign-extend a negative value to 64 bits. We deliberately
+     avoid >>32/>>48 because the bootstrap stage-0 (uplnc2c -> C) uses 32-bit
+     `int`, where those shifts are masked to 0; integer literals in this
+     codebase all fit in 32 bits, so this is sufficient and stage-independent. */
+  ot("movz ");outstr(reg);outstr(", #");outdec(val&65535);nl();
+  if((val>>16)&65535)
+  {ot("movk ");outstr(reg);outstr(", #");outdec((val>>16)&65535);outstr(", lsl #16");nl();}
+  if(val<0)
+  {ot("sxtw ");outstr(reg);outstr(", w");outstr(reg+1);nl();}  /* w<n> of x<n> */
+}
+func addimm_arm64(dst:*char,src:*char,val:int)
+{
+  /* dst = src + val (val may be negative); 12-bit immediate, scratch for big */
+  var int:a;
+  a=val;if(a<0)a=-a;
+  if(a<4096)
+  {
+    if(val<0)ot("sub ");else ot("add ");
+    outstr(dst);outstr(", ");outstr(src);outstr(", #");outdec(a);nl();
+  }
+  else
+  {
+    loadimm_arm64("x9",a);
+    if(val<0)ot("sub ");else ot("add ");
+    outstr(dst);outstr(", ");outstr(src);outstr(", x9");nl();
+  }
+}
+func gaddr_arm64(reg:*char,name:*char,off:int)
+{
+  /* reg = &name[+off], non-PIC (adrp/add :lo12:, fixed at static link) */
+  ot("adrp ");outstr(reg);outstr(", ");outname(name);
+  if(off){outstr("+");outdec(off);}
+  nl();
+  ot("add ");outstr(reg);outstr(", ");outstr(reg);outstr(", :lo12:");outname(name);
+  if(off){outstr("+");outdec(off);}
+  nl();
+}
+func litaddr_arm64(reg:*char,off:int)
+{
+  /* reg = &.L<stlab>[+off] (string-literal pool base) */
+  ot("adrp ");outstr(reg);outstr(", ");printlab(stlab);
+  if(off){outstr("+");outdec(off);}
+  nl();
+  ot("add ");outstr(reg);outstr(", ");outstr(reg);outstr(", :lo12:");printlab(stlab);
+  if(off){outstr("+");outdec(off);}
+  nl();
+}
+func framemem_arm64(op:*char,reg:*char,off:int)
+{
+  /* op reg, [x29+off]; compute the address in x9 when off is out of range */
+  if((off<=255)&&(off>=-256))
+  {ot(op);outstr(" ");outstr(reg);outstr(", [x29, #");outdec(off);outstr("]");nl();}
+  else
+  {addimm_arm64("x9","x29",off);ot(op);outstr(" ");outstr(reg);outstr(", [x9]");nl();}
+}
+func ptrmem_arm64(op:*char,reg:*char,base:*char,off:int)
+{
+  /* op reg, [base+off]; fold large off into the base via x9 */
+  if((off<=255)&&(off>=-256))
+  {ot(op);outstr(" ");outstr(reg);outstr(", [");outstr(base);outstr(", #");outdec(off);outstr("]");nl();}
+  else
+  {addimm_arm64("x9",base,off);ot(op);outstr(" ");outstr(reg);outstr(", [x9]");nl();}
+}
+func armcmpset(cond:*char)
+{
+  ol("cmp x1, x0");      /* x1=left, x0=right -> x1-x0 */
+  ot("cset x0, ");outstr(cond);nl();
+}
+func spadjust_arm64(a:int,isadd:int)
+{
+  if(a<4096)
+  {
+    if(isadd)ot("add sp, sp, #");else ot("sub sp, sp, #");
+    outdec(a);nl();
+  }
+  else
+  {
+    loadimm_arm64("x9",a);
+    if(isadd)ol("add sp, sp, x9");else ol("sub sp, sp, x9");
+  }
+}
+func argreg_arm64(i:int)
+{
+  if(i==0)return "x0";
+  else if(i==1)return "x1";
+  else if(i==2)return "x2";
+  else if(i==3)return "x3";
+  else if(i==4)return "x4";
+  else if(i==5)return "x5";
+  error("arm64: more than 6 register arguments not supported");
+  return "x0";
+}
+func xmulreg_arm64(k:int,s:*char)
+{
+  var int:l;
+  if(k==1)return ;
+  if(k==0){ot("mov ");outstr(s);outstr(", #0");nl();return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("lsl ");outstr(s);outstr(", ");outstr(s);outstr(", #");outdec(l);nl();return ;}
+  else l++;
+  loadimm_arm64("x9",k);
+  ot("mul ");outstr(s);outstr(", ");outstr(s);outstr(", x9");nl();
+}
+func xdivconst_arm64(k:int)
+{
+  var int:l;
+  if(k==1)return ;
+  if(!k){error("division by zero");return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("asr x0, x0, #");outdec(l);nl();return ;}
+  else l++;
+  loadimm_arm64("x9",k);
+  ol("sdiv x0, x0, x9");
+}
+func cd_write_arm64(*scode:this)
+{
+  if(this->code==CD_ZCALL)
+  {
+    ot("bl ");outname(this->str);nl();
+    /* sign-extend a 32-bit int return (getchar/fgetc) -- the compiler compares
+       it; other returns set the full x0 (see the x86_64 cltq note). */
+    if(this->str)
+    if(strid(this->str,"getchar")||strid(this->str,"fgetc")||strid(this->str,"getc"))
+    ol("sxtw x0, w0");
+  }
+  else if(this->code==CD_SPILLARGS)
+  {
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    framemem_arm64("str",argreg_arm64(i),-(i+1)*target.wordsize);
+  }
+  else if(this->code==CD_MARSHAL)
+  {
+    /* load the pushed args (16-byte slots) into x0..x5 */
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    {ptrmem_arm64("ldr",argreg_arm64(i),"sp",i*target.stackslot);}
+  }
+  else if(this->code==CD_LAB)
+  {printlab(this->arg);col();nl();}
+  else if(this->code==CD_JUMP)
+  {ot("b ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTJUMP)
+  {ot("cbz x0, ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTNEJUMP)
+  {ot("cbnz x0, ");printlab(this->arg);nl();}
+  else if(this->code==CD_NEG)
+  ol("neg x0, x0");
+  else if(this->code==CD_LNOT)
+  {ol("cmp x0, #0");ol("cset x0, eq");}
+  else if(this->code==CD_BNOT)
+  ol("mvn x0, x0");
+  else if(this->code==CD_EQ)armcmpset("eq");
+  else if(this->code==CD_NEQ)armcmpset("ne");
+  else if(this->code==CD_ZGE)armcmpset("ge");
+  else if(this->code==CD_UGE)armcmpset("hs");
+  else if(this->code==CD_ZLE)armcmpset("le");
+  else if(this->code==CD_ULE)armcmpset("ls");
+  else if(this->code==CD_ZLT)armcmpset("lt");
+  else if(this->code==CD_ULT)armcmpset("lo");
+  else if(this->code==CD_ZGT)armcmpset("gt");
+  else if(this->code==CD_UGT)armcmpset("hi");
+  else if(this->code==CD_BOR2REGS)ol("orr x0, x0, x1");
+  else if(this->code==CD_BXOR2REGS)ol("eor x0, x0, x1");
+  else if(this->code==CD_BAND2REGS)ol("and x0, x0, x1");
+  else if(this->code==CD_ADD2REGS)ol("add x0, x0, x1");
+  else if(this->code==CD_SUB2REGS)ol("sub x0, x1, x0");   /* left-right */
+  else if(this->code==CD_MUL2REGS)ol("mul x0, x0, x1");
+  else if(this->code==CD_DIV2REGS)ol("sdiv x0, x1, x0");  /* left/right */
+  else if(this->code==CD_MOD2REGS)
+  {ol("sdiv x9, x1, x0");ol("msub x0, x9, x0, x1");}      /* left%right */
+  else if(this->code==CD_STKENTER)
+  {ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");}
+  else if(this->code==CD_STKLEAVE)
+  {ol("mov sp, x29");ol("ldp x29, x30, [sp], #16");}
+  else if(this->code==CD_INCREG)
+  {if(this->arg>0)addimm_arm64("x0","x0",this->arg);}
+  else if(this->code==CD_DECREG)
+  {if(this->arg>0)addimm_arm64("x0","x0",-this->arg);}
+  else if(this->code==CD_MODSTK)
+  {
+    var int:a;
+    a=this->arg;if(a<0)a=-a;
+    a=(a+15)/16*16;   /* keep sp 16-byte aligned */
+    if(this->arg>0)spadjust_arm64(a,1);
+    else if(this->arg<0)spadjust_arm64(a,0);
+  }
+  else if(this->code==CD_SHL)ol("lsl x0, x1, x0");
+  else if(this->code==CD_ASR)ol("asr x0, x1, x0");
+  else if(this->code==CD_SHR)ol("lsr x0, x1, x0");
+  else if(this->code==CD_MULREG)xmulreg_arm64(this->arg,this->reg[regnames]);
+  else if(this->code==CD_DIVCONST)xdivconst_arm64(this->arg);
+  else if(this->code==CD_PUSH)ol("str x0, [sp, #-16]!");
+  else if(this->code==CD_POP)ol("ldr x1, [sp], #16");
+  else if(this->code==CD_MOVAD)ol("mov x1, x0");
+  else if(this->code==CD_RET)ol("ret");
+  else if(this->code==CD_LDLIT)litaddr_arm64("x0",this->arg);
+  else if(this->code==CD_LDN)loadimm_arm64("x0",this->arg);
+  else if(this->code==CD_LDA)gaddr_arm64("x0",this->str,this->arg);
+  else if(this->code==CD_LEA)addimm_arm64("x0","x29",this->arg);
+  else if(this->code==CD_STOW)
+  {gaddr_arm64("x9",this->str,this->arg);ol("str x0, [x9]");}
+  else if(this->code==CD_STOB)
+  {gaddr_arm64("x9",this->str,this->arg);ol("strb w0, [x9]");}
+  else if(this->code==CD_STOW2)ptrmem_arm64("str","x0","x1",this->arg);
+  else if(this->code==CD_STOB2)ptrmem_arm64("strb","w0","x1",this->arg);
+  else if(this->code==CD_STLW)framemem_arm64("str","x0",this->arg);
+  else if(this->code==CD_STLB)framemem_arm64("strb","w0",this->arg);
+  else if(this->code==CD_LBRB)ptrmem_arm64("ldrsb","x0","x0",this->arg);
+  else if(this->code==CD_LBRW)ptrmem_arm64("ldr","x0","x0",this->arg);
+  else if(this->code==CD_LBRA)addimm_arm64("x0","x0",this->arg);
+  else if(this->code==CD_LDW)
+  {gaddr_arm64("x9",this->str,this->arg);ol("ldr x0, [x9]");}
+  else if(this->code==CD_LDB)
+  {gaddr_arm64("x9",this->str,this->arg);ol("ldrsb x0, [x9]");}
+  else if(this->code==CD_LDLW)framemem_arm64("ldr","x0",this->arg);
+  else if(this->code==CD_LDLB)framemem_arm64("ldrsb","x0",this->arg);
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
+  error("floating point not supported on arm64 yet");
+  else if(this->code==CD_IGNORE)
+  ;
+  else
+  {fprintf(stderr,"%d ",this->code);error("unknown opcode (arm64)");}
 }
 func cd_write_i386(*scode:this)
 {
@@ -1426,14 +1662,14 @@ func zpop()
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_POP;
-  Zsp=Zsp+target.wordsize;
+  Zsp=Zsp+target.stackslot;   /* ==wordsize except arm64 (16) */
 }
 func zpush()
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_PUSH;
-  Zsp=Zsp-target.wordsize;
+  Zsp=Zsp-target.stackslot;
 }
 func zret()
 {
@@ -1954,7 +2190,15 @@ func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
   chkmem(regnames=calloc(4,sizeof(*char)));
-  if(target.arch==ARCH_X86_64)
+  if(target.arch==ARCH_ARM64)
+  {
+    /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D), x2/x3 = scratch */
+    regnames[RG_A]="x0";
+    regnames[RG_B]="x2";
+    regnames[RG_C]="x3";
+    regnames[RG_D]="x1";
+  }
+  else if(target.arch==ARCH_X86_64)
   {
     regnames[RG_A]="%rax";
     regnames[RG_B]="%rbx";

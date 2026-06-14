@@ -120,6 +120,37 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
+# Cross-toolchain on x86 (binaries run via qemu-user binfmt), or native gcc on
+# an arm64 host. Floating point is not implemented on arm64 yet -> those progs
+# error cleanly and are skipped.
+A64=""
+if command -v aarch64-linux-gnu-gcc >/dev/null; then A64="aarch64-linux-gnu-gcc -static"
+elif [ "$(uname -m)" = "aarch64" ]; then A64="gcc -no-pie"; fi
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ -z "$A64" ]; then
+    echo "  skip - no aarch64 toolchain (need gcc-aarch64-linux-gnu + qemu-user-static)"
+else
+    while read -r name want; do
+        [ -z "$name" ] && continue
+        asm="/tmp/uplnc_arm64_$name.s"; bin="/tmp/uplnc_arm64_$name"
+        "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march=arm64 > "$asm" 2>/dev/null
+        if grep -q 'not supported on arm64' "$asm"; then
+            echo "  skip - arm64 $name.e (floating point not implemented on arm64 yet)"
+        elif grep -qE '[1-9][0-9]* error' "$asm"; then
+            bad "arm64 $name.e (compile)"
+        elif ! $A64 "$asm" -o "$bin" 2>/dev/null; then
+            bad "arm64 $name.e (assemble/link)"
+        else
+            "$bin"; got=$?
+            [ "$got" = "$want" ] && ok "arm64 $name.e -> exit $got" \
+                                 || bad "arm64 $name.e (got $got, want $want)"
+        fi
+    done < tests/progs/expected.txt
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]

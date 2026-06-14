@@ -56,8 +56,20 @@ x86_64)
     MARCH="-march=x86_64"
     LINKER="gcc -no-pie -w"        # backend emits non-PIC absolute addressing
     ;;
+arm64)
+    MARCH="-march=arm64"
+    # Cross-assemble/link with the aarch64 toolchain (binaries run via qemu-user
+    # binfmt on x86); on a native arm64 host the plain `gcc` targets aarch64.
+    if command -v aarch64-linux-gnu-gcc >/dev/null; then
+        LINKER="aarch64-linux-gnu-gcc -static -w"
+    elif [ "$(uname -m)" = "aarch64" ]; then
+        LINKER="gcc -no-pie -w"
+    else
+        die "arm64 needs gcc-aarch64-linux-gnu (+ qemu-user-static to run on x86)"
+    fi
+    ;;
 *)
-    die "unknown arch '$ARCH' (use i386 or x86_64)" ;;
+    die "unknown arch '$ARCH' (use i386, x86_64 or arm64)" ;;
 esac
 echo "fixpoint: target = $ARCH"
 
