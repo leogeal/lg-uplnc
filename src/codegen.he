@@ -100,6 +100,7 @@
 #define CD_FLBRS     92 /* M4: load float through ptr   off(%rax) -> %xmm0 (widen) */
 #define CD_FSTBR2    93 /* M4: store double %xmm0 -> off(%rdx)  (popped address) */
 #define CD_FSTBR2S   94 /* M4: store float (narrow %xmm0) -> off(%rdx) */
+#define CD_MOVAD     95 /* M5 peephole: mov accumulator -> 2nd reg (%rax->%rdx) */
 
 
 struct scode

@@ -51,9 +51,52 @@ func cg_getitem(this :*scodegen)
   cd_init(this->codes+this->codeptr);
   return this->codes+this->codeptr++;
 }
+func ispureload(code:int)
+{
+  /* M5: opcodes that load a value into the accumulator (%rax) and read neither
+     %rax nor %rdx -- so the value can be commuted past a saved left operand.
+     Deliberately excludes CD_LBR* (those dereference %rax). */
+  return (code==CD_LDLIT)||(code==CD_LDN)||(code==CD_LDA)||(code==CD_LEA)
+       ||(code==CD_LDW)||(code==CD_LDB)||(code==CD_LDLW)||(code==CD_LDLB);
+}
+/* M5 peephole optimizer: target-neutral rewrites over the CD_* stream, run just
+   before lowering, so both backends (and both self-host fixpoints) benefit.
+   Eliminated items become CD_IGNORE (lowered to nothing), so indices are
+   stable and a single forward pass suffices. */
+func peephole(this:*scodegen)
+{
+  var int:i;var int:n;var int:j;
+  n=this->codeptr;
+  i=0;
+  while(i<n)
+  {
+    /* A: a binary op whose right operand is a single accumulator-only load
+       doesn't need the stack -- keep the left operand in %rdx instead.
+       PUSH ; <pure load -> %rax> ; POP   ==>   MOVAD(%rax->%rdx) ; <load> */
+    if((i+2<n)&&(this->codes[i].code==CD_PUSH)
+       &&ispureload(this->codes[i+1].code)
+       &&(this->codes[i+2].code==CD_POP))
+    {
+      this->codes[i].code=CD_MOVAD;
+      this->codes[i+2].code=CD_IGNORE;
+      i=i+3;
+    }
+    /* B: code after an unconditional RET/JUMP is unreachable until the next
+       label -- drop it (e.g. the function epilogue after a trailing return). */
+    else if((this->codes[i].code==CD_RET)||(this->codes[i].code==CD_JUMP))
+    {
+      j=i+1;
+      while((j<n)&&(this->codes[j].code!=CD_LAB))
+      {this->codes[j].code=CD_IGNORE;j=j+1;}
+      i=j;
+    }
+    else i=i+1;
+  }
+}
 func cg_print(*scodegen this)
 {
   var int:i;
+  peephole(this);
   for(i=0;i<this->codeptr;i++)
   cd_write(this->codes+i);
 }
@@ -403,6 +446,8 @@ func cd_write_x86_64(*scode:this)
   {
     ol("popq %rdx");
   }
+  else if(this->code==CD_MOVAD)
+  ol("movq %rax, %rdx");
   else if(this->code==CD_RET)
   {
     ol("ret");
@@ -1028,6 +1073,8 @@ func cd_write_i386(*scode:this)
   {
     ol("popl %edx");
   }
+  else if(this->code==CD_MOVAD)
+  ol("movl %eax, %edx");
   else if(this->code==CD_RET)
   {
     ol("ret");
