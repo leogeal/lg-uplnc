@@ -13,8 +13,15 @@ Plan for adding floating-point arithmetic to UPLNC. Status/tracking lives in
   slice.
 - **The compiler stays integer-only.** It never does float arithmetic itself, so
   the **self-host bootstrap is unaffected** (the FP codegen paths simply go
-  unexercised when compiling the float-free compiler — i386 and x86_64 self-host
-  exactly as before).
+  unexercised when compiling the float-free compiler — i386, x86_64 and arm64
+  self-host exactly as before).
+- **All three targets now have FP.** After x86_64/SSE2 and i386/x87, **arm64**
+  uses the AArch64 FP register file: `d0` is the accumulator (`d1` the 2nd
+  operand), `fadd`/`fsub`/`fmul`/`fdiv` do arithmetic, `fcvtzs`/`scvtf` convert
+  to/from int, and `s0`+`fcvt` handle the 4-byte `float`. AAPCS64 passes FP args
+  in `d0–d7` and returns in `d0` with **no vector-count register** (simpler than
+  x86_64's `%al`). The flat register file makes it the cleanest of the three —
+  no x87 stack juggling, no `%xmm`↔`%rax` shuffles for the accumulator.
 
 ## The key trick: the assembler computes the bits
 

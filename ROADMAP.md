@@ -85,7 +85,12 @@ Make output target a pluggable choice instead of hard-wired i386. See
   pointer only — **FP errors cleanly for now**. **Self-host fixpoint reached**
   (stage-2 ≡ stage-3), so UPLNC now self-hosts on three ISAs (i386, x86_64, arm64)
 - ✅ Per-target **fixpoint in CI** — x86_64 native, i386 under `-m32`, arm64 native
-- ⏳ ARM64 **floating point** (NEON/`d0`) — the remaining piece for FP parity
+- ✅ ARM64 **floating point** — `d0` FP accumulator, `d1` 2nd operand;
+  `fadd`/`fsub`/`fmul`/`fdiv`, `fcvtzs`/`scvtf` conversions, `ldr`/`str d0` (and
+  `s0`+`fcvt` for the 4-byte `float`), AAPCS64 FP calling convention (args in
+  `d0–d7`, return in `d0`, **no vector-count register** unlike x86_64's `%al`).
+  All 30 FP golden progs run on arm64 (full parity); the fixpoint is unaffected
+  (the compiler uses no FP). FP doubles push 16-byte slots like integers
 - 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
 
 ## M4 — Floating-point arithmetic ✅

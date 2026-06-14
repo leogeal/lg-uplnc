@@ -122,8 +122,8 @@ fi
 
 echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
 # Cross-toolchain on x86 (binaries run via qemu-user binfmt), or native gcc on
-# an arm64 host. Floating point is not implemented on arm64 yet -> those progs
-# error cleanly and are skipped.
+# an arm64 host. Integer + floating point both run; the skip branch below is a
+# safety net for any feature that errors cleanly (e.g. float params/returns).
 A64=""
 if command -v aarch64-linux-gnu-gcc >/dev/null; then A64="aarch64-linux-gnu-gcc -static"
 elif [ "$(uname -m)" = "aarch64" ]; then A64="gcc -no-pie"; fi
