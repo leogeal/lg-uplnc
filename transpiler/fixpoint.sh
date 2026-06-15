@@ -68,8 +68,20 @@ arm64)
         die "arm64 needs gcc-aarch64-linux-gnu (+ qemu-user-static to run on x86)"
     fi
     ;;
+riscv64)
+    MARCH="-march=riscv64"
+    if command -v riscv64-linux-gnu-gcc >/dev/null; then
+        LINKER="riscv64-linux-gnu-gcc -static -w"
+    elif command -v riscv64-linux-gnu-gcc-10 >/dev/null; then
+        LINKER="riscv64-linux-gnu-gcc-10 -static -w"
+    elif [ "$(uname -m)" = "riscv64" ]; then
+        LINKER="gcc -no-pie -w"
+    else
+        die "riscv64 needs gcc-riscv64-linux-gnu (+ qemu-user-static to run on x86)"
+    fi
+    ;;
 *)
-    die "unknown arch '$ARCH' (use i386, x86_64 or arm64)" ;;
+    die "unknown arch '$ARCH' (use i386, x86_64, arm64 or riscv64)" ;;
 esac
 echo "fixpoint: target = $ARCH"
 

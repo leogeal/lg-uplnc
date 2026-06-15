@@ -348,6 +348,8 @@ func parseopt(argc:int,argv:**char)
     {archsel=ARCH_I386;}
     else if(strid(argv[i],"-march=arm64"))
     {archsel=ARCH_ARM64;}
+    else if(strid(argv[i],"-march=riscv64"))
+    {archsel=ARCH_RISCV;}
     else if(*argv[i]=='-')
     {
       fprintf(stderr,"option:\n");
@@ -1961,6 +1963,7 @@ func inittarget()
 {
   if(archsel==ARCH_X86_64)inittarget_x86_64();
   else if(archsel==ARCH_ARM64)inittarget_arm64();
+  else if(archsel==ARCH_RISCV)inittarget_riscv();
   else inittarget_i386();
 }
 /* ELF/GAS directives are shared by i386 and x86_64; only arch + word size
@@ -1997,6 +2000,14 @@ func inittarget_arm64()
   target.arch=ARCH_ARM64;
   target.wordsize=8;   /* AArch64 LP64: int==pointer==8 bytes */
   target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
+}
+func inittarget_riscv()
+{
+  inittarget_elf();
+  target.arch=ARCH_RISCV;
+  target.wordsize=8;   /* RV64 LP64: int==pointer==8 bytes */
+  target.stackslot=8;  /* RISC-V doesn't fault on 8-byte sp pushes; the
+                          pad-to-16-at-calls logic keeps the ABI alignment */
 }
 func printlab(label:int)
 {

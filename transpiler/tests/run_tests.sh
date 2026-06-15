@@ -151,6 +151,37 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[9] riscv64 backend: programs compile (-march=riscv64), assemble + run"
+# Cross-toolchain + qemu-user binfmt on x86, or native gcc on riscv64. Integer
+# only for now -> FP progs error cleanly and are skipped.
+RV=""
+if command -v riscv64-linux-gnu-gcc >/dev/null; then RV="riscv64-linux-gnu-gcc -static"
+elif command -v riscv64-linux-gnu-gcc-10 >/dev/null; then RV="riscv64-linux-gnu-gcc-10 -static"
+elif [ "$(uname -m)" = "riscv64" ]; then RV="gcc -no-pie"; fi
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ -z "$RV" ]; then
+    echo "  skip - no riscv64 toolchain (need gcc-riscv64-linux-gnu + qemu-user-static)"
+else
+    while read -r name want; do
+        [ -z "$name" ] && continue
+        asm="/tmp/uplnc_riscv_$name.s"; bin="/tmp/uplnc_riscv_$name"
+        "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march=riscv64 > "$asm" 2>/dev/null
+        if grep -q 'not supported on riscv' "$asm"; then
+            echo "  skip - riscv64 $name.e (floating point not implemented on riscv64 yet)"
+        elif grep -qE '[1-9][0-9]* error' "$asm"; then
+            bad "riscv64 $name.e (compile)"
+        elif ! $RV "$asm" -o "$bin" 2>/dev/null; then
+            bad "riscv64 $name.e (assemble/link)"
+        else
+            "$bin"; got=$?
+            [ "$got" = "$want" ] && ok "riscv64 $name.e -> exit $got" \
+                                 || bad "riscv64 $name.e (got $got, want $want)"
+        fi
+    done < tests/progs/expected.txt
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]

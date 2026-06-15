@@ -84,14 +84,26 @@ Make output target a pluggable choice instead of hard-wired i386. See
   a cross-compiler (validated under qemu-user; native on arm64 CI). Integer/
   pointer only — **FP errors cleanly for now**. **Self-host fixpoint reached**
   (stage-2 ≡ stage-3), so UPLNC now self-hosts on three ISAs (i386, x86_64, arm64)
-- ✅ Per-target **fixpoint in CI** — x86_64 native, i386 under `-m32`, arm64 native
 - ✅ ARM64 **floating point** — `d0` FP accumulator, `d1` 2nd operand;
   `fadd`/`fsub`/`fmul`/`fdiv`, `fcvtzs`/`scvtf` conversions, `ldr`/`str d0` (and
   `s0`+`fcvt` for the 4-byte `float`), AAPCS64 FP calling convention (args in
   `d0–d7`, return in `d0`, **no vector-count register** unlike x86_64's `%al`).
   All 30 FP golden progs run on arm64 (full parity); the fixpoint is unaffected
   (the compiler uses no FP). FP doubles push 16-byte slots like integers
-- 💭 RISC-V backend (also validates the abstraction on a non-x86 ISA)
+- ✅ **RISC-V (RV64)** backend — `cd_write_riscv`: `a0` accumulator, `a1` 2nd
+  operand, `t0`/`t1` scratch, `s0`/`sp`/`ra` frame. **No condition flags** →
+  comparisons synthesise 0/1 with `slt`/`sltu`/`seqz`/`snez`/`xori`, and
+  `beqz`/`bnez` for test-and-branch; `li` assembles any immediate (so loadimm
+  needs no chunking); `div`/`rem` native; globals via `la`; `call`/`ret`. Reuses
+  the x86_64 calling convention (`stackslot=8`, 8-byte pushes — RISC-V doesn't
+  fault on a misaligned `sp` like AArch64, so the pad-to-16-at-calls logic
+  suffices). Integer/pointer only — **FP errors cleanly for now**. **Self-host
+  fixpoint reached**: UPLNC now self-hosts on four ISAs (i386, x86_64, arm64,
+  riscv64). Validated under qemu-user; CI cross-builds + runs it under qemu
+- ✅ Per-target **fixpoint in CI** — x86_64 native, i386 `-m32`, arm64 native,
+  riscv64 under qemu
+- ⏳ RISC-V **floating point** (F/D extension, `fa0–fa7`) — for FP parity
+- 💭 More targets (s390x/big-endian, WASM) only if anyone needs them
 
 ## M4 — Floating-point arithmetic ✅
 
