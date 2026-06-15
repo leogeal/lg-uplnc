@@ -1070,7 +1070,7 @@ func cd_write_arm64(*scode:this)
    condition flags: comparisons synthesise a 0/1 with slt/seqz/snez/xori, and
    the test-and-branch opcodes use beqz/bnez. `li` assembles any immediate
    (so loadimm needs no chunking). Integer/pointer only -- FP errors cleanly. */
-func riscvarg(i:int)   /* RV64 integer argument registers a0..a5 (we cap at 6) */
+func riscvarg(i:int)   /* RV64 integer argument registers a0..a7 */
 {
   if(i==0)return "a0";
   else if(i==1)return "a1";
@@ -1078,7 +1078,9 @@ func riscvarg(i:int)   /* RV64 integer argument registers a0..a5 (we cap at 6) *
   else if(i==3)return "a3";
   else if(i==4)return "a4";
   else if(i==5)return "a5";
-  error("riscv: more than 6 register arguments not supported");
+  else if(i==6)return "a6";
+  else if(i==7)return "a7";
+  error("riscv: more than 8 register arguments not supported");
   return "a0";
 }
 func addimm_riscv(dst:*char,src:*char,val:int)
@@ -1241,8 +1243,40 @@ func cd_write_riscv(*scode:this)
   {gaddr_riscv("t0",this->str,this->arg);ol("lb a0, 0(t0)");}
   else if(this->code==CD_LDLW)framemem_riscv("ld","a0",this->arg);
   else if(this->code==CD_LDLB)framemem_riscv("lb","a0",this->arg);
+  /* ---- RV64 floating point (D ext): fa0 = accumulator, fa1 = 2nd operand --- */
+  else if(this->code==CD_FLDLIT)
+  {ot("la t0, .LF");outdec(this->arg);nl();ol("fld fa0, 0(t0)");}
+  else if(this->code==CD_F2I)ol("fcvt.l.d a0, fa0, rtz");   /* double->long, trunc */
+  else if(this->code==CD_FLDLOC)framemem_riscv("fld","fa0",this->arg);
+  else if(this->code==CD_FLDGLB)
+  {gaddr_riscv("t0",this->str,this->arg);ol("fld fa0, 0(t0)");}
+  else if(this->code==CD_FSTLOC)framemem_riscv("fsd","fa0",this->arg);
+  else if(this->code==CD_FSTGLB)
+  {gaddr_riscv("t0",this->str,this->arg);ol("fsd fa0, 0(t0)");}
+  else if(this->code==CD_FPUSH){ol("addi sp, sp, -8");ol("fsd fa0, 0(sp)");}
+  else if(this->code==CD_FPOP){ol("fld fa1, 0(sp)");ol("addi sp, sp, 8");}
+  else if(this->code==CD_FADD)ol("fadd.d fa0, fa1, fa0");
+  else if(this->code==CD_FSUB)ol("fsub.d fa0, fa1, fa0");   /* left-right */
+  else if(this->code==CD_FMUL)ol("fmul.d fa0, fa1, fa0");
+  else if(this->code==CD_FDIV)ol("fdiv.d fa0, fa1, fa0");   /* left/right */
+  else if(this->code==CD_I2F)ol("fcvt.d.l fa0, a0");        /* promote right */
+  else if(this->code==CD_I2F1)ol("fcvt.d.l fa1, a1");       /* promote left */
+  else if(this->code==CD_FLDLOCS)            /* 4-byte float: load + widen */
+  {framemem_riscv("flw","ft0",this->arg);ol("fcvt.d.s fa0, ft0");}
+  else if(this->code==CD_FLDGLBS)
+  {gaddr_riscv("t0",this->str,this->arg);ol("flw ft0, 0(t0)");ol("fcvt.d.s fa0, ft0");}
+  else if(this->code==CD_FSTLOCS)            /* narrow into ft0 (preserve fa0) */
+  {ol("fcvt.s.d ft0, fa0");framemem_riscv("fsw","ft0",this->arg);}
+  else if(this->code==CD_FSTGLBS)
+  {ol("fcvt.s.d ft0, fa0");gaddr_riscv("t0",this->str,this->arg);ol("fsw ft0, 0(t0)");}
+  else if(this->code==CD_FLBR)ptrmem_riscv("fld","fa0","a0",this->arg);
+  else if(this->code==CD_FLBRS)
+  {ptrmem_riscv("flw","ft0","a0",this->arg);ol("fcvt.d.s fa0, ft0");}
+  else if(this->code==CD_FSTBR2)ptrmem_riscv("fsd","fa0","a1",this->arg);
+  else if(this->code==CD_FSTBR2S)
+  {ol("fcvt.s.d ft0, fa0");ptrmem_riscv("fsw","ft0","a1",this->arg);}
   else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
-  error("floating point not supported on riscv64 yet");
+  error("riscv: this FP opcode is not used (FP args go in integer registers)");
   else if(this->code==CD_IGNORE)
   ;
   else

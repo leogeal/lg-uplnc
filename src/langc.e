@@ -1143,7 +1143,7 @@ func dofunc()
       error("float parameter not supported yet -- use double");
       if(pidx<8)paramtyp[pidx]=argtype;   /* slice 4b: remember param types */
       if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
-      if(pidx<6)
+      if(pidx<target.nargreg)
       addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
       else
       /* stack params sit above the 16-byte frame record at a per-slot stride
@@ -1207,11 +1207,14 @@ func dofunc()
        on the caller's stack at positive offsets and need no spill. */
     var int:nsp;
     nsp=argstk/target.wordsize;
-    if(nsp>6)nsp=6;
+    if(nsp>target.nargreg)nsp=target.nargreg;
     if(nsp>0)
     {
       Zsp=modstk(Zsp-nsp*target.wordsize);
-      if(nfpparam==0)
+      /* riscv passes FP args in integer registers, so a double param arrives in
+         an integer arg register too -- spill it (its bits) with the plain
+         integer spillargs, then it is read back as a double via fld. */
+      if((nfpparam==0)||(target.arch==ARCH_RISCV))
       spillargs(nsp);   /* all-integer params: unchanged, byte-identical path */
       else
       {
@@ -1986,6 +1989,7 @@ func inittarget_i386()
   target.arch=ARCH_I386;
   target.wordsize=WORDSIZE;
   target.stackslot=WORDSIZE;
+  target.nargreg=6;    /* i386 is cdecl (stack args); unused */
 }
 func inittarget_x86_64()
 {
@@ -1993,6 +1997,7 @@ func inittarget_x86_64()
   target.arch=ARCH_X86_64;
   target.wordsize=8;   /* int==pointer==8 bytes (UPLNC's word model) */
   target.stackslot=8;
+  target.nargreg=6;    /* SysV: %rdi..%r9 */
 }
 func inittarget_arm64()
 {
@@ -2000,6 +2005,7 @@ func inittarget_arm64()
   target.arch=ARCH_ARM64;
   target.wordsize=8;   /* AArch64 LP64: int==pointer==8 bytes */
   target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
+  target.nargreg=6;    /* AAPCS64 has x0..x7, but we use 6 (as on x86_64) */
 }
 func inittarget_riscv()
 {
@@ -2008,6 +2014,7 @@ func inittarget_riscv()
   target.wordsize=8;   /* RV64 LP64: int==pointer==8 bytes */
   target.stackslot=8;  /* RISC-V doesn't fault on 8-byte sp pushes; the
                           pad-to-16-at-calls logic keeps the ABI alignment */
+  target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
 }
 func printlab(label:int)
 {
@@ -3033,7 +3040,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     var int:nargs;
     r=node->r;
     nargs=0;
-    if(target.arch!=ARCH_I386)   /* x86_64 + arm64: register-based convention */
+    if(target.arch!=ARCH_I386)   /* x86_64 / arm64 / riscv: register convention */
     {
       var int:savezsp;var int:cnt;var *enode:rr;var int:pad;var int:nstack;
       var int:cfp;var int:cint;var int:ireg;var int:freg;var int:i;var int:j;
@@ -3041,7 +3048,10 @@ func ct_FUNC(node:*enode,lval:*elval)
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
       cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
-      if(cfp>0)
+      /* RISC-V passes FP args as raw bits in the *integer* registers (the
+         variadic convention -- what printf reads), so it takes the integer path
+         below; only x86_64/arm64 use the separate FP-register marshaling. */
+      if((cfp>0)&&(target.arch!=ARCH_RISCV))
       {
         /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
            (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
@@ -3069,12 +3079,16 @@ func ct_FUNC(node:*enode,lval:*elval)
         /* stackslot == wordsize except on arm64 (16), where each pushed arg
            occupies a 16-byte slot so sp stays aligned -- so the alignment pad
            is always 0 there and the marshal/cleanup byte counts match. */
-        nstack=cnt-6;if(nstack<0)nstack=0;
-        if(cnt>6)pad=(((Zsp-nstack*target.stackslot)%16)+16)%16;
+        nstack=cnt-target.nargreg;if(nstack<0)nstack=0;
+        if(cnt>target.nargreg)pad=(((Zsp-nstack*target.stackslot)%16)+16)%16;
         else pad=(((Zsp-cnt*target.stackslot)%16)+16)%16;
         if(pad)Zsp=modstk(Zsp-pad);
-        while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);zpush();r=r->r;}
-        if(cnt>6){marshal(6);Zsp=modstk(Zsp+6*target.stackslot);}
+        /* push each arg; a double on riscv is fpush'd as raw bits (fsd) so the
+           integer marshal ld's it into the arg register. On x86_64/arm64 there
+           are no FP args here (cfp==0), so this is the plain integer push. */
+        while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);
+          if(isfp(lval2.typ))fpush();else zpush();r=r->r;}
+        if(cnt>target.nargreg){marshal(target.nargreg);Zsp=modstk(Zsp+target.nargreg*target.stackslot);}
         else marshal(cnt);
         zcall(l->leaf.idx->name,0);
         Zsp=modstk(savezsp);
@@ -3108,7 +3122,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       savezsp2=Zsp;
       cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
-      if(cnt2>6)pad2=(((Zsp-(cnt2-6)*target.stackslot)%16)+16)%16;
+      if(cnt2>target.nargreg)pad2=(((Zsp-(cnt2-target.nargreg)*target.stackslot)%16)+16)%16;
       else pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
       if(pad2)Zsp=modstk(Zsp-pad2);
     }
@@ -3149,7 +3163,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     cnmlst->addm(methodname);
     if(target.arch!=ARCH_I386)
     {
-      if(cnt2>6){marshal(6);Zsp=modstk(Zsp+6*target.stackslot);}
+      if(cnt2>target.nargreg){marshal(target.nargreg);Zsp=modstk(Zsp+target.nargreg*target.stackslot);}
       else marshal(cnt2);
       zcall(methodname,0);
       Zsp=modstk(savezsp2);
