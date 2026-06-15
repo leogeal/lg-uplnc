@@ -3428,12 +3428,74 @@ func loadnum(lval:*elval)
   outasm(", %eax");
   nl();*/
 }
+/* M5 constant folding: collapse a constant *integer* subtree to a single L_NUM
+   literal before codegen. Target-neutral (it rewrites the expression tree), so
+   every backend then emits less code. Only integer literals are folded -- never
+   float literals (L_FNUM; the compiler does no float arithmetic) -- and never
+   division/remainder by zero (left for the existing runtime path). Folding uses
+   the host's 64-bit int, which matches the 64-bit targets exactly and matches
+   the 32-bit i386 for the small constants that actually occur. */
+func foldtree(node:*enode)
+{
+  var int:a;var int:b;var int:res;var int:ok;
+  if(!node)return;
+  if(node->op==OP_LEAF)return;
+  foldtree(node->l);
+  foldtree(node->r);
+  foldtree(node->third);
+  ok=0;
+  if(node->l&&node->r
+     &&(node->l->op==OP_LEAF)&&(node->l->leaf.vid==L_NUM)
+     &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
+  {
+    a=node->l->leaf.val;b=node->r->leaf.val;ok=1;
+    if(node->op==OP_PLUS)res=a+b;
+    else if(node->op==OP_MINUS)res=a-b;
+    else if(node->op==OP_MUL)res=a*b;
+    else if(node->op==OP_DIV){if(b)res=a/b;else ok=0;}
+    else if(node->op==OP_REM){if(b)res=a%b;else ok=0;}
+    else if(node->op==OP_BAND)res=a&b;
+    else if(node->op==OP_BOR)res=a|b;
+    else if(node->op==OP_BXOR)res=a^b;
+    else if(node->op==OP_SHL)res=a<<b;
+    else if(node->op==OP_SHR)res=a>>b;     /* arithmetic, matches ct_SHR */
+    else if(node->op==OP_EQ)res=(a==b);
+    else if(node->op==OP_NEQ)res=(a!=b);
+    else if(node->op==OP_LT)res=(a<b);
+    else if(node->op==OP_GT)res=(a>b);
+    else if(node->op==OP_LE)res=(a<=b);
+    else if(node->op==OP_GE)res=(a>=b);
+    else if(node->op==OP_LAND)res=(a&&b);
+    else if(node->op==OP_LOR)res=(a||b);
+    else ok=0;
+  }
+  else if((!node->l)&&node->r
+          &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
+  {
+    a=node->r->leaf.val;ok=1;
+    if(node->op==OP_UMINUS)res=0-a;
+    else if(node->op==OP_BNOT)res=~a;
+    else if(node->op==OP_LNOT)res=!a;
+    else ok=0;
+  }
+  if(ok)
+  {
+    if(node->l)delenode(node->l);
+    if(node->r)delenode(node->r);
+    node->l=0;node->r=0;
+    node->op=OP_LEAF;
+    node->leaf.vid=L_NUM;
+    node->leaf.val=res;
+    node->leaf.idx=0;
+  }
+}
 func expressi()
 {
   var *enode:node;
   var elval:lval;
   var int:rt;
   node=bexptree();
+  foldtree(node);   /* M5: fold constant integer subexpressions */
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
   rt=T_INT;
   if(treetocode(node,&lval))rvalue(&lval);
