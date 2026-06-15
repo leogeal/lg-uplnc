@@ -70,15 +70,28 @@ func peephole(this:*scodegen)
   i=0;
   while(i<n)
   {
-    /* A: a binary op whose right operand is a single accumulator-only load
-       doesn't need the stack -- keep the left operand in %rdx instead.
-       PUSH ; <pure load -> %rax> ; POP   ==>   MOVAD(%rax->%rdx) ; <load> */
+    /* A/D: a binary op whose right operand is a single accumulator-only load
+       doesn't need the stack. If the left operand (the instruction just before
+       the PUSH) is *also* a pure load, retarget it straight into the 2nd
+       register (reg=RG_D) and drop the PUSH/POP outright; otherwise keep the
+       left operand in the 2nd register with a MOVAD copy.
+         <load X> ; PUSH ; <load Y> ; POP  ==>  <load X -> 2nd> ; <load Y>
+                   PUSH ; <load Y> ; POP   ==>  MOVAD ; <load Y>            */
     if((i+2<n)&&(this->codes[i].code==CD_PUSH)
        &&ispureload(this->codes[i+1].code)
        &&(this->codes[i+2].code==CD_POP))
     {
-      this->codes[i].code=CD_MOVAD;
-      this->codes[i+2].code=CD_IGNORE;
+      if((i>0)&&ispureload(this->codes[i-1].code))
+      {
+        this->codes[i-1].reg=RG_D;          /* left operand -> 2nd register */
+        this->codes[i].code=CD_IGNORE;      /* drop PUSH */
+        this->codes[i+2].code=CD_IGNORE;    /* drop POP */
+      }
+      else
+      {
+        this->codes[i].code=CD_MOVAD;
+        this->codes[i+2].code=CD_IGNORE;
+      }
       i=i+3;
     }
     /* B: code after an unconditional RET/JUMP is unreachable until the next
@@ -460,18 +473,18 @@ func cd_write_x86_64(*scode:this)
     printlab(stlab);
     outstr("+");
     outdec(this->arg);
-    outstr(", %rax");
+    outstr(", ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LDN)
   {
     if(this->arg==0)
-    ol("xorq %rax, %rax");
+    {ot("xorq ");outstr(regnames[this->reg]);outstr(", ");outstr(regnames[this->reg]);nl();}
     else
     {
       ot("movq $");
       outdec(this->arg);
-      outstr(", %rax");
+      outstr(", ");outstr(regnames[this->reg]);
       nl();
     }
   }
@@ -481,14 +494,14 @@ func cd_write_x86_64(*scode:this)
     outname(this->str);
     if(this->arg)
     {outasm("+");outdec(this->arg);}
-    outasm(", %rax");
+    outasm(", ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LEA)
   {
     ot("leaq ");
     outdec(this->arg);
-    outasm("(%rbp), %rax");
+    outasm("(%rbp), ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_STOW)
@@ -556,7 +569,7 @@ func cd_write_x86_64(*scode:this)
       outasm("+");
       outdec(this->arg);
     }
-    outasm(", %rax");nl();
+    outasm(", ");outstr(regnames[this->reg]);nl();
   }
   else if(this->code==CD_LDB)
   {
@@ -567,20 +580,20 @@ func cd_write_x86_64(*scode:this)
       outasm("+");
       outdec(this->arg);
     }
-    outasm(", %rax");nl();
+    outasm(", ");outstr(regnames[this->reg]);nl();
   }
   else if(this->code==CD_LDLW)
   {
     ot("movq ");
     outdec(this->arg);
-    outasm("(%rbp), %rax");
+    outasm("(%rbp), ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LDLB)
   {
     ot("movsbq ");
     outdec(this->arg);
-    outasm("(%rbp), %rax");
+    outasm("(%rbp), ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_FLDLIT)
@@ -992,10 +1005,10 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_POP)ol("ldr x1, [sp], #16");
   else if(this->code==CD_MOVAD)ol("mov x1, x0");
   else if(this->code==CD_RET)ol("ret");
-  else if(this->code==CD_LDLIT)litaddr_arm64("x0",this->arg);
-  else if(this->code==CD_LDN)loadimm_arm64("x0",this->arg);
-  else if(this->code==CD_LDA)gaddr_arm64("x0",this->str,this->arg);
-  else if(this->code==CD_LEA)addimm_arm64("x0","x29",this->arg);
+  else if(this->code==CD_LDLIT)litaddr_arm64(regnames[this->reg],this->arg);
+  else if(this->code==CD_LDN)loadimm_arm64(regnames[this->reg],this->arg);
+  else if(this->code==CD_LDA)gaddr_arm64(regnames[this->reg],this->str,this->arg);
+  else if(this->code==CD_LEA)addimm_arm64(regnames[this->reg],"x29",this->arg);
   else if(this->code==CD_STOW)
   {gaddr_arm64("x9",this->str,this->arg);ol("str x0, [x9]");}
   else if(this->code==CD_STOB)
@@ -1008,11 +1021,11 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_LBRW)ptrmem_arm64("ldr","x0","x0",this->arg);
   else if(this->code==CD_LBRA)addimm_arm64("x0","x0",this->arg);
   else if(this->code==CD_LDW)
-  {gaddr_arm64("x9",this->str,this->arg);ol("ldr x0, [x9]");}
+  {gaddr_arm64("x9",this->str,this->arg);ot("ldr ");outstr(regnames[this->reg]);outstr(", [x9]");nl();}
   else if(this->code==CD_LDB)
-  {gaddr_arm64("x9",this->str,this->arg);ol("ldrsb x0, [x9]");}
-  else if(this->code==CD_LDLW)framemem_arm64("ldr","x0",this->arg);
-  else if(this->code==CD_LDLB)framemem_arm64("ldrsb","x0",this->arg);
+  {gaddr_arm64("x9",this->str,this->arg);ot("ldrsb ");outstr(regnames[this->reg]);outstr(", [x9]");nl();}
+  else if(this->code==CD_LDLW)framemem_arm64("ldr",regnames[this->reg],this->arg);
+  else if(this->code==CD_LDLB)framemem_arm64("ldrsb",regnames[this->reg],this->arg);
   /* ---- AArch64 floating point: d0 = FP accumulator, d1 = 2nd operand ------ */
   else if(this->code==CD_FLDLIT)
   {
@@ -1221,11 +1234,12 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_MOVAD)ol("mv a1, a0");
   else if(this->code==CD_RET)ol("ret");
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
-  {ot("la a0, ");printlab(stlab);nl();if(this->arg)addimm_riscv("a0","a0",this->arg);}
+  {ot("la ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
+   if(this->arg)addimm_riscv(regnames[this->reg],regnames[this->reg],this->arg);}
   else if(this->code==CD_LDN)
-  {ot("li a0, ");outdec(this->arg);nl();}
-  else if(this->code==CD_LDA)gaddr_riscv("a0",this->str,this->arg);
-  else if(this->code==CD_LEA)addimm_riscv("a0","s0",this->arg);
+  {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
+  else if(this->code==CD_LDA)gaddr_riscv(regnames[this->reg],this->str,this->arg);
+  else if(this->code==CD_LEA)addimm_riscv(regnames[this->reg],"s0",this->arg);
   else if(this->code==CD_STOW)
   {gaddr_riscv("t0",this->str,this->arg);ol("sd a0, 0(t0)");}
   else if(this->code==CD_STOB)
@@ -1238,11 +1252,11 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_LBRW)ptrmem_riscv("ld","a0","a0",this->arg);
   else if(this->code==CD_LBRA)addimm_riscv("a0","a0",this->arg);
   else if(this->code==CD_LDW)
-  {gaddr_riscv("t0",this->str,this->arg);ol("ld a0, 0(t0)");}
+  {gaddr_riscv("t0",this->str,this->arg);ot("ld ");outstr(regnames[this->reg]);outstr(", 0(t0)");nl();}
   else if(this->code==CD_LDB)
-  {gaddr_riscv("t0",this->str,this->arg);ol("lb a0, 0(t0)");}
-  else if(this->code==CD_LDLW)framemem_riscv("ld","a0",this->arg);
-  else if(this->code==CD_LDLB)framemem_riscv("lb","a0",this->arg);
+  {gaddr_riscv("t0",this->str,this->arg);ot("lb ");outstr(regnames[this->reg]);outstr(", 0(t0)");nl();}
+  else if(this->code==CD_LDLW)framemem_riscv("ld",regnames[this->reg],this->arg);
+  else if(this->code==CD_LDLB)framemem_riscv("lb",regnames[this->reg],this->arg);
   /* ---- RV64 floating point (D ext): fa0 = accumulator, fa1 = 2nd operand --- */
   else if(this->code==CD_FLDLIT)
   {ot("la t0, .LF");outdec(this->arg);nl();ol("fld fa0, 0(t0)");}
@@ -1597,18 +1611,18 @@ func cd_write_i386(*scode:this)
     printlab(stlab);
     outstr("+");
     outdec(this->arg);
-    outstr(", %eax");
+    outstr(", ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LDN)
   {
     if(this->arg==0)
-    ol("xorl %eax, %eax");
+    {ot("xorl ");outstr(regnames[this->reg]);outstr(", ");outstr(regnames[this->reg]);nl();}
     else
     {
       ot("movl $");
       outdec(this->arg);
-      outstr(", %eax");
+      outstr(", ");outstr(regnames[this->reg]);
       nl();
     }
   }
@@ -1618,14 +1632,14 @@ func cd_write_i386(*scode:this)
     outname(this->str);
     if(this->arg)
     {outasm("+");outdec(this->arg);}
-    outasm(", %eax");
+    outasm(", ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LEA)
   {
     ot("leal ");
     outdec(this->arg);
-    outasm("(%ebp), %eax");
+    outasm("(%ebp), ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_STOW)
@@ -1693,7 +1707,7 @@ func cd_write_i386(*scode:this)
       outasm("+");
       outdec(this->arg);
     }
-    outasm(", %eax");nl();
+    outasm(", ");outstr(regnames[this->reg]);nl();
   }
   else if(this->code==CD_LDB)
   {
@@ -1704,20 +1718,20 @@ func cd_write_i386(*scode:this)
       outasm("+");
       outdec(this->arg);
     }
-    outasm(", %eax");nl();
+    outasm(", ");outstr(regnames[this->reg]);nl();
   }
   else if(this->code==CD_LDLW)
   {
     ot("movl ");
     outdec(this->arg);
-    outasm("(%ebp), %eax");
+    outasm("(%ebp), ");outstr(regnames[this->reg]);
     nl();
   }
   else if(this->code==CD_LDLB)
   {
     ot("movsbl ");
     outdec(this->arg);
-    outasm("(%ebp), %eax");
+    outasm("(%ebp), ");outstr(regnames[this->reg]);
     nl();
   }
   /* ---- i386 x87 floating point (M4 slice 6) -----------------------------
