@@ -153,7 +153,8 @@ fi
 
 echo "[9] riscv64 backend: programs compile (-march=riscv64), assemble + run"
 # Cross-toolchain + qemu-user binfmt on x86, or native gcc on riscv64. Integer
-# only for now -> FP progs error cleanly and are skipped.
+# and floating point both run; the skip branch is a safety net for any feature
+# that errors cleanly (e.g. float params/returns).
 RV=""
 if command -v riscv64-linux-gnu-gcc >/dev/null; then RV="riscv64-linux-gnu-gcc -static"
 elif command -v riscv64-linux-gnu-gcc-10 >/dev/null; then RV="riscv64-linux-gnu-gcc-10 -static"

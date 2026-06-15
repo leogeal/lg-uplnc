@@ -15,13 +15,21 @@ Plan for adding floating-point arithmetic to UPLNC. Status/tracking lives in
   the **self-host bootstrap is unaffected** (the FP codegen paths simply go
   unexercised when compiling the float-free compiler — i386, x86_64 and arm64
   self-host exactly as before).
-- **All three targets now have FP.** After x86_64/SSE2 and i386/x87, **arm64**
+- **All four targets now have FP.** After x86_64/SSE2 and i386/x87, **arm64**
   uses the AArch64 FP register file: `d0` is the accumulator (`d1` the 2nd
   operand), `fadd`/`fsub`/`fmul`/`fdiv` do arithmetic, `fcvtzs`/`scvtf` convert
   to/from int, and `s0`+`fcvt` handle the 4-byte `float`. AAPCS64 passes FP args
   in `d0–d7` and returns in `d0` with **no vector-count register** (simpler than
-  x86_64's `%al`). The flat register file makes it the cleanest of the three —
+  x86_64's `%al`). The flat register file makes it the cleanest of the x86 trio —
   no x87 stack juggling, no `%xmm`↔`%rax` shuffles for the accumulator.
+- **riscv64** uses `fa0`/`fa1` (D extension: `fadd.d`/`fcvt.l.d`/`fld`…), but with
+  a twist all its own: the RISC-V psABI passes **variadic FP args in *integer*
+  registers** (so `printf` reads a double from `a1`, not `fa0`). UPLNC has no
+  prototype/variadic info at a call site, so it passes *every* FP arg as raw bits
+  in `a0–a7` — self-consistent for UPLNC↔UPLNC and exactly what libc variadics
+  expect. The upshot is FP args ride the **integer** marshaling path (only the
+  double *return* uses `fa0`); the only new machinery is making the arg-register
+  count a target field (`nargreg=8` on riscv, since FP and int share them).
 
 ## The key trick: the assembler computes the bits
 

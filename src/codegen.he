@@ -151,6 +151,8 @@ struct starget{
   *char label_prefix;   /* local label prefix, e.g. ".L"        */
   *char sym_prefix;     /* symbol prefix, e.g. "" on ELF, "_"   */
   int wordsize;         /* TARGET word size in bytes            */
+  int nargreg;          /* integer argument registers (6 SysV/AAPCS-as-used,
+                           8 on riscv where FP args share them)             */
   int stackslot;        /* operand-stack push size: ==wordsize, but 16 on arm64
                            (AArch64 sp must stay 16-byte aligned)            */
   /* assembler directives (ELF/GAS) */

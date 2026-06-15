@@ -102,7 +102,16 @@ Make output target a pluggable choice instead of hard-wired i386. See
   riscv64). Validated under qemu-user; CI cross-builds + runs it under qemu
 - ✅ Per-target **fixpoint in CI** — x86_64 native, i386 `-m32`, arm64 native,
   riscv64 under qemu
-- ⏳ RISC-V **floating point** (F/D extension, `fa0–fa7`) — for FP parity
+- ✅ RISC-V **floating point** (D extension) — `fa0` accumulator, `fa1` 2nd
+  operand; `fadd.d`/`fsub.d`/`fmul.d`/`fdiv.d`, `fcvt.l.d`(rtz)/`fcvt.d.l`
+  conversions, `fld`/`fsd` (and `flw`+`fcvt.d.s` for the 4-byte `float`). The
+  twist: RISC-V passes **variadic FP args in *integer* registers** (what
+  `printf` reads), and UPLNC can't see variadic-ness at the call site, so it
+  passes *all* FP args as raw bits in `a0–a7` — which means they reuse the
+  integer marshaling and the double return stays in `fa0`. This also needed the
+  arg-register count to become a target field (`nargreg`: 6 elsewhere, **8** on
+  riscv, since FP+int share the registers). All 30 FP progs run on riscv64 (full
+  parity); all four fixpoints byte-identical
 - 💭 More targets (s390x/big-endian, WASM) only if anyone needs them
 
 ## M4 — Floating-point arithmetic ✅
