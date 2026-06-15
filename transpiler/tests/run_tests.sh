@@ -42,10 +42,11 @@ fi
 echo "[4] langc compiles a program to i386 assembly"
 LANGC=build/langc
 if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
-    printf 'func main()\n{\n  var int:x;\n  x=40+2;\n  return x;\n}\n' > /tmp/uplnc_t1.e
+    # a+2 with a variable (constant folding would collapse a literal 40+2 to 42)
+    printf 'func main()\n{\n  var int:a;\n  var int:x;\n  a=40;\n  x=a+2;\n  return x;\n}\n' > /tmp/uplnc_t1.e
     asm=$("$LPP" /tmp/uplnc_t1.e 2>/dev/null | "$LANGC" 2>/dev/null)
     echo "$asm" | grep -q '^main:'           && ok "emits a 'main:' label"        || bad "emits 'main:'"
-    echo "$asm" | grep -q 'addl %edx, %eax'  && ok "compiles 40+2 to add"         || bad "compiles 40+2"
+    echo "$asm" | grep -q 'addl %edx, %eax'  && ok "compiles a+2 to add"          || bad "compiles a+2"
     echo "$asm" | grep -q '0 error(s)'       && ok "reports 0 errors"             || bad "reports 0 errors"
 else
     bad "langc not built"

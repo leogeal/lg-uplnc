@@ -52,3 +52,4 @@ double_ptr 42
 double_array_write 42
 float_array 42
 float_ptr 42
+const_fold 42

@@ -205,7 +205,15 @@ wins first:
     so summing args then rounding ≠ rounding each — it broke arm64 self-hosting.)
 - ⏳ Further peepholes: redundant `mov` elimination; a modstk-coalescer that is
   safe under arm64's alignment rounding
-- ⏳ **Constant folding** in the expression tree
+- ✅ **Constant folding** in the expression tree (`foldtree()` in `langc.e`, run
+  on each expression after parsing, before codegen — target-neutral, so all four
+  backends emit less code). Collapses a constant *integer* subtree to one `L_NUM`
+  literal: `+ - * / % & | ^ << >>`, the comparisons/`&& ||` (→ 0/1), and unary
+  `- ~ !`. Never folds float literals (the compiler does no float math) or
+  division/remainder by zero. Folds in the host's 64-bit int (exact for the
+  64-bit targets; matches i386 for the small constants that occur). All four
+  self-host fixpoints stay byte-for-byte; a `const_fold` golden test + 239
+  run-correctness checks pass
 - ⏳ Light **register allocation** — use the register file instead of spilling
   every temporary to the stack
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
