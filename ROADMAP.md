@@ -186,21 +186,25 @@ wins first:
 - 🟡 **Peephole** pass over `scode` (`peephole()` in `codegen.e`, run from
   `cg_print` before lowering, so it is target-neutral and both backends + both
   fixpoints benefit). Two rules so far:
-  - **A — push/pop elision.** A binary op whose right operand is a single
-    accumulator-only load (`CD_LD*`/`CD_LEA`) doesn't need the stack: rewrite
-    `PUSH ; load→%rax ; POP` to `MOVAD(%rax→%rdx) ; load`, keeping the left
-    operand in `%rdx`. Eliminated **1426** push/pop pairs across the compiler's
-    own 5 units (≈2852 fewer memory accesses).
+  - **A/D — push/pop elision + load retarget.** A binary op whose right operand
+    is a single accumulator-only load (`CD_LD*`/`CD_LEA`) doesn't need the stack.
+    If the *left* operand (just before the `PUSH`) is also a pure load, retarget
+    it straight into the 2nd register (set its `reg` field to `RG_D`, honoured by
+    every backend via `regnames[reg]`) and drop the `PUSH`/`POP` outright —
+    `load X ; PUSH ; load Y ; POP` → `load X→2nd ; load Y`. Otherwise keep the
+    left operand with a `MOVAD` copy. The retarget folded **870** load+copy
+    sequences (`MOVAD`s 1687 → 817) into single direct loads across the four
+    backends' shared IR.
   - **B — dead-code elimination.** Code after an unconditional `RET`/`JUMP` is
     unreachable until the next label — dropped (e.g. the epilogue after a
     trailing `return`).
-  - Net: the compiler's own code shrank **37991 → 36043** instructions (−5.1%);
-    120 run-correctness tests pass on both targets and both fixpoints stay
-    byte-for-byte self-reproducing (the optimizer changes output, so this is the
-    real gate). Eliminated items become `CD_IGNORE`, so a single forward pass
-    over a stable-index buffer suffices.
-- ⏳ Further peepholes: fold `load→%rax ; MOVAD` into a direct load to `%rdx`;
-  combine adjacent stack adjustments; redundant `mov` elimination
+  - All four self-host fixpoints (x86_64, i386, arm64, riscv64) stay byte-for-byte
+    self-reproducing — the optimizer changes output, so the fixpoint + the 235
+    run-correctness tests are the gate. (A tried-and-dropped *modstk-coalescing*
+    rule was reverted: arm64 rounds each `CD_MODSTK` up to 16 for `sp` alignment,
+    so summing args then rounding ≠ rounding each — it broke arm64 self-hosting.)
+- ⏳ Further peepholes: redundant `mov` elimination; a modstk-coalescer that is
+  safe under arm64's alignment rounding
 - ⏳ **Constant folding** in the expression tree
 - ⏳ Light **register allocation** — use the register file instead of spilling
   every temporary to the stack
