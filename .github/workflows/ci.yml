@@ -84,6 +84,28 @@ jobs:
           ./fixpoint.sh x86_64
         working-directory: transpiler
 
+  fixpoint-riscv64:
+    name: Self-host fixpoint (riscv64, qemu)
+    runs-on: ubuntu-latest
+    # No native RISC-V runner: cross-compile with gcc-riscv64-linux-gnu and run
+    # the riscv64 binaries via qemu-user-static (binfmt). Gates the riscv64
+    # self-host fixpoint and the run-correctness section of run_tests.sh.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install RISC-V cross-toolchain + qemu-user
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu qemu-user-static binfmt-support
+      - name: Build, run the test suite, and the riscv64 fixpoint
+        run: |
+          ./build.sh
+          bash tests/run_tests.sh
+          ./fixpoint.sh riscv64
+        working-directory: transpiler
+
   cross-compile:
     name: Cross-compile self-host (x86_64 host -> i386)
     runs-on: ubuntu-latest

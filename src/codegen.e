@@ -129,6 +129,7 @@ func cd_write(*scode:this)
 {
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else if(target.arch==ARCH_ARM64)cd_write_arm64(this);
+  else if(target.arch==ARCH_RISCV)cd_write_riscv(this);
   else cd_write_i386(this);
 }
 /* System V AMD64 integer/pointer argument registers, in order. */
@@ -1062,6 +1063,190 @@ func cd_write_arm64(*scode:this)
   ;
   else
   {fprintf(stderr,"%d ",this->code);error("unknown opcode (arm64)");}
+}
+/* ===================== RISC-V (RV64) backend (M3) ==========================
+   a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0/t1 = scratch, s0/fp =
+   frame pointer, sp = stack, ra = return address. Load/store machine with NO
+   condition flags: comparisons synthesise a 0/1 with slt/seqz/snez/xori, and
+   the test-and-branch opcodes use beqz/bnez. `li` assembles any immediate
+   (so loadimm needs no chunking). Integer/pointer only -- FP errors cleanly. */
+func riscvarg(i:int)   /* RV64 integer argument registers a0..a5 (we cap at 6) */
+{
+  if(i==0)return "a0";
+  else if(i==1)return "a1";
+  else if(i==2)return "a2";
+  else if(i==3)return "a3";
+  else if(i==4)return "a4";
+  else if(i==5)return "a5";
+  error("riscv: more than 6 register arguments not supported");
+  return "a0";
+}
+func addimm_riscv(dst:*char,src:*char,val:int)
+{
+  /* dst = src + val; addi has a 12-bit signed immediate, scratch t0 for big */
+  if((val>=(0-2048))&&(val<2048))
+  {ot("addi ");outstr(dst);outstr(", ");outstr(src);outstr(", ");outdec(val);nl();}
+  else
+  {
+    ot("li t0, ");outdec(val);nl();
+    ot("add ");outstr(dst);outstr(", ");outstr(src);outstr(", t0");nl();
+  }
+}
+func gaddr_riscv(reg:*char,name:*char,off:int)
+{
+  /* reg = &name[+off]; `la` adapts to the code model (non-PIC static here) */
+  ot("la ");outstr(reg);outstr(", ");outname(name);nl();
+  if(off)addimm_riscv(reg,reg,off);
+}
+func framemem_riscv(op:*char,reg:*char,off:int)
+{
+  /* op reg, off(s0); compute the address in t0 when off exceeds 12 bits */
+  if((off>=(0-2048))&&(off<2048))
+  {ot(op);outstr(" ");outstr(reg);outstr(", ");outdec(off);outstr("(s0)");nl();}
+  else
+  {addimm_riscv("t0","s0",off);ot(op);outstr(" ");outstr(reg);outstr(", 0(t0)");nl();}
+}
+func ptrmem_riscv(op:*char,reg:*char,base:*char,off:int)
+{
+  if((off>=(0-2048))&&(off<2048))
+  {ot(op);outstr(" ");outstr(reg);outstr(", ");outdec(off);outstr("(");outstr(base);outstr(")");nl();}
+  else
+  {addimm_riscv("t0",base,off);ot(op);outstr(" ");outstr(reg);outstr(", 0(t0)");nl();}
+}
+func xmulreg_riscv(k:int,s:*char)
+{
+  var int:l;
+  if(k==1)return ;
+  if(k==0){ot("li ");outstr(s);outstr(", 0");nl();return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("slli ");outstr(s);outstr(", ");outstr(s);outstr(", ");outdec(l);nl();return ;}
+  else l++;
+  ot("li t0, ");outdec(k);nl();
+  ot("mul ");outstr(s);outstr(", ");outstr(s);outstr(", t0");nl();
+}
+func xdivconst_riscv(k:int)
+{
+  var int:l;
+  if(k==1)return ;
+  if(!k){error("division by zero");return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("srai a0, a0, ");outdec(l);nl();return ;}
+  else l++;
+  ot("li t0, ");outdec(k);nl();
+  ol("div a0, a0, t0");
+}
+func cd_write_riscv(*scode:this)
+{
+  if(this->code==CD_ZCALL)
+  {
+    /* RV64 callee sign-extends a 32-bit int return to 64 bits per the psABI, so
+       getchar/fgetc need no fixup (unlike the x86_64 cltq). */
+    ot("call ");outname(this->str);nl();
+  }
+  else if(this->code==CD_SPILLARGS)
+  {
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    framemem_riscv("sd",riscvarg(i),-(i+1)*target.wordsize);
+  }
+  else if(this->code==CD_MARSHAL)
+  {
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    ptrmem_riscv("ld",riscvarg(i),"sp",i*target.stackslot);
+  }
+  else if(this->code==CD_LAB)
+  {printlab(this->arg);col();nl();}
+  else if(this->code==CD_JUMP)
+  {ot("j ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTJUMP)
+  {ot("beqz a0, ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTNEJUMP)
+  {ot("bnez a0, ");printlab(this->arg);nl();}
+  else if(this->code==CD_NEG)ol("neg a0, a0");
+  else if(this->code==CD_LNOT)ol("seqz a0, a0");
+  else if(this->code==CD_BNOT)ol("not a0, a0");
+  /* compares: a1 = left, a0 = right; result 0/1 in a0 */
+  else if(this->code==CD_EQ){ol("xor a0, a1, a0");ol("seqz a0, a0");}
+  else if(this->code==CD_NEQ){ol("xor a0, a1, a0");ol("snez a0, a0");}
+  else if(this->code==CD_ZLT)ol("slt a0, a1, a0");
+  else if(this->code==CD_ULT)ol("sltu a0, a1, a0");
+  else if(this->code==CD_ZGT)ol("slt a0, a0, a1");
+  else if(this->code==CD_UGT)ol("sltu a0, a0, a1");
+  else if(this->code==CD_ZLE){ol("slt a0, a0, a1");ol("xori a0, a0, 1");}
+  else if(this->code==CD_ULE){ol("sltu a0, a0, a1");ol("xori a0, a0, 1");}
+  else if(this->code==CD_ZGE){ol("slt a0, a1, a0");ol("xori a0, a0, 1");}
+  else if(this->code==CD_UGE){ol("sltu a0, a1, a0");ol("xori a0, a0, 1");}
+  else if(this->code==CD_BOR2REGS)ol("or a0, a0, a1");
+  else if(this->code==CD_BXOR2REGS)ol("xor a0, a0, a1");
+  else if(this->code==CD_BAND2REGS)ol("and a0, a0, a1");
+  else if(this->code==CD_ADD2REGS)ol("add a0, a0, a1");
+  else if(this->code==CD_SUB2REGS)ol("sub a0, a1, a0");   /* left-right */
+  else if(this->code==CD_MUL2REGS)ol("mul a0, a0, a1");
+  else if(this->code==CD_DIV2REGS)ol("div a0, a1, a0");   /* left/right */
+  else if(this->code==CD_MOD2REGS)ol("rem a0, a1, a0");   /* left%right */
+  else if(this->code==CD_STKENTER)
+  {
+    /* save ra+fp, set s0 to point at the saved fp (like %rbp): saved fp at
+       0(s0), saved ra at 8(s0), incoming stack args at 16(s0). */
+    ol("addi sp, sp, -16");
+    ol("sd s0, 0(sp)");
+    ol("sd ra, 8(sp)");
+    ol("mv s0, sp");
+  }
+  else if(this->code==CD_STKLEAVE)
+  {
+    ol("mv sp, s0");
+    ol("ld s0, 0(sp)");
+    ol("ld ra, 8(sp)");
+    ol("addi sp, sp, 16");
+  }
+  else if(this->code==CD_INCREG)
+  {if(this->arg>0)addimm_riscv("a0","a0",this->arg);}
+  else if(this->code==CD_DECREG)
+  {if(this->arg>0)addimm_riscv("a0","a0",-this->arg);}
+  else if(this->code==CD_MODSTK)
+  {if(this->arg)addimm_riscv("sp","sp",this->arg);}
+  else if(this->code==CD_SHL)ol("sll a0, a1, a0");
+  else if(this->code==CD_ASR)ol("sra a0, a1, a0");
+  else if(this->code==CD_SHR)ol("srl a0, a1, a0");
+  else if(this->code==CD_MULREG)xmulreg_riscv(this->arg,this->reg[regnames]);
+  else if(this->code==CD_DIVCONST)xdivconst_riscv(this->arg);
+  else if(this->code==CD_PUSH){ol("addi sp, sp, -8");ol("sd a0, 0(sp)");}
+  else if(this->code==CD_POP){ol("ld a1, 0(sp)");ol("addi sp, sp, 8");}
+  else if(this->code==CD_MOVAD)ol("mv a1, a0");
+  else if(this->code==CD_RET)ol("ret");
+  else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
+  {ot("la a0, ");printlab(stlab);nl();if(this->arg)addimm_riscv("a0","a0",this->arg);}
+  else if(this->code==CD_LDN)
+  {ot("li a0, ");outdec(this->arg);nl();}
+  else if(this->code==CD_LDA)gaddr_riscv("a0",this->str,this->arg);
+  else if(this->code==CD_LEA)addimm_riscv("a0","s0",this->arg);
+  else if(this->code==CD_STOW)
+  {gaddr_riscv("t0",this->str,this->arg);ol("sd a0, 0(t0)");}
+  else if(this->code==CD_STOB)
+  {gaddr_riscv("t0",this->str,this->arg);ol("sb a0, 0(t0)");}
+  else if(this->code==CD_STOW2)ptrmem_riscv("sd","a0","a1",this->arg);
+  else if(this->code==CD_STOB2)ptrmem_riscv("sb","a0","a1",this->arg);
+  else if(this->code==CD_STLW)framemem_riscv("sd","a0",this->arg);
+  else if(this->code==CD_STLB)framemem_riscv("sb","a0",this->arg);
+  else if(this->code==CD_LBRB)ptrmem_riscv("lb","a0","a0",this->arg);
+  else if(this->code==CD_LBRW)ptrmem_riscv("ld","a0","a0",this->arg);
+  else if(this->code==CD_LBRA)addimm_riscv("a0","a0",this->arg);
+  else if(this->code==CD_LDW)
+  {gaddr_riscv("t0",this->str,this->arg);ol("ld a0, 0(t0)");}
+  else if(this->code==CD_LDB)
+  {gaddr_riscv("t0",this->str,this->arg);ol("lb a0, 0(t0)");}
+  else if(this->code==CD_LDLW)framemem_riscv("ld","a0",this->arg);
+  else if(this->code==CD_LDLB)framemem_riscv("lb","a0",this->arg);
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
+  error("floating point not supported on riscv64 yet");
+  else if(this->code==CD_IGNORE)
+  ;
+  else
+  {fprintf(stderr,"%d ",this->code);error("unknown opcode (riscv)");}
 }
 func cd_write_i386(*scode:this)
 {
@@ -2261,6 +2446,14 @@ func icodegen()
     regnames[RG_B]="x2";
     regnames[RG_C]="x3";
     regnames[RG_D]="x1";
+  }
+  else if(target.arch==ARCH_RISCV)
+  {
+    /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0/t1 = scratch */
+    regnames[RG_A]="a0";
+    regnames[RG_B]="t0";
+    regnames[RG_C]="t1";
+    regnames[RG_D]="a1";
   }
   else if(target.arch==ARCH_X86_64)
   {

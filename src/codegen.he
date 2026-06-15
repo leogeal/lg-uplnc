@@ -145,6 +145,7 @@ var extern int :Zsp;
 #define ARCH_I386   0
 #define ARCH_X86_64 1
 #define ARCH_ARM64  2
+#define ARCH_RISCV  3
 struct starget{
   int arch;             /* ARCH_* -- selects the lowering backend */
   *char label_prefix;   /* local label prefix, e.g. ".L"        */
