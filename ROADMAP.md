@@ -265,12 +265,18 @@ wins first:
   arm64/riscv/mips, so a `CD_ZCALL` in the span reverts that save to memory;
   the same call-free invariant means they never need prologue save/restore even
   where they are callee-saved (x86_64 `%rbx`). A `target.nsavereg` field plus a
-  per-backend free-register choice (`%rbx`/`%rcx`, `x2`/`x3`, riscv `t1`/`t2`,
-  mips `$14`/`$15` — kept clear of each backend's address scratch) makes it work
-  on **all five** ISAs. ~12% of the compiler's own operand-stack spills now avoid
-  memory (the rest span a call). All five self-host fixpoints stay byte-identical.
-  Still open: operate directly on the save register (drop the `RG_B`→`RG_D` mov);
-  saves >2 deep still go to memory; locals still live in the frame
+  per-backend free-register choice makes it work on **all five** ISAs. The save
+  register must survive every op in its span, so it is chosen clear of each
+  backend's scratch: `%rbx`/`%r12` (x86_64), `%ebx`/`%esi` (i386 — *not* `%ecx`,
+  which shifts/div clobber), `x2`/`x3` (arm64), `t1`/`t2` (riscv), `$14`/`$15`
+  (mips). ~12% of the compiler's own operand-stack spills now avoid memory (the
+  rest span a call). **Operate directly on the save register** (a `target.directop`
+  flag + an `r2nd()` helper in the op lowerings): the binary op reads its 2nd
+  operand straight from the save register, so the spill→`RG_D` move is dropped
+  entirely — 562 of 612 register-held spills on x86_64/arm64 (the rest feed a
+  pointer store and keep the move). All five self-host fixpoints stay
+  byte-identical. Still open: saves >2 deep still go to memory; locals still live
+  in the frame
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳
