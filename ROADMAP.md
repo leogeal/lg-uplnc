@@ -80,7 +80,7 @@ carried four more backends — arm64/riscv64/mips64 in M3, plus FP in M4.)*
 - ✅ `-march=` target selection flag
 - ✅ **The compiler self-hosts on both i386 (`-m32`) and x86_64 (native).**
 
-## M3 — Real targets 🟡
+## M3 — Real targets ✅
 
 - ✅ **x86_64** backend (SysV ABI; 16-byte alignment; varargs `%al`) —
   self-hosts natively, removing the `-m32` dependency.
@@ -139,11 +139,20 @@ carried four more backends — arm64/riscv64/mips64 in M3, plus FP in M4.)*
   little-endian targets tolerate the misalignment and stay byte-identical). The
   big-endian char-param spill also needed a `target.bigendian` offset shift.
   Reuses the riscv-style calling convention (`stackslot=8`,
-  `nargreg=8` for `$a0–$a7`). Integer/pointer only — **FP errors cleanly for
-  now**. **Self-host fixpoint reached**: UPLNC now self-hosts on five ISAs
-  (i386, x86_64, arm64, riscv64, mips64), and the big-endian one is byte-clean
-  too. The growing per-backend mnemonic set also pushed `codegen.e` past the
-  8 KB string-literal pool, so `STSIZE` grew to 16 KB
+  `nargreg=8` for `$a0–$a7`). **Self-host fixpoint reached**: UPLNC now
+  self-hosts on five ISAs (i386, x86_64, arm64, riscv64, mips64), and the
+  big-endian one is byte-clean too. The growing per-backend mnemonic set also
+  pushed `codegen.e` past the 8 KB string-literal pool, so `STSIZE` grew to 16 KB
+- ✅ MIPS64 **floating point** (hard-float, N64) — `$f0` accumulator (also the
+  double return reg), `$f2` 2nd operand, `$f4` widen/narrow scratch;
+  `add.d`/`sub.d`/`mul.d`/`div.d`, `trunc.l.d`+`dmfc1` (double→int),
+  `dmtc1`+`cvt.d.l` (int→double), `cvt.d.s`/`cvt.s.d` for the 4-byte `float`,
+  `ldc1`/`sdc1` (and `lwc1`/`swc1` + convert). Like riscv, N64 passes variadic
+  FP args in *integer* registers, so MIPS reuses the integer marshaling (all FP
+  args as bits in `$a0–$a7`); the double return stays in `$f0`. The `.double`
+  literal pool gets word-aligned on the strict target so `ldc1` doesn't fault.
+  All 30 FP golden progs run on mips64 — full FP parity across all five ISAs,
+  validated under a strict (CI-matching qemu 8.2) emulator
 - 💭 More targets (s390x/big-endian-host, WASM) only if anyone needs them
 
 ## M4 — Floating-point arithmetic ✅
