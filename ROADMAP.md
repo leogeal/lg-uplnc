@@ -255,8 +255,22 @@ wins first:
   64-bit targets; matches i386 for the small constants that occur). All four
   self-host fixpoints stay byte-for-byte; a `const_fold` golden test + 239
   run-correctness checks pass
-- ⏳ Light **register allocation** — use the register file instead of spilling
-  every temporary to the stack
+- 🟡 Light **register allocation** — use the register file instead of spilling
+  every temporary to the stack. First slice (`regspill()` in `codegen.e`, a
+  target-neutral peephole after the A/D rule): a binary op with a *complex*
+  right operand normally spills its left operand to the **memory** operand stack
+  (`PUSH`/`POP`) across the right's evaluation; instead hold it in a free
+  register (`RG_B`, then `RG_C`) and copy it to `RG_D` for the operate step.
+  Restricted to **call-free spans** — the save registers are caller-saved on
+  arm64/riscv/mips, so a `CD_ZCALL` in the span reverts that save to memory;
+  the same call-free invariant means they never need prologue save/restore even
+  where they are callee-saved (x86_64 `%rbx`). A `target.nsavereg` field plus a
+  per-backend free-register choice (`%rbx`/`%rcx`, `x2`/`x3`, riscv `t1`/`t2`,
+  mips `$14`/`$15` — kept clear of each backend's address scratch) makes it work
+  on **all five** ISAs. ~12% of the compiler's own operand-stack spills now avoid
+  memory (the rest span a call). All five self-host fixpoints stay byte-identical.
+  Still open: operate directly on the save register (drop the `RG_B`→`RG_D` mov);
+  saves >2 deep still go to memory; locals still live in the frame
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳
