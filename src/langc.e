@@ -669,8 +669,7 @@ func dostruct()
     /**top=afield(t,lsptr->sym.name,offs);
     comment();outstr("*top=");outdec(*top);nl();
     top=&fieldtab[*top].next;*/
-    sz=gettsize(t);
-    if(sz&3)sz=sz+4-(sz&3);
+    sz=roundup(gettsize(t));
     offs=offs+sz;
     }
   delsymlist(lst);
@@ -1387,7 +1386,7 @@ func dolocvar()
     outstr("size:");
     outdec(k);
     nl();
-    if(k&3)k=k+4-(k&3);
+    k=roundup(k);
     comment();
     outdec(k);
     nl();
@@ -1422,7 +1421,7 @@ func dolocvar()
     outstr("size:");
     outdec(k);
     nl();
-    if(k&3)k=k+4-(k&3);
+    k=roundup(k);
     comment();
     outdec(k);
     nl();
@@ -1992,6 +1991,17 @@ func inittarget_elf()
   target.dir_section=".section";
   target.dir_rodata=".rodata";
   target.bigendian=0;   /* little-endian default; mips overrides */
+  target.strictalign=0; /* x86/arm64/riscv tolerate unaligned; mips overrides */
+}
+/* round a data size/offset up to the alignment unit: a word on strict-alignment
+   targets (mips faults on an unaligned ld/sd), else 4 as the i386 heritage. */
+func roundup(n:int)
+{
+  var int:a;
+  a=4;
+  if(target.strictalign)a=target.wordsize;
+  if(n&(a-1))n=n+a-(n&(a-1));
+  return n;
 }
 func inittarget_i386()
 {
@@ -2035,6 +2045,7 @@ func inittarget_mips()
   target.nargreg=8;    /* N64: $a0..$a7 ($4..$11) */
   target.dir_align=".align 3";  /* MIPS .align is power-of-2: 2^3 = 8-byte */
   target.bigendian=1;  /* MSB-first: shifts sub-word param offsets (see dofunc) */
+  target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
 }
 func printlab(label:int)
 {
@@ -4715,9 +4726,11 @@ func dumpglbs()
       comma();
       s=gettsize(lst->sym.type);
       outdec(s);
+      /* .comm alignment: char stays byte-aligned; everything else gets word
+         alignment on strict targets (mips ld/sd fault otherwise), else 4. */
       if(lst->sym.type==T_CHAR)outasm(",1");
-      else
-      outasm(",4");
+      else if(target.strictalign){comma();outdec(target.wordsize);}
+      else outasm(",4");
       nl();
     }
   }
