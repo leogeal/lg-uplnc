@@ -167,6 +167,9 @@ struct starget{
                            to hold operand-stack spills. 2 where they are truly
                            free; 0 on riscv/mips where they double as backend
                            address scratch (until that scratch is relocated).  */
+  int directop;         /* M5 regspill: 1 if the binary-op lowerings read their
+                           2nd operand from scode.reg (a save reg) via r2nd(),
+                           so regspill can drop the spill->RG_D move entirely.   */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */

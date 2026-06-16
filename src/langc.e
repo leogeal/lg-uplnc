@@ -1993,6 +1993,7 @@ func inittarget_elf()
   target.bigendian=0;   /* little-endian default; mips overrides */
   target.strictalign=0; /* x86/arm64/riscv tolerate unaligned; mips overrides */
   target.nsavereg=2;    /* RG_B/RG_C free for spills; riscv/mips override to 0 */
+  target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment
    targets (mips faults on an unaligned ld/sd), else 4 as the i386 heritage. */
@@ -2027,6 +2028,7 @@ func inittarget_arm64()
   target.wordsize=8;   /* AArch64 LP64: int==pointer==8 bytes */
   target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
   target.nargreg=6;    /* AAPCS64 has x0..x7, but we use 6 (as on x86_64) */
+  target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func inittarget_riscv()
 {
@@ -2037,6 +2039,7 @@ func inittarget_riscv()
                           pad-to-16-at-calls logic keeps the ABI alignment */
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
   target.nsavereg=2;   /* RG_B/RG_C are t1/t2, distinct from the t0 scratch */
+  target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func inittarget_mips()
 {
@@ -2049,6 +2052,7 @@ func inittarget_mips()
   target.bigendian=1;  /* MSB-first: shifts sub-word param offsets (see dofunc) */
   target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
   target.nsavereg=2;   /* RG_B/RG_C are $14/$15, distinct from $12/$13 scratch */
+  target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func printlab(label:int)
 {
