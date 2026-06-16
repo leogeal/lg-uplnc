@@ -2811,19 +2811,23 @@ func icodegen()
   }
   else if(target.arch==ARCH_RISCV)
   {
-    /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0/t1 = scratch */
+    /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0 = address scratch
+       (the helpers hardcode t0); t1/t2 = the regspill saves (RG_B/RG_C), kept
+       clear of t0 so a held save survives an address computation in its span. */
     regnames[RG_A]="a0";
-    regnames[RG_B]="t0";
-    regnames[RG_C]="t1";
+    regnames[RG_B]="t1";
+    regnames[RG_C]="t2";
     regnames[RG_D]="a1";
   }
   else if(target.arch==ARCH_MIPS)
   {
-    /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = scratch.
-       N64 args go in $4..$11, so these scratch/result regs stay clear of them. */
+    /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = address+imm
+       scratch (the helpers hardcode them); $14/$15 = the regspill saves
+       (RG_B/RG_C), kept clear of $12/$13 so a held save survives an address
+       computation in its span. N64 args go in $4..$11, clear of all these. */
     regnames[RG_A]="$2";
-    regnames[RG_B]="$12";
-    regnames[RG_C]="$13";
+    regnames[RG_B]="$14";
+    regnames[RG_C]="$15";
     regnames[RG_D]="$3";
   }
   else if(target.arch==ARCH_X86_64)

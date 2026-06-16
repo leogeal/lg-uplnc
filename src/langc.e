@@ -2036,7 +2036,7 @@ func inittarget_riscv()
   target.stackslot=8;  /* RISC-V doesn't fault on 8-byte sp pushes; the
                           pad-to-16-at-calls logic keeps the ABI alignment */
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
-  target.nsavereg=0;   /* t0/t1 (RG_B/RG_C) are this backend's addr scratch */
+  target.nsavereg=2;   /* RG_B/RG_C are t1/t2, distinct from the t0 scratch */
 }
 func inittarget_mips()
 {
@@ -2048,7 +2048,7 @@ func inittarget_mips()
   target.dir_align=".align 3";  /* MIPS .align is power-of-2: 2^3 = 8-byte */
   target.bigendian=1;  /* MSB-first: shifts sub-word param offsets (see dofunc) */
   target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
-  target.nsavereg=0;   /* $12/$13 (RG_B/RG_C) are this backend's addr scratch */
+  target.nsavereg=2;   /* RG_B/RG_C are $14/$15, distinct from $12/$13 scratch */
 }
 func printlab(label:int)
 {
