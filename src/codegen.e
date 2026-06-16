@@ -51,6 +51,12 @@ func cg_getitem(this :*scodegen)
   cd_init(this->codes+this->codeptr);
   return this->codes+this->codeptr++;
 }
+/* emit "<mnem> <a>, <b>" -- the backends call this for CD_MOVR with their own
+   operand order (AT&T x86 is src,dst; arm64/riscv/mips are dst,src). */
+func movins(mnem:*char,a:*char,b:*char)
+{
+  ot(mnem);outstr(a);outstr(", ");outstr(b);nl();
+}
 func ispureload(code:int)
 {
   /* M5: opcodes that load a value into the accumulator (%rax) and read neither
@@ -106,10 +112,75 @@ func peephole(this:*scodegen)
     else i=i+1;
   }
 }
+/* M5 light register allocation (slice 1), as a target-neutral peephole over the
+   CD_* stream, run after peephole() so the easy pure-load pairs are already
+   gone. A binary op saves its left operand across the (complex) right operand;
+   instead of spilling it to the *memory* operand stack (PUSH/POP) we hold it in
+   a free register (RG_B, then RG_C) and copy it to RG_D for the operate step:
+     PUSH ; <right> ; POP            (memory round-trip)
+     mov acc->RG_B ; <right> ; mov RG_B->RG_D     (register, no memory)
+   RG_B/RG_C are otherwise unused as IR destinations on every backend, so the
+   only thing that can clobber a held save in a call-free span is a *nested*
+   save -- which takes the next register (the openreg discipline). A function
+   CALL, though, clobbers them (they are caller-saved on arm64/riscv/mips), so a
+   span containing a CD_ZCALL reverts to the memory PUSH/POP. PUSH/POP are
+   balanced per function, so a simple match-stack pairs them; nesting deeper than
+   two register saves (or REGSPILL_MAX) just stays in memory. */
+#define REGSPILL_MAX 256
+func regspill(this:*scodegen)
+{
+  var int:i;var int:n;var int:j;var int:r;var int:c;
+  var int:sp;var int:openreg;var int:bail;
+  var [REGSPILL_MAX]int:sidx;   /* PUSH index of each open save            */
+  var [REGSPILL_MAX]int:sreg;   /* its register (RG_B/RG_C), or 0-1 = memory */
+  n=this->codeptr;
+  sp=0;openreg=0;bail=0;
+  i=0;
+  while(i<n)
+  {
+    c=this->codes[i].code;
+    if(c==CD_ZCALL)              /* clobbers every register-held open save */
+    {
+      for(j=0;j<sp;j++)if(sreg[j]>=0)sreg[j]=0-1;
+      openreg=0;
+    }
+    else if(c==CD_PUSH)
+    {
+      if(bail||(sp>=REGSPILL_MAX))bail=1;  /* too deep -> leave the rest in memory */
+      else
+      {
+        sidx[sp]=i;
+        if(openreg<target.nsavereg){sreg[sp]=RG_B+openreg;openreg=openreg+1;}
+        else sreg[sp]=0-1;       /* no free save reg -> memory */
+        sp=sp+1;
+      }
+    }
+    else if(c==CD_POP)
+    {
+      if((!bail)&&(sp>0))
+      {
+        sp=sp-1;
+        r=sreg[sp];
+        if(r>=0)                 /* commit: PUSH->mov acc,r  POP->mov r,RG_D */
+        {
+          openreg=openreg-1;
+          this->codes[sidx[sp]].code=CD_MOVR;
+          this->codes[sidx[sp]].reg=r;
+          this->codes[sidx[sp]].arg=RG_A;
+          this->codes[i].code=CD_MOVR;
+          this->codes[i].reg=RG_D;
+          this->codes[i].arg=r;
+        }
+      }
+    }
+    i=i+1;
+  }
+}
 func cg_print(*scodegen this)
 {
   var int:i;
   peephole(this);
+  regspill(this);
   for(i=0;i<this->codeptr;i++)
   cd_write(this->codes+i);
 }
@@ -464,6 +535,8 @@ func cd_write_x86_64(*scode:this)
   }
   else if(this->code==CD_MOVAD)
   ol("movq %rax, %rdx");
+  else if(this->code==CD_MOVR)   /* AT&T: src, dst */
+  movins("movq ",regnames[this->arg],regnames[this->reg]);
   else if(this->code==CD_RET)
   {
     ol("ret");
@@ -1005,6 +1078,8 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_PUSH)ol("str x0, [sp, #-16]!");
   else if(this->code==CD_POP)ol("ldr x1, [sp], #16");
   else if(this->code==CD_MOVAD)ol("mov x1, x0");
+  else if(this->code==CD_MOVR)   /* dst, src */
+  movins("mov ",regnames[this->reg],regnames[this->arg]);
   else if(this->code==CD_RET)ol("ret");
   else if(this->code==CD_LDLIT)litaddr_arm64(regnames[this->reg],this->arg);
   else if(this->code==CD_LDN)loadimm_arm64(regnames[this->reg],this->arg);
@@ -1233,6 +1308,8 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_PUSH){ol("addi sp, sp, -8");ol("sd a0, 0(sp)");}
   else if(this->code==CD_POP){ol("ld a1, 0(sp)");ol("addi sp, sp, 8");}
   else if(this->code==CD_MOVAD)ol("mv a1, a0");
+  else if(this->code==CD_MOVR)   /* dst, src */
+  movins("mv ",regnames[this->reg],regnames[this->arg]);
   else if(this->code==CD_RET)ol("ret");
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("la ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
@@ -1461,6 +1538,8 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_PUSH){ol("daddiu $sp, $sp, -8");ol("sd $2, 0($sp)");}
   else if(this->code==CD_POP){ol("ld $3, 0($sp)");ol("daddiu $sp, $sp, 8");}
   else if(this->code==CD_MOVAD)ol("move $3, $2");
+  else if(this->code==CD_MOVR)   /* dst, src */
+  movins("move ",regnames[this->reg],regnames[this->arg]);
   else if(this->code==CD_RET)ol("jr $ra");
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("dla ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
@@ -1834,6 +1913,8 @@ func cd_write_i386(*scode:this)
   }
   else if(this->code==CD_MOVAD)
   ol("movl %eax, %edx");
+  else if(this->code==CD_MOVR)   /* AT&T: src, dst */
+  movins("movl ",regnames[this->arg],regnames[this->reg]);
   else if(this->code==CD_RET)
   {
     ol("ret");
@@ -2730,19 +2811,23 @@ func icodegen()
   }
   else if(target.arch==ARCH_RISCV)
   {
-    /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0/t1 = scratch */
+    /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0 = address scratch
+       (the helpers hardcode t0); t1/t2 = the regspill saves (RG_B/RG_C), kept
+       clear of t0 so a held save survives an address computation in its span. */
     regnames[RG_A]="a0";
-    regnames[RG_B]="t0";
-    regnames[RG_C]="t1";
+    regnames[RG_B]="t1";
+    regnames[RG_C]="t2";
     regnames[RG_D]="a1";
   }
   else if(target.arch==ARCH_MIPS)
   {
-    /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = scratch.
-       N64 args go in $4..$11, so these scratch/result regs stay clear of them. */
+    /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = address+imm
+       scratch (the helpers hardcode them); $14/$15 = the regspill saves
+       (RG_B/RG_C), kept clear of $12/$13 so a held save survives an address
+       computation in its span. N64 args go in $4..$11, clear of all these. */
     regnames[RG_A]="$2";
-    regnames[RG_B]="$12";
-    regnames[RG_C]="$13";
+    regnames[RG_B]="$14";
+    regnames[RG_C]="$15";
     regnames[RG_D]="$3";
   }
   else if(target.arch==ARCH_X86_64)
