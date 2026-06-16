@@ -1218,10 +1218,10 @@ func dofunc()
     if(nsp>0)
     {
       Zsp=modstk(Zsp-nsp*target.wordsize);
-      /* riscv passes FP args in integer registers, so a double param arrives in
-         an integer arg register too -- spill it (its bits) with the plain
-         integer spillargs, then it is read back as a double via fld. */
-      if((nfpparam==0)||(target.arch==ARCH_RISCV))
+      /* riscv and mips pass FP args in integer registers, so a double param
+         arrives in an integer arg register too -- spill it (its bits) with the
+         plain integer spillargs, then it is read back as a double via ldc1/fld. */
+      if((nfpparam==0)||(target.arch==ARCH_RISCV)||(target.arch==ARCH_MIPS))
       spillargs(nsp);   /* all-integer params: unchanged, byte-identical path */
       else
       {
@@ -3079,10 +3079,10 @@ func ct_FUNC(node:*enode,lval:*elval)
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
       cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
-      /* RISC-V passes FP args as raw bits in the *integer* registers (the
-         variadic convention -- what printf reads), so it takes the integer path
+      /* RISC-V and MIPS pass FP args as raw bits in the *integer* registers (the
+         variadic convention -- what printf reads), so they take the integer path
          below; only x86_64/arm64 use the separate FP-register marshaling. */
-      if((cfp>0)&&(target.arch!=ARCH_RISCV))
+      if((cfp>0)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS))
       {
         /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
            (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
@@ -4327,6 +4327,12 @@ func dumpfloats()       /* emit .LF<i>: .double <text> for each float literal */
   ot(target.dir_section);
   ot(target.dir_rodata);
   nl();
+  /* The pool follows the byte-granular string pool in .rodata, so its .double
+     entries are at an arbitrary offset. On a strict-alignment target (mips)
+     `ldc1` from a non-8-aligned .LF faults, so word-align the pool start; the
+     8-byte .double entries then stay aligned. dir_align is the target's
+     power-of-2/byte form (".align 3" == 8 bytes on mips). */
+  if(target.strictalign){ot(target.dir_align);nl();}
   for(i=0;i<fpoolptr;i++)
   {
     outstr(".LF");outdec(i);col();nl();

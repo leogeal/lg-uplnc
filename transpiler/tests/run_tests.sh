@@ -186,8 +186,8 @@ fi
 
 echo "[10] mips64 backend: programs compile (-march=mips64), assemble + run"
 # MIPS64 N64, big-endian -- the one big-endian target. Cross-toolchain + qemu
-# binfmt on x86, or native gcc on mips64. Integer only for now; FP programs emit
-# a 'not supported on mips' marker and are skipped here.
+# binfmt on x86, or native gcc on mips64. Integer + floating point both run; the
+# skip branch below is a safety net for any feature that errors cleanly.
 MIPS=""
 # -mno-abicalls -fno-pic -G 0: non-PIC, and -G 0 disables small-data so `dla`
 # forms a full 64-bit *absolute* address rather than a $gp-relative one (we

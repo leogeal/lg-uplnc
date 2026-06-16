@@ -1486,11 +1486,44 @@ func cd_write_mips(*scode:this)
   {gaddr_mips("$12",this->str,this->arg);ot("lb ");outstr(regnames[this->reg]);outstr(", 0($12)");nl();}
   else if(this->code==CD_LDLW)framemem_mips("ld",regnames[this->reg],this->arg);
   else if(this->code==CD_LDLB)framemem_mips("lb",regnames[this->reg],this->arg);
-  /* floating point is not implemented on mips yet; the marker lets the test
-     harness skip FP programs cleanly (the compiler source itself is integer
-     only, so self-hosting never reaches here). */
+  /* ---- MIPS64 floating point (N64, hard-float): $f0 = accumulator (also the
+     N64 double return reg, so `return d` needs no move), $f2 = 2nd operand,
+     $f4 = scratch for the 4-byte-float widen/narrow. FP args are passed as raw
+     bits in the integer registers (the N64 variadic convention -- what printf
+     reads), so they reuse the integer marshaling; the double return is $f0. */
+  else if(this->code==CD_FLDLIT)
+  {ot("dla $12, .LF");outdec(this->arg);nl();ol("ldc1 $f0, 0($12)");}
+  else if(this->code==CD_F2I){ol("trunc.l.d $f0, $f0");ol("dmfc1 $2, $f0");} /* double->long, trunc */
+  else if(this->code==CD_FLDLOC)framemem_mips("ldc1","$f0",this->arg);
+  else if(this->code==CD_FLDGLB)
+  {gaddr_mips("$12",this->str,this->arg);ol("ldc1 $f0, 0($12)");}
+  else if(this->code==CD_FSTLOC)framemem_mips("sdc1","$f0",this->arg);
+  else if(this->code==CD_FSTGLB)
+  {gaddr_mips("$12",this->str,this->arg);ol("sdc1 $f0, 0($12)");}
+  else if(this->code==CD_FPUSH){ol("daddiu $sp, $sp, -8");ol("sdc1 $f0, 0($sp)");}
+  else if(this->code==CD_FPOP){ol("ldc1 $f2, 0($sp)");ol("daddiu $sp, $sp, 8");}
+  else if(this->code==CD_FADD)ol("add.d $f0, $f2, $f0");
+  else if(this->code==CD_FSUB)ol("sub.d $f0, $f2, $f0");   /* left-right */
+  else if(this->code==CD_FMUL)ol("mul.d $f0, $f2, $f0");
+  else if(this->code==CD_FDIV)ol("div.d $f0, $f2, $f0");   /* left/right */
+  else if(this->code==CD_I2F){ol("dmtc1 $2, $f0");ol("cvt.d.l $f0, $f0");}  /* promote right */
+  else if(this->code==CD_I2F1){ol("dmtc1 $3, $f2");ol("cvt.d.l $f2, $f2");} /* promote left */
+  else if(this->code==CD_FLDLOCS)            /* 4-byte float: load + widen */
+  {framemem_mips("lwc1","$f4",this->arg);ol("cvt.d.s $f0, $f4");}
+  else if(this->code==CD_FLDGLBS)
+  {gaddr_mips("$12",this->str,this->arg);ol("lwc1 $f4, 0($12)");ol("cvt.d.s $f0, $f4");}
+  else if(this->code==CD_FSTLOCS)            /* narrow into $f4 (preserve $f0) */
+  {ol("cvt.s.d $f4, $f0");framemem_mips("swc1","$f4",this->arg);}
+  else if(this->code==CD_FSTGLBS)
+  {ol("cvt.s.d $f4, $f0");gaddr_mips("$12",this->str,this->arg);ol("swc1 $f4, 0($12)");}
+  else if(this->code==CD_FLBR)ptrmem_mips("ldc1","$f0","$2",this->arg);
+  else if(this->code==CD_FLBRS)
+  {ptrmem_mips("lwc1","$f4","$2",this->arg);ol("cvt.d.s $f0, $f4");}
+  else if(this->code==CD_FSTBR2)ptrmem_mips("sdc1","$f0","$3",this->arg);
+  else if(this->code==CD_FSTBR2S)
+  {ol("cvt.s.d $f4, $f0");ptrmem_mips("swc1","$f4","$3",this->arg);}
   else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
-  {ot("# floating point not supported on mips yet");nl();}
+  error("mips: this FP opcode is not used (FP args go in integer registers)");
   else if(this->code==CD_IGNORE)
   ;
   else
