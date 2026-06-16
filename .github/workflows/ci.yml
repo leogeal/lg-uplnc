@@ -106,6 +106,29 @@ jobs:
           ./fixpoint.sh riscv64
         working-directory: transpiler
 
+  fixpoint-mips64:
+    name: Self-host fixpoint (mips64, qemu)
+    runs-on: ubuntu-latest
+    # No native MIPS runner: cross-compile with gcc-mips64-linux-gnuabi64 and run
+    # the big-endian N64 binaries via qemu-user-static (binfmt). This is the only
+    # big-endian self-host target, so it also guards endianness assumptions.
+    # Gates the mips64 fixpoint and the run-correctness section of run_tests.sh.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install MIPS64 cross-toolchain + qemu-user
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mips64-linux-gnuabi64 qemu-user-static binfmt-support
+      - name: Build, run the test suite, and the mips64 fixpoint
+        run: |
+          ./build.sh
+          bash tests/run_tests.sh
+          ./fixpoint.sh mips64
+        working-directory: transpiler
+
   cross-compile:
     name: Cross-compile self-host (x86_64 host -> i386)
     runs-on: ubuntu-latest

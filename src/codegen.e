@@ -143,6 +143,7 @@ func cd_write(*scode:this)
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else if(target.arch==ARCH_ARM64)cd_write_arm64(this);
   else if(target.arch==ARCH_RISCV)cd_write_riscv(this);
+  else if(target.arch==ARCH_MIPS)cd_write_mips(this);
   else cd_write_i386(this);
 }
 /* System V AMD64 integer/pointer argument registers, in order. */
@@ -1295,6 +1296,205 @@ func cd_write_riscv(*scode:this)
   ;
   else
   {fprintf(stderr,"%d ",this->code);error("unknown opcode (riscv)");}
+}
+/* ---- MIPS64 (N64 ABI, big-endian) integer backend --------------------------
+   Mirrors cd_write_riscv: a load/store machine with slt-style compares and no
+   condition flags. $2 = accumulator (RG_A), $3 = 2nd operand (RG_D); $12/$13
+   are address/immediate scratch (never IR destinations); $4..$11 carry args;
+   $fp is the frame pointer, $sp/$ra as usual. N64 is LP64 (int==ptr==8 bytes)
+   so all arithmetic uses the d-prefixed 64-bit instructions. The assembler runs
+   in its default `.set reorder` mode, so it fills branch delay slots for us. */
+func mipsarg(i:int)   /* N64 integer argument registers $a0..$a7 == $4..$11 */
+{
+  if(i==0)return "$4";
+  else if(i==1)return "$5";
+  else if(i==2)return "$6";
+  else if(i==3)return "$7";
+  else if(i==4)return "$8";
+  else if(i==5)return "$9";
+  else if(i==6)return "$10";
+  else if(i==7)return "$11";
+  error("mips: more than 8 register arguments not supported");
+  return "$4";
+}
+func addimm_mips(dst:*char,src:*char,val:int)
+{
+  /* dst = src + val; daddiu has a 16-bit signed immediate. For bigger values
+     load into $13 first (a scratch distinct from the $12 address scratch, so
+     this stays correct even when dst==src==$12, as in gaddr_mips). */
+  if((val>=(0-32768))&&(val<32768))
+  {ot("daddiu ");outstr(dst);outstr(", ");outstr(src);outstr(", ");outdec(val);nl();}
+  else
+  {
+    ot("li $13, ");outdec(val);nl();
+    ot("daddu ");outstr(dst);outstr(", ");outstr(src);outstr(", $13");nl();
+  }
+}
+func gaddr_mips(reg:*char,name:*char,off:int)
+{
+  /* reg = &name[+off]; `dla` forms the full 64-bit absolute address (non-PIC) */
+  ot("dla ");outstr(reg);outstr(", ");outname(name);nl();
+  if(off)addimm_mips(reg,reg,off);
+}
+func framemem_mips(op:*char,reg:*char,off:int)
+{
+  /* op reg, off($fp); compute the address in $12 when off exceeds 16 bits */
+  if((off>=(0-32768))&&(off<32768))
+  {ot(op);outstr(" ");outstr(reg);outstr(", ");outdec(off);outstr("($fp)");nl();}
+  else
+  {addimm_mips("$12","$fp",off);ot(op);outstr(" ");outstr(reg);outstr(", 0($12)");nl();}
+}
+func ptrmem_mips(op:*char,reg:*char,base:*char,off:int)
+{
+  if((off>=(0-32768))&&(off<32768))
+  {ot(op);outstr(" ");outstr(reg);outstr(", ");outdec(off);outstr("(");outstr(base);outstr(")");nl();}
+  else
+  {addimm_mips("$12",base,off);ot(op);outstr(" ");outstr(reg);outstr(", 0($12)");nl();}
+}
+func xmulreg_mips(k:int,s:*char)
+{
+  var int:l;
+  if(k==1)return ;
+  if(k==0){ot("li ");outstr(s);outstr(", 0");nl();return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("dsll ");outstr(s);outstr(", ");outstr(s);outstr(", ");outdec(l);nl();return ;}
+  else l++;
+  ot("li $12, ");outdec(k);nl();
+  ot("dmul ");outstr(s);outstr(", ");outstr(s);outstr(", $12");nl();
+}
+func xdivconst_mips(k:int)
+{
+  var int:l;
+  if(k==1)return ;
+  if(!k){error("division by zero");return ;}
+  l=1;
+  while(l<31)if(k==(1<<l))
+  {ot("dsra $2, $2, ");outdec(l);nl();return ;}
+  else l++;
+  ot("li $12, ");outdec(k);nl();
+  ol("ddiv $2, $2, $12");
+}
+func cd_write_mips(*scode:this)
+{
+  if(this->code==CD_ZCALL)
+  {
+    /* Call through $t9 ($25): the MIPS PIC convention requires the callee's
+       address to be in $t9 at entry, because glibc's PIC functions recompute
+       their own $gp from it (gp = t9 + gp_offset). A plain `jal name` leaves
+       $t9 garbage, so e.g. malloc then dereferences a wrong-$gp GOT slot and
+       crashes. Our own (non-PIC) functions ignore $t9, so this is uniform.
+       N64 sign-extends a 32-bit int return in $v0 per the psABI, so getchar/
+       fgetc need no fixup (like riscv, unlike the x86_64 cltq). */
+    ot("dla $25, ");outname(this->str);nl();
+    ol("jalr $25");
+  }
+  else if(this->code==CD_SPILLARGS)
+  {
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    framemem_mips("sd",mipsarg(i),-(i+1)*target.wordsize);
+  }
+  else if(this->code==CD_MARSHAL)
+  {
+    var int:i;
+    for(i=0;i<this->arg;i++)
+    ptrmem_mips("ld",mipsarg(i),"$sp",i*target.stackslot);
+  }
+  else if(this->code==CD_LAB)
+  {printlab(this->arg);col();nl();}
+  else if(this->code==CD_JUMP)
+  {ot("b ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTJUMP)
+  {ot("beqz $2, ");printlab(this->arg);nl();}
+  else if(this->code==CD_TESTNEJUMP)
+  {ot("bnez $2, ");printlab(this->arg);nl();}
+  else if(this->code==CD_NEG)ol("dsubu $2, $0, $2");
+  else if(this->code==CD_LNOT)ol("sltiu $2, $2, 1");
+  else if(this->code==CD_BNOT)ol("nor $2, $2, $0");
+  /* compares: $3 = left, $2 = right; result 0/1 in $2 */
+  else if(this->code==CD_EQ){ol("xor $2, $3, $2");ol("sltiu $2, $2, 1");}
+  else if(this->code==CD_NEQ){ol("xor $2, $3, $2");ol("sltu $2, $0, $2");}
+  else if(this->code==CD_ZLT)ol("slt $2, $3, $2");
+  else if(this->code==CD_ULT)ol("sltu $2, $3, $2");
+  else if(this->code==CD_ZGT)ol("slt $2, $2, $3");
+  else if(this->code==CD_UGT)ol("sltu $2, $2, $3");
+  else if(this->code==CD_ZLE){ol("slt $2, $2, $3");ol("xori $2, $2, 1");}
+  else if(this->code==CD_ULE){ol("sltu $2, $2, $3");ol("xori $2, $2, 1");}
+  else if(this->code==CD_ZGE){ol("slt $2, $3, $2");ol("xori $2, $2, 1");}
+  else if(this->code==CD_UGE){ol("sltu $2, $3, $2");ol("xori $2, $2, 1");}
+  else if(this->code==CD_BOR2REGS)ol("or $2, $2, $3");
+  else if(this->code==CD_BXOR2REGS)ol("xor $2, $2, $3");
+  else if(this->code==CD_BAND2REGS)ol("and $2, $2, $3");
+  else if(this->code==CD_ADD2REGS)ol("daddu $2, $2, $3");
+  else if(this->code==CD_SUB2REGS)ol("dsubu $2, $3, $2");   /* left-right */
+  else if(this->code==CD_MUL2REGS)ol("dmul $2, $2, $3");
+  else if(this->code==CD_DIV2REGS)ol("ddiv $2, $3, $2");    /* left/right */
+  else if(this->code==CD_MOD2REGS)ol("drem $2, $3, $2");    /* left%right */
+  else if(this->code==CD_STKENTER)
+  {
+    /* save ra+fp, point $fp at the saved fp (like %rbp): saved fp at 0($fp),
+       saved ra at 8($fp), incoming stack args at 16($fp). */
+    ol("daddiu $sp, $sp, -16");
+    ol("sd $fp, 0($sp)");
+    ol("sd $ra, 8($sp)");
+    ol("move $fp, $sp");
+  }
+  else if(this->code==CD_STKLEAVE)
+  {
+    ol("move $sp, $fp");
+    ol("ld $fp, 0($sp)");
+    ol("ld $ra, 8($sp)");
+    ol("daddiu $sp, $sp, 16");
+  }
+  else if(this->code==CD_INCREG)
+  {if(this->arg>0)addimm_mips("$2","$2",this->arg);}
+  else if(this->code==CD_DECREG)
+  {if(this->arg>0)addimm_mips("$2","$2",-this->arg);}
+  else if(this->code==CD_MODSTK)
+  {if(this->arg)addimm_mips("$sp","$sp",this->arg);}
+  else if(this->code==CD_SHL)ol("dsllv $2, $3, $2");
+  else if(this->code==CD_ASR)ol("dsrav $2, $3, $2");
+  else if(this->code==CD_SHR)ol("dsrlv $2, $3, $2");
+  else if(this->code==CD_MULREG)xmulreg_mips(this->arg,regnames[this->reg]);
+  else if(this->code==CD_DIVCONST)xdivconst_mips(this->arg);
+  else if(this->code==CD_PUSH){ol("daddiu $sp, $sp, -8");ol("sd $2, 0($sp)");}
+  else if(this->code==CD_POP){ol("ld $3, 0($sp)");ol("daddiu $sp, $sp, 8");}
+  else if(this->code==CD_MOVAD)ol("move $3, $2");
+  else if(this->code==CD_RET)ol("jr $ra");
+  else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
+  {ot("dla ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
+   if(this->arg)addimm_mips(regnames[this->reg],regnames[this->reg],this->arg);}
+  else if(this->code==CD_LDN)
+  {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
+  else if(this->code==CD_LDA)gaddr_mips(regnames[this->reg],this->str,this->arg);
+  else if(this->code==CD_LEA)addimm_mips(regnames[this->reg],"$fp",this->arg);
+  else if(this->code==CD_STOW)
+  {gaddr_mips("$12",this->str,this->arg);ol("sd $2, 0($12)");}
+  else if(this->code==CD_STOB)
+  {gaddr_mips("$12",this->str,this->arg);ol("sb $2, 0($12)");}
+  else if(this->code==CD_STOW2)ptrmem_mips("sd","$2","$3",this->arg);
+  else if(this->code==CD_STOB2)ptrmem_mips("sb","$2","$3",this->arg);
+  else if(this->code==CD_STLW)framemem_mips("sd","$2",this->arg);
+  else if(this->code==CD_STLB)framemem_mips("sb","$2",this->arg);
+  else if(this->code==CD_LBRB)ptrmem_mips("lb","$2","$2",this->arg);
+  else if(this->code==CD_LBRW)ptrmem_mips("ld","$2","$2",this->arg);
+  else if(this->code==CD_LBRA)addimm_mips("$2","$2",this->arg);
+  else if(this->code==CD_LDW)
+  {gaddr_mips("$12",this->str,this->arg);ot("ld ");outstr(regnames[this->reg]);outstr(", 0($12)");nl();}
+  else if(this->code==CD_LDB)
+  {gaddr_mips("$12",this->str,this->arg);ot("lb ");outstr(regnames[this->reg]);outstr(", 0($12)");nl();}
+  else if(this->code==CD_LDLW)framemem_mips("ld",regnames[this->reg],this->arg);
+  else if(this->code==CD_LDLB)framemem_mips("lb",regnames[this->reg],this->arg);
+  /* floating point is not implemented on mips yet; the marker lets the test
+     harness skip FP programs cleanly (the compiler source itself is integer
+     only, so self-hosting never reaches here). */
+  else if((this->code>=CD_FLDLIT)&&(this->code<=CD_FSTBR2S))
+  {ot("# floating point not supported on mips yet");nl();}
+  else if(this->code==CD_IGNORE)
+  ;
+  else
+  {fprintf(stderr,"%d ",this->code);error("unknown opcode (mips)");}
 }
 func cd_write_i386(*scode:this)
 {
@@ -2502,6 +2702,15 @@ func icodegen()
     regnames[RG_B]="t0";
     regnames[RG_C]="t1";
     regnames[RG_D]="a1";
+  }
+  else if(target.arch==ARCH_MIPS)
+  {
+    /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = scratch.
+       N64 args go in $4..$11, so these scratch/result regs stay clear of them. */
+    regnames[RG_A]="$2";
+    regnames[RG_B]="$12";
+    regnames[RG_C]="$13";
+    regnames[RG_D]="$3";
   }
   else if(target.arch==ARCH_X86_64)
   {

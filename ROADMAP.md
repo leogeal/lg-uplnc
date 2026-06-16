@@ -101,7 +101,7 @@ Make output target a pluggable choice instead of hard-wired i386. See
   fixpoint reached**: UPLNC now self-hosts on four ISAs (i386, x86_64, arm64,
   riscv64). Validated under qemu-user; CI cross-builds + runs it under qemu
 - ✅ Per-target **fixpoint in CI** — x86_64 native, i386 `-m32`, arm64 native,
-  riscv64 under qemu
+  riscv64 + mips64 under qemu
 - ✅ RISC-V **floating point** (D extension) — `fa0` accumulator, `fa1` 2nd
   operand; `fadd.d`/`fsub.d`/`fmul.d`/`fdiv.d`, `fcvt.l.d`(rtz)/`fcvt.d.l`
   conversions, `fld`/`fsd` (and `flw`+`fcvt.d.s` for the 4-byte `float`). The
@@ -112,7 +112,23 @@ Make output target a pluggable choice instead of hard-wired i386. See
   arg-register count to become a target field (`nargreg`: 6 elsewhere, **8** on
   riscv, since FP+int share the registers). All 30 FP progs run on riscv64 (full
   parity); all four fixpoints byte-identical
-- 💭 More targets (s390x/big-endian, WASM) only if anyone needs them
+- ✅ **MIPS64 (N64)** backend — `cd_write_mips`: `$2` accumulator, `$3` 2nd
+  operand, `$12`/`$13` scratch, `$fp`/`$sp`/`$ra` frame; **big-endian**, the
+  first non-little-endian target (so it also guards endianness assumptions).
+  LP64 with `d`-prefixed 64-bit ops (`daddu`/`dsubu`/`dmul`/`ddiv`/`drem`,
+  `dsllv`/`dsrav`/`dsrlv`); **no condition flags** → `slt`/`sltu`/`sltiu`/`xori`
+  synthesise 0/1 and `beqz`/`bnez` branch; globals via `dla` (full 64-bit
+  absolute, non-PIC) and `ld`/`sd`/`lb`/`sb`. Two MIPS-isms: calls go **through
+  `$t9`** (`dla $25,f; jalr $25`) because glibc's PIC functions recompute `$gp`
+  from `$t9` — a plain `jal` leaves it garbage and e.g. `malloc` then crashes;
+  and linking is non-PIC (`-mno-abicalls -fno-pic`) since we never set up a
+  `$gp`/GOT. Reuses the riscv-style calling convention (`stackslot=8`,
+  `nargreg=8` for `$a0–$a7`). Integer/pointer only — **FP errors cleanly for
+  now**. **Self-host fixpoint reached**: UPLNC now self-hosts on five ISAs
+  (i386, x86_64, arm64, riscv64, mips64), and the big-endian one is byte-clean
+  too. The growing per-backend mnemonic set also pushed `codegen.e` past the
+  8 KB string-literal pool, so `STSIZE` grew to 16 KB
+- 💭 More targets (s390x/big-endian-host, WASM) only if anyone needs them
 
 ## M4 — Floating-point arithmetic ✅
 

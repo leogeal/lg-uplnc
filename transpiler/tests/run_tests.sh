@@ -184,6 +184,40 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[10] mips64 backend: programs compile (-march=mips64), assemble + run"
+# MIPS64 N64, big-endian -- the one big-endian target. Cross-toolchain + qemu
+# binfmt on x86, or native gcc on mips64. Integer only for now; FP programs emit
+# a 'not supported on mips' marker and are skipped here.
+MIPS=""
+# -mno-abicalls -fno-pic: non-PIC absolute addressing (the backend forms full
+# 64-bit addresses with `dla` and calls through $t9; the default n64 PIC model
+# would route globals through a $gp-relative GOT we never establish).
+if command -v mips64-linux-gnuabi64-gcc >/dev/null; then MIPS="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic"
+elif [ "$(uname -m)" = "mips64" ]; then MIPS="gcc -no-pie -mno-abicalls -fno-pic"; fi
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ -z "$MIPS" ]; then
+    echo "  skip - no mips64 toolchain (need gcc-mips64-linux-gnuabi64 + qemu-user-static)"
+else
+    while read -r name want; do
+        [ -z "$name" ] && continue
+        asm="/tmp/uplnc_mips_$name.s"; bin="/tmp/uplnc_mips_$name"
+        "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march=mips64 > "$asm" 2>/dev/null
+        if grep -q 'not supported on mips' "$asm"; then
+            echo "  skip - mips64 $name.e (floating point not implemented on mips64 yet)"
+        elif grep -qE '[1-9][0-9]* error' "$asm"; then
+            bad "mips64 $name.e (compile)"
+        elif ! $MIPS "$asm" -o "$bin" 2>/dev/null; then
+            bad "mips64 $name.e (assemble/link)"
+        else
+            "$bin"; got=$?
+            [ "$got" = "$want" ] && ok "mips64 $name.e -> exit $got" \
+                                 || bad "mips64 $name.e (got $got, want $want)"
+        fi
+    done < tests/progs/expected.txt
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]

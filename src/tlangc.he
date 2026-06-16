@@ -108,8 +108,11 @@ struct sfield{
 #define litstksz 30000
 #define litstknu 15
 
-#define STSIZE 8000
-#define STMAX 7999
+/* Per-unit string-literal pool. codegen.e is the binding unit: each retargeted
+   backend adds mnemonic literals (the integer MIPS backend pushed it to ~8.9KB),
+   so this is sized with headroom for the FP backends still to come. */
+#define STSIZE 16000
+#define STMAX 15999
 
 #define WQNUM 75
 #define WQMAX 74

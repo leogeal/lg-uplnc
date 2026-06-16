@@ -350,6 +350,8 @@ func parseopt(argc:int,argv:**char)
     {archsel=ARCH_ARM64;}
     else if(strid(argv[i],"-march=riscv64"))
     {archsel=ARCH_RISCV;}
+    else if(strid(argv[i],"-march=mips64"))
+    {archsel=ARCH_MIPS;}
     else if(*argv[i]=='-')
     {
       fprintf(stderr,"option:\n");
@@ -1137,18 +1139,24 @@ func dofunc()
     {
       /* SysV/AAPCS64: params 1-6 arrive in registers and are spilled to
          -(slot)(fp); params 7+ arrive on the stack (caller-pushed). */
-      var int:pidx;
+      var int:pidx;var int:boff;
       pidx=argstk/target.wordsize;
       if(argtype==T_FLOAT)   /* slice 5: float at the ABI boundary is single-prec */
       error("float parameter not supported yet -- use double");
       if(pidx<8)paramtyp[pidx]=argtype;   /* slice 4b: remember param types */
       if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
+      /* Big-endian: a sub-word param (char) is passed/spilled inside a full word,
+         so its byte lives at the *high* end of the slot. Shift the symbol offset
+         to that byte; reads/writes/address-of then all hit the right byte. */
+      boff=0;
+      if(target.bigendian&&(gettsize(argtype)<target.wordsize))
+      boff=target.wordsize-gettsize(argtype);
       if(pidx<target.nargreg)
-      addloc(argn,S_VARL,1,-(argstk+target.wordsize),argtype);
+      addloc(argn,S_VARL,1,-(argstk+target.wordsize)+boff,argtype);
       else
       /* stack params sit above the 16-byte frame record at a per-slot stride
          (==wordsize, but 16 on arm64 where each pushed arg is a 16-byte slot) */
-      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.stackslot,argtype);
+      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.stackslot+boff,argtype);
       argstk=argstk+target.wordsize;
     }
     else
@@ -1967,6 +1975,7 @@ func inittarget()
   if(archsel==ARCH_X86_64)inittarget_x86_64();
   else if(archsel==ARCH_ARM64)inittarget_arm64();
   else if(archsel==ARCH_RISCV)inittarget_riscv();
+  else if(archsel==ARCH_MIPS)inittarget_mips();
   else inittarget_i386();
 }
 /* ELF/GAS directives are shared by i386 and x86_64; only arch + word size
@@ -1982,6 +1991,7 @@ func inittarget_elf()
   target.dir_func=",@function";
   target.dir_section=".section";
   target.dir_rodata=".rodata";
+  target.bigendian=0;   /* little-endian default; mips overrides */
 }
 func inittarget_i386()
 {
@@ -2015,6 +2025,16 @@ func inittarget_riscv()
   target.stackslot=8;  /* RISC-V doesn't fault on 8-byte sp pushes; the
                           pad-to-16-at-calls logic keeps the ABI alignment */
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
+}
+func inittarget_mips()
+{
+  inittarget_elf();
+  target.arch=ARCH_MIPS;
+  target.wordsize=8;   /* MIPS64 N64 LP64: int==pointer==8 bytes (big-endian) */
+  target.stackslot=8;  /* like riscv: no sp-alignment fault; pad at calls */
+  target.nargreg=8;    /* N64: $a0..$a7 ($4..$11) */
+  target.dir_align=".align 3";  /* MIPS .align is power-of-2: 2^3 = 8-byte */
+  target.bigendian=1;  /* MSB-first: shifts sub-word param offsets (see dofunc) */
 }
 func printlab(label:int)
 {
