@@ -189,11 +189,11 @@ echo "[10] mips64 backend: programs compile (-march=mips64), assemble + run"
 # binfmt on x86, or native gcc on mips64. Integer only for now; FP programs emit
 # a 'not supported on mips' marker and are skipped here.
 MIPS=""
-# -mno-abicalls -fno-pic: non-PIC absolute addressing (the backend forms full
-# 64-bit addresses with `dla` and calls through $t9; the default n64 PIC model
-# would route globals through a $gp-relative GOT we never establish).
-if command -v mips64-linux-gnuabi64-gcc >/dev/null; then MIPS="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic"
-elif [ "$(uname -m)" = "mips64" ]; then MIPS="gcc -no-pie -mno-abicalls -fno-pic"; fi
+# -mno-abicalls -fno-pic -G 0: non-PIC, and -G 0 disables small-data so `dla`
+# forms a full 64-bit *absolute* address rather than a $gp-relative one (we
+# never set up $gp; calls go through $t9). See fixpoint.sh for the rationale.
+if command -v mips64-linux-gnuabi64-gcc >/dev/null; then MIPS="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic -G 0"
+elif [ "$(uname -m)" = "mips64" ]; then MIPS="gcc -no-pie -mno-abicalls -fno-pic -G 0"; fi
 if [ ! -x "$LANGC" ]; then
     bad "langc not built"
 elif [ -z "$MIPS" ]; then

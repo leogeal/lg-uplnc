@@ -85,14 +85,15 @@ mips64)
     # MIPS64 N64, big-endian: the one big-endian self-host target. Cross-assemble
     # with the n64 toolchain (binaries run via qemu-user binfmt on x86); on a
     # native mips64 host the plain `gcc` targets it.
-    # -mno-abicalls -fno-pic: emit/keep non-PIC absolute addressing (our `dla`
-    # forms full 64-bit absolute addresses; calls go through $t9). Without this
-    # the default n64 PIC model routes globals through a $gp-relative GOT we
-    # never set up.
+    # -mno-abicalls -fno-pic -G 0: non-PIC, and -G 0 disables the small-data
+    # section so `dla` forms a *full 64-bit absolute* address instead of a
+    # $gp-relative one. We never establish $gp, so any gp-relative addressing
+    # would depend on glibc's $gp surviving -- fragile, and it overflows the
+    # 16-bit gp window for langc's large globals. Calls go through $t9.
     if command -v mips64-linux-gnuabi64-gcc >/dev/null; then
-        LINKER="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic -w"
+        LINKER="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic -G 0 -w"
     elif [ "$(uname -m)" = "mips64" ]; then
-        LINKER="gcc -no-pie -mno-abicalls -fno-pic -w"
+        LINKER="gcc -no-pie -mno-abicalls -fno-pic -G 0 -w"
     else
         die "mips64 needs gcc-mips64-linux-gnuabi64 (+ qemu-user-static to run on x86)"
     fi
