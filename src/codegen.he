@@ -101,6 +101,7 @@
 #define CD_FSTBR2    93 /* M4: store double %xmm0 -> off(%rdx)  (popped address) */
 #define CD_FSTBR2S   94 /* M4: store float (narrow %xmm0) -> off(%rdx) */
 #define CD_MOVAD     95 /* M5 peephole: mov accumulator -> 2nd reg (%rax->%rdx) */
+#define CD_MOVR      96 /* M5 regspill: reg move dst=reg <- src=arg (RG_* idx) */
 
 
 struct scode
@@ -162,6 +163,10 @@ struct starget{
   int strictalign;      /* 1 if the target faults on unaligned loads/stores
                            (mips64). Data (struct fields, locals, globals) is
                            then laid out at word alignment, not the i386 4.    */
+  int nsavereg;         /* M5 regspill: # of free registers (RG_B,RG_C) usable
+                           to hold operand-stack spills. 2 where they are truly
+                           free; 0 on riscv/mips where they double as backend
+                           address scratch (until that scratch is relocated).  */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */
