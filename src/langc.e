@@ -2012,6 +2012,7 @@ func inittarget_i386()
   target.wordsize=WORDSIZE;
   target.stackslot=WORDSIZE;
   target.nargreg=6;    /* i386 is cdecl (stack args); unused */
+  target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func inittarget_x86_64()
 {
@@ -2020,6 +2021,7 @@ func inittarget_x86_64()
   target.wordsize=8;   /* int==pointer==8 bytes (UPLNC's word model) */
   target.stackslot=8;
   target.nargreg=6;    /* SysV: %rdi..%r9 */
+  target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func inittarget_arm64()
 {
