@@ -2834,14 +2834,19 @@ func icodegen()
   {
     regnames[RG_A]="%rax";
     regnames[RG_B]="%rbx";
-    regnames[RG_C]="%rcx";
+    /* RG_C is a regspill save register, so it must survive every operation in
+       its (call-free) span. %rcx is clobbered by shifts (need %cl) and div/mod
+       (used as the divisor temp), so use %r12 -- callee-saved and otherwise
+       unused by the backend. RG_C is never used by an op lowering (those keep
+       hardcoding %rcx), only by regspill, so this is a pure relocation. */
+    regnames[RG_C]="%r12";
     regnames[RG_D]="%rdx";
   }
   else
   {
     regnames[RG_A]="%eax";
     regnames[RG_B]="%ebx";
-    regnames[RG_C]="%ecx";
+    regnames[RG_C]="%esi";  /* not %ecx: shifts/div clobber it (see x86_64) */
     regnames[RG_D]="%edx";
   }
   ccg=&cgglb;
