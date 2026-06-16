@@ -146,6 +146,7 @@ var extern int :Zsp;
 #define ARCH_X86_64 1
 #define ARCH_ARM64  2
 #define ARCH_RISCV  3
+#define ARCH_MIPS   4
 struct starget{
   int arch;             /* ARCH_* -- selects the lowering backend */
   *char label_prefix;   /* local label prefix, e.g. ".L"        */
@@ -155,6 +156,12 @@ struct starget{
                            8 on riscv where FP args share them)             */
   int stackslot;        /* operand-stack push size: ==wordsize, but 16 on arm64
                            (AArch64 sp must stay 16-byte aligned)            */
+  int bigendian;        /* 1 on big-endian targets (mips64). A sub-word param
+                           spilled as a full word has its low byte at the high
+                           address, so char params shift offset by ws-size.   */
+  int strictalign;      /* 1 if the target faults on unaligned loads/stores
+                           (mips64). Data (struct fields, locals, globals) is
+                           then laid out at word alignment, not the i386 4.    */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-host fixpoint check for the UPLNC compiler (BOOTSTRAP.md §4).
 #
-# Usage:  ./fixpoint.sh [i386|x86_64]      (default: i386)
+# Usage:  ./fixpoint.sh [i386|x86_64|arm64|riscv64|mips64]   (default: i386)
 #
 # Three generations of the compiler are produced and their *output* compared:
 #
@@ -80,8 +80,26 @@ riscv64)
         die "riscv64 needs gcc-riscv64-linux-gnu (+ qemu-user-static to run on x86)"
     fi
     ;;
+mips64)
+    MARCH="-march=mips64"
+    # MIPS64 N64, big-endian: the one big-endian self-host target. Cross-assemble
+    # with the n64 toolchain (binaries run via qemu-user binfmt on x86); on a
+    # native mips64 host the plain `gcc` targets it.
+    # -mno-abicalls -fno-pic -G 0: non-PIC, and -G 0 disables the small-data
+    # section so `dla` forms a *full 64-bit absolute* address instead of a
+    # $gp-relative one. We never establish $gp, so any gp-relative addressing
+    # would depend on glibc's $gp surviving -- fragile, and it overflows the
+    # 16-bit gp window for langc's large globals. Calls go through $t9.
+    if command -v mips64-linux-gnuabi64-gcc >/dev/null; then
+        LINKER="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic -G 0 -w"
+    elif [ "$(uname -m)" = "mips64" ]; then
+        LINKER="gcc -no-pie -mno-abicalls -fno-pic -G 0 -w"
+    else
+        die "mips64 needs gcc-mips64-linux-gnuabi64 (+ qemu-user-static to run on x86)"
+    fi
+    ;;
 *)
-    die "unknown arch '$ARCH' (use i386, x86_64, arm64 or riscv64)" ;;
+    die "unknown arch '$ARCH' (use i386, x86_64, arm64, riscv64 or mips64)" ;;
 esac
 echo "fixpoint: target = $ARCH"
 
