@@ -22,20 +22,28 @@ The compiler is recovered, builds, and is provably self-hosting.
 - ✅ Self-host **fixpoint** verified (stage-2 ≡ stage-3 assembly), gated in CI
 - ✅ Return-type inference (runs correctly on 64-bit hosts)
 
-## M1 — Host portability 🟡
+## M1 — Host portability ✅
 
 Run the compiler on non-x86 CPUs. Cheap, thanks to the portable C seed.
 
 - ✅ `-fsigned-char` in the build (match i386 `char` semantics everywhere)
-- 🟡 CI job building + testing on **arm64** (confirm rather than assume)
-- ⏳ Verify on **riscv64** (native runner or QEMU)
-- ⏳ Audit remaining host assumptions (endianness; LP64 vs ILP32)
-- 💭 Big-endian host support (s390x) — only if anyone needs it
+- ✅ CI job building + testing on **arm64** — the `test-arm64` job runs on a
+  native `ubuntu-24.04-arm` runner: builds stage-0 on arm64, runs the suite, and
+  the native `fixpoint.sh arm64` (confirmed, not assumed)
+- ✅ Verified on **riscv64** — the `fixpoint-riscv64` CI job cross-builds and runs
+  the compiler under QEMU (the item's "native runner or QEMU" — QEMU)
+- ✅ Host assumptions audited — LP64-vs-ILP32 is proven host-independent by the
+  WORDSIZE split + the cross-compile CI job (x86_64 host emits i386), and the
+  code's endianness assumptions were shaken out by the big-endian mips64 *target*
+  (it surfaced and fixed the char-param spill + data-alignment bugs)
+- 💭 Big-endian *host* support (s390x) — only if anyone needs it; distinct from
+  the big-endian mips64 *target* above (this is running langc *on* a BE host)
 
-## M2 — Retargetable backend (the seam) 🟡
+## M2 — Retargetable backend (the seam) ✅
 
 Make output target a pluggable choice instead of hard-wired i386. See
-[`RETARGET.md`](RETARGET.md) Part A. *(Work in progress on the `retarget` branch.)*
+[`RETARGET.md`](RETARGET.md) Part A. *(Merged to `main`; the seam has since
+carried four more backends — arm64/riscv64/mips64 in M3, plus FP in M4.)*
 
 - ✅ Phase 0: i386 coupling audit ([`RETARGET-AUDIT.md`](RETARGET-AUDIT.md))
 - ✅ Invariance oracle: `transpiler/invariance.sh` (diff emitted `.s`; no `-m32`)
