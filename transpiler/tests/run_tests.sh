@@ -194,6 +194,10 @@ MIPS=""
 # never set up $gp; calls go through $t9). See fixpoint.sh for the rationale.
 if command -v mips64-linux-gnuabi64-gcc >/dev/null; then MIPS="mips64-linux-gnuabi64-gcc -static -mno-abicalls -fno-pic -G 0"
 elif [ "$(uname -m)" = "mips64" ]; then MIPS="gcc -no-pie -mno-abicalls -fno-pic -G 0"; fi
+# QEMU_MIPS=/path/to/qemu-mips64-static runs the test binaries through that
+# emulator instead of binfmt -- point it at a strict (CI-matching) qemu, since
+# the system binfmt one may silently tolerate unaligned ld/sd. Empty -> binfmt.
+MIPSRUN="${QEMU_MIPS:-}"
 if [ ! -x "$LANGC" ]; then
     bad "langc not built"
 elif [ -z "$MIPS" ]; then
@@ -211,7 +215,7 @@ else
         elif ! $MIPS "$asm" -o "$bin" 2>/dev/null; then
             bad "mips64 $name.e (assemble/link)"
         else
-            "$bin"; got=$?
+            $MIPSRUN "$bin"; got=$?
             [ "$got" = "$want" ] && ok "mips64 $name.e -> exit $got" \
                                  || bad "mips64 $name.e (got $got, want $want)"
         fi

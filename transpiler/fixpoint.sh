@@ -33,6 +33,11 @@ LINK="langc codegen autodyn grph"
 die() { echo "fixpoint: $*" >&2; exit 1; }
 
 # --- per-arch configuration ----------------------------------------------
+# RUN prefixes the staged (cross-built) langc1/langc2 runs; empty means rely on
+# binfmt (or run natively). Only mips64 consults an override, via $QEMU_MIPS --
+# see RETARGET notes: the host's binfmt qemu may be older/laxer than CI's and
+# silently tolerate unaligned ld/sd, so a stricter qemu can be slotted in here.
+RUN=""
 case "$ARCH" in
 i386)
     MARCH=""                       # langc default target is i386
@@ -97,6 +102,10 @@ mips64)
     else
         die "mips64 needs gcc-mips64-linux-gnuabi64 (+ qemu-user-static to run on x86)"
     fi
+    # QEMU_MIPS=/path/to/qemu-mips64-static runs the staged compilers through
+    # that emulator instead of binfmt -- use a strict (CI-matching) qemu here,
+    # since the system binfmt one may silently tolerate unaligned accesses.
+    RUN="${QEMU_MIPS:-}"
     ;;
 *)
     die "unknown arch '$ARCH' (use i386, x86_64, arm64, riscv64 or mips64)" ;;
@@ -109,12 +118,15 @@ if [ ! -x "$BUILD/langc" ] || [ ! -x "$LPP0" ]; then
 fi
 
 # --- helpers --------------------------------------------------------------
-compile_stage() {                  # $1 = compiler  $2 = outdir
-    local cc="$1" outdir="$2" u rc=0
+compile_stage() {                  # $1 = compiler  $2 = outdir  [$3 = runner]
+    # $3 (runner) prefixes the compiler invocation -- empty for the native
+    # stage-0, or an explicit emulator (e.g. $QEMU_MIPS) for a cross-built
+    # langc1/langc2 instead of relying on binfmt. Unquoted so it word-splits.
+    local cc="$1" outdir="$2" runner="${3:-}" u rc=0
     mkdir -p "$outdir"
     for u in $UNITS; do
         ( cd "$SRCDIR" && "$LPP0" "$u.e" 2>/dev/null ) \
-            | "$cc" $MARCH > "$outdir/$u.s" 2>"$outdir/$u.err"
+            | $runner "$cc" $MARCH > "$outdir/$u.s" 2>"$outdir/$u.err"
         if ! grep -q '0 error(s)' "$outdir/$u.s"; then
             echo "  !! $u.e failed to compile cleanly ($(basename "$cc"))"
             grep -E 'error\(s\)' "$outdir/$u.s" | tail -1 | sed 's/^/     /'
@@ -150,11 +162,11 @@ compile_stage "$BUILD/langc"   "$S/s1" || die "stage-0 could not compile the sou
 link_langc    "$S/s1"          "$S/langc1"
 
 echo "== stage 2: langc1 compiles the sources -> s2/, link langc2"
-compile_stage "$S/langc1"      "$S/s2" || die "langc1 could not compile the sources"
+compile_stage "$S/langc1"      "$S/s2" "$RUN" || die "langc1 could not compile the sources"
 link_langc    "$S/s2"          "$S/langc2"
 
 echo "== stage 3: langc2 compiles the sources -> s3/"
-compile_stage "$S/langc2"      "$S/s3" || die "langc2 could not compile the sources"
+compile_stage "$S/langc2"      "$S/s3" "$RUN" || die "langc2 could not compile the sources"
 
 # --- compare --------------------------------------------------------------
 echo
