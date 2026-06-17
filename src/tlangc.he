@@ -29,6 +29,7 @@
 #define stexp 7
 #define stfor 9
 #define stdo 10
+#define stswitch 11
 #define NAMESIZE 16
 #define NAMEMAX 15
 
