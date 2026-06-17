@@ -319,11 +319,12 @@ What turns a teaching compiler into something you'd build a project with:
 
 - 🟡 Port a few non-trivial programs; build a small self-contained utility in UPLNC
   - ✅ `examples/wc.e` — a faithful `wc` (lines/words/chars from stdin) written
-    in UPLNC. Builds with the stage-0 tools and runs on all **five** backends,
-    matching system `wc`. Exercises `getchar`/EOF, a whitespace state machine,
-    and `printf`. Gated by `run_tests.sh` section `[11]`
-  - ⏳ More / larger programs (a filter taking file args, etc.) to keep
-    surfacing real language and usability gaps
+    in UPLNC. Exercises `getchar`/EOF, a whitespace state machine, and `printf`
+  - ✅ `examples/cat.e` — `cat` taking file arguments (`main(argc,argv)`,
+    `fopen`/`fgetc`/`fclose`, `stderr`, exit status; `-`/no-args read stdin)
+  - Both build with the stage-0 tools and run on all **five** backends matching
+    the system tools; gated by `run_tests.sh` section `[11]`
+  - ⏳ More / larger programs to keep surfacing real language and usability gaps
 - 💭 A test/benchmark suite of UPLNC programs with expected output
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
   fixpoint-clean — achieved via the M3 arm64 backend + the host-portability CI.
