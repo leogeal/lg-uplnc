@@ -57,6 +57,33 @@ func movins(mnem:*char,a:*char,b:*char)
 {
   ot(mnem);outstr(a);outstr(", ");outstr(b);nl();
 }
+/* emit "<mnem> <d>, <a>, <b>" -- the 3-operand RISC arithmetic form. */
+func op3(mnem:*char,d:*char,a:*char,b:*char)
+{
+  ot(mnem);outstr(d);outstr(", ");outstr(a);outstr(", ");outstr(b);nl();
+}
+/* The 2nd-operand register for a binary op. Default RG_D (the popped operand);
+   when regspill kept the operand in a save register it sets scode.reg to it, so
+   the op reads it straight from there and the spill->RG_D move is dropped. */
+func r2nd(this:*scode)
+{
+  if(this->reg)return regnames[this->reg];
+  return regnames[RG_D];
+}
+/* x86/i386 compare: "<cmp> <acc>, <r2nd> ; set<cc> %al ; <movzx> %al, <acc>".
+   The 2nd operand (left) is r2nd; acc holds the right operand. */
+func x86cmp(this:*scode,cmpins:*char,acc:*char,cc:*char,movzx:*char)
+{
+  ot(cmpins);outstr(" ");outstr(acc);outstr(", ");outstr(r2nd(this));nl();
+  ot("set");outstr(cc);outstr(" %al");nl();
+  ot(movzx);outstr(" %al, ");outstr(acc);nl();
+}
+/* binary ops that consume the 2nd operand (the popped/saved left operand) */
+func is2ndop(code:int)
+{
+  return ((code>=CD_ADD2REGS)&&(code<=CD_UGT))
+       ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS);
+}
 func ispureload(code:int)
 {
   /* M5: opcodes that load a value into the accumulator (%rax) and read neither
@@ -129,7 +156,7 @@ func peephole(this:*scodegen)
 #define REGSPILL_MAX 256
 func regspill(this:*scodegen)
 {
-  var int:i;var int:n;var int:j;var int:r;var int:c;
+  var int:i;var int:n;var int:j;var int:r;var int:c;var int:done;
   var int:sp;var int:openreg;var int:bail;
   var [REGSPILL_MAX]int:sidx;   /* PUSH index of each open save            */
   var [REGSPILL_MAX]int:sreg;   /* its register (RG_B/RG_C), or 0-1 = memory */
@@ -161,15 +188,26 @@ func regspill(this:*scodegen)
       {
         sp=sp-1;
         r=sreg[sp];
-        if(r>=0)                 /* commit: PUSH->mov acc,r  POP->mov r,RG_D */
+        if(r>=0)
         {
           openreg=openreg-1;
+          /* PUSH -> save the accumulator into the register r */
           this->codes[sidx[sp]].code=CD_MOVR;
           this->codes[sidx[sp]].reg=r;
           this->codes[sidx[sp]].arg=RG_A;
-          this->codes[i].code=CD_MOVR;
-          this->codes[i].reg=RG_D;
-          this->codes[i].arg=r;
+          /* POP: if the backend's op lowerings read their 2nd operand via r2nd
+             (directop) and the next live opcode is such a binary op, point it at
+             r and drop the POP outright; otherwise copy r into RG_D as before. */
+          done=0;
+          if(target.directop)
+          {
+            j=i+1;
+            while((j<n)&&(this->codes[j].code==CD_IGNORE))j=j+1;
+            if((j<n)&&is2ndop(this->codes[j].code))
+            {this->codes[j].reg=r;this->codes[i].code=CD_IGNORE;done=1;}
+          }
+          if(!done)
+          {this->codes[i].code=CD_MOVR;this->codes[i].reg=RG_D;this->codes[i].arg=r;}
         }
       }
     }
@@ -340,106 +378,29 @@ func cd_write_x86_64(*scode:this)
   {
     ol("notq %rax");
   }
-  else if(this->code==CD_EQ)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("sete %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_NEQ)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setne %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ZGE)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setge %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_UGE)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setae %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ZLE)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setle %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ULE)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setbe %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ZLT)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setl %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ULT)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setb %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_ZGT)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("setg %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_UGT)
-  {
-    ol("cmpq %rax, %rdx");
-    ol("seta %al");
-    ol("movzbq %al, %rax");
-  }
-  else if(this->code==CD_BOR2REGS)
-  {
-    ol("orq %rdx, %rax");
-  }
-  else if(this->code==CD_BXOR2REGS)
-  {
-    ol("xorq %rdx, %rax");
-  }
-  else if(this->code==CD_BAND2REGS)
-  {
-    ol("andq %rdx, %rax");
-  }
-  else if(this->code==CD_ADD2REGS)
-  {
-    ol("addq %rdx, %rax");
-  }
-  else if(this->code==CD_SUB2REGS)
-  {
-    ol("subq %rax, %rdx");
-    ol("movq %rdx, %rax");
-  }
-  else if(this->code==CD_MUL2REGS)
-  {
-    ol("imulq %rdx");
-  }
-  else if(this->code==CD_DIV2REGS)
-  {
-    ol("xchgq %rax, %rdx");
-    ol("movq %rdx, %rcx");
-    ol("cqto");
-    ol("idivq %rcx");
-  }
-  else if(this->code==CD_MOD2REGS)
-  {
-    ol("xchgq %rax, %rdx");
-    ol("movq %rdx, %rcx");
-    ol("cqto");
-    ol("idivq %rcx");
-    ol("movq %rdx, %rax");
-  }
+  else if(this->code==CD_EQ)x86cmp(this,"cmpq","%rax","e","movzbq");
+  else if(this->code==CD_NEQ)x86cmp(this,"cmpq","%rax","ne","movzbq");
+  else if(this->code==CD_ZGE)x86cmp(this,"cmpq","%rax","ge","movzbq");
+  else if(this->code==CD_UGE)x86cmp(this,"cmpq","%rax","ae","movzbq");
+  else if(this->code==CD_ZLE)x86cmp(this,"cmpq","%rax","le","movzbq");
+  else if(this->code==CD_ULE)x86cmp(this,"cmpq","%rax","be","movzbq");
+  else if(this->code==CD_ZLT)x86cmp(this,"cmpq","%rax","l","movzbq");
+  else if(this->code==CD_ULT)x86cmp(this,"cmpq","%rax","b","movzbq");
+  else if(this->code==CD_ZGT)x86cmp(this,"cmpq","%rax","g","movzbq");
+  else if(this->code==CD_UGT)x86cmp(this,"cmpq","%rax","a","movzbq");
+  else if(this->code==CD_BOR2REGS)movins("orq ",r2nd(this),"%rax");
+  else if(this->code==CD_BXOR2REGS)movins("xorq ",r2nd(this),"%rax");
+  else if(this->code==CD_BAND2REGS)movins("andq ",r2nd(this),"%rax");
+  else if(this->code==CD_ADD2REGS)movins("addq ",r2nd(this),"%rax");
+  else if(this->code==CD_SUB2REGS)              /* left-right; r2nd holds left */
+  {movins("subq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rax");}
+  else if(this->code==CD_MUL2REGS){ot("imulq ");outstr(r2nd(this));nl();}
+  else if(this->code==CD_DIV2REGS)              /* left/right; %rcx=divisor, %rdx scratch */
+  {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
+   ol("cqto");ol("idivq %rcx");}
+  else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %rdx */
+  {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
+   ol("cqto");ol("idivq %rcx");ol("movq %rdx, %rax");}
   else if(this->code==CD_STKENTER)
   {
     ol("pushq %rbp");
@@ -499,24 +460,12 @@ func cd_write_x86_64(*scode:this)
       nl();
     }
   }
-  else if(this->code==CD_SHL)
-  {
-    ol("movq %rax, %rcx");
-    ol("movq %rdx, %rax");
-    ol("salq %cl, %rax");
-  }
+  else if(this->code==CD_SHL)            /* count in %cl, value (left) = r2nd */
+  {ol("movq %rax, %rcx");movins("movq ",r2nd(this),"%rax");ol("salq %cl, %rax");}
   else if(this->code==CD_ASR)
-  {
-    ol("movq %rax, %rcx");
-    ol("movq %rdx, %rax");
-    ol("sarq %cl, %rax");
-  }
+  {ol("movq %rax, %rcx");movins("movq ",r2nd(this),"%rax");ol("sarq %cl, %rax");}
   else if(this->code==CD_SHR)
-  {
-    ol("movq %rax, %rcx");
-    ol("movq %rdx, %rax");
-    ol("shrq %cl, %rax");
-  }
+  {ol("movq %rax, %rcx");movins("movq ",r2nd(this),"%rax");ol("shrq %cl, %rax");}
   else if(this->code==CD_MULREG)
   {
     xmulreg_x86_64(this->arg,this->reg[regnames]);
@@ -931,9 +880,9 @@ func ptrmem_arm64(op:*char,reg:*char,base:*char,off:int)
   else
   {addimm_arm64("x9",base,off);ot(op);outstr(" ");outstr(reg);outstr(", [x9]");nl();}
 }
-func armcmpset(cond:*char)
+func armcmpset(this:*scode,cond:*char)
 {
-  ol("cmp x1, x0");      /* x1=left, x0=right -> x1-x0 */
+  ot("cmp ");outstr(r2nd(this));outstr(", x0");nl();   /* left - right (x0=right) */
   ot("cset x0, ");outstr(cond);nl();
 }
 func spadjust_arm64(a:int,isadd:int)
@@ -1035,25 +984,25 @@ func cd_write_arm64(*scode:this)
   {ol("cmp x0, #0");ol("cset x0, eq");}
   else if(this->code==CD_BNOT)
   ol("mvn x0, x0");
-  else if(this->code==CD_EQ)armcmpset("eq");
-  else if(this->code==CD_NEQ)armcmpset("ne");
-  else if(this->code==CD_ZGE)armcmpset("ge");
-  else if(this->code==CD_UGE)armcmpset("hs");
-  else if(this->code==CD_ZLE)armcmpset("le");
-  else if(this->code==CD_ULE)armcmpset("ls");
-  else if(this->code==CD_ZLT)armcmpset("lt");
-  else if(this->code==CD_ULT)armcmpset("lo");
-  else if(this->code==CD_ZGT)armcmpset("gt");
-  else if(this->code==CD_UGT)armcmpset("hi");
-  else if(this->code==CD_BOR2REGS)ol("orr x0, x0, x1");
-  else if(this->code==CD_BXOR2REGS)ol("eor x0, x0, x1");
-  else if(this->code==CD_BAND2REGS)ol("and x0, x0, x1");
-  else if(this->code==CD_ADD2REGS)ol("add x0, x0, x1");
-  else if(this->code==CD_SUB2REGS)ol("sub x0, x1, x0");   /* left-right */
-  else if(this->code==CD_MUL2REGS)ol("mul x0, x0, x1");
-  else if(this->code==CD_DIV2REGS)ol("sdiv x0, x1, x0");  /* left/right */
-  else if(this->code==CD_MOD2REGS)
-  {ol("sdiv x9, x1, x0");ol("msub x0, x9, x0, x1");}      /* left%right */
+  else if(this->code==CD_EQ)armcmpset(this,"eq");
+  else if(this->code==CD_NEQ)armcmpset(this,"ne");
+  else if(this->code==CD_ZGE)armcmpset(this,"ge");
+  else if(this->code==CD_UGE)armcmpset(this,"hs");
+  else if(this->code==CD_ZLE)armcmpset(this,"le");
+  else if(this->code==CD_ULE)armcmpset(this,"ls");
+  else if(this->code==CD_ZLT)armcmpset(this,"lt");
+  else if(this->code==CD_ULT)armcmpset(this,"lo");
+  else if(this->code==CD_ZGT)armcmpset(this,"gt");
+  else if(this->code==CD_UGT)armcmpset(this,"hi");
+  else if(this->code==CD_BOR2REGS)op3("orr ","x0","x0",r2nd(this));
+  else if(this->code==CD_BXOR2REGS)op3("eor ","x0","x0",r2nd(this));
+  else if(this->code==CD_BAND2REGS)op3("and ","x0","x0",r2nd(this));
+  else if(this->code==CD_ADD2REGS)op3("add ","x0","x0",r2nd(this));
+  else if(this->code==CD_SUB2REGS)op3("sub ","x0",r2nd(this),"x0");   /* left-right */
+  else if(this->code==CD_MUL2REGS)op3("mul ","x0","x0",r2nd(this));
+  else if(this->code==CD_DIV2REGS)op3("sdiv ","x0",r2nd(this),"x0");  /* left/right */
+  else if(this->code==CD_MOD2REGS)                                    /* left%right */
+  {op3("sdiv ","x9",r2nd(this),"x0");ot("msub x0, x9, x0, ");outstr(r2nd(this));nl();}
   else if(this->code==CD_STKENTER)
   {ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");}
   else if(this->code==CD_STKLEAVE)
@@ -1070,9 +1019,9 @@ func cd_write_arm64(*scode:this)
     if(this->arg>0)spadjust_arm64(a,1);
     else if(this->arg<0)spadjust_arm64(a,0);
   }
-  else if(this->code==CD_SHL)ol("lsl x0, x1, x0");
-  else if(this->code==CD_ASR)ol("asr x0, x1, x0");
-  else if(this->code==CD_SHR)ol("lsr x0, x1, x0");
+  else if(this->code==CD_SHL)op3("lsl ","x0",r2nd(this),"x0");
+  else if(this->code==CD_ASR)op3("asr ","x0",r2nd(this),"x0");
+  else if(this->code==CD_SHR)op3("lsr ","x0",r2nd(this),"x0");
   else if(this->code==CD_MULREG)xmulreg_arm64(this->arg,this->reg[regnames]);
   else if(this->code==CD_DIVCONST)xdivconst_arm64(this->arg);
   else if(this->code==CD_PUSH)ol("str x0, [sp, #-16]!");
@@ -1259,25 +1208,25 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_NEG)ol("neg a0, a0");
   else if(this->code==CD_LNOT)ol("seqz a0, a0");
   else if(this->code==CD_BNOT)ol("not a0, a0");
-  /* compares: a1 = left, a0 = right; result 0/1 in a0 */
-  else if(this->code==CD_EQ){ol("xor a0, a1, a0");ol("seqz a0, a0");}
-  else if(this->code==CD_NEQ){ol("xor a0, a1, a0");ol("snez a0, a0");}
-  else if(this->code==CD_ZLT)ol("slt a0, a1, a0");
-  else if(this->code==CD_ULT)ol("sltu a0, a1, a0");
-  else if(this->code==CD_ZGT)ol("slt a0, a0, a1");
-  else if(this->code==CD_UGT)ol("sltu a0, a0, a1");
-  else if(this->code==CD_ZLE){ol("slt a0, a0, a1");ol("xori a0, a0, 1");}
-  else if(this->code==CD_ULE){ol("sltu a0, a0, a1");ol("xori a0, a0, 1");}
-  else if(this->code==CD_ZGE){ol("slt a0, a1, a0");ol("xori a0, a0, 1");}
-  else if(this->code==CD_UGE){ol("sltu a0, a1, a0");ol("xori a0, a0, 1");}
-  else if(this->code==CD_BOR2REGS)ol("or a0, a0, a1");
-  else if(this->code==CD_BXOR2REGS)ol("xor a0, a0, a1");
-  else if(this->code==CD_BAND2REGS)ol("and a0, a0, a1");
-  else if(this->code==CD_ADD2REGS)ol("add a0, a0, a1");
-  else if(this->code==CD_SUB2REGS)ol("sub a0, a1, a0");   /* left-right */
-  else if(this->code==CD_MUL2REGS)ol("mul a0, a0, a1");
-  else if(this->code==CD_DIV2REGS)ol("div a0, a1, a0");   /* left/right */
-  else if(this->code==CD_MOD2REGS)ol("rem a0, a1, a0");   /* left%right */
+  /* compares: 2nd operand (left) = r2nd, a0 = right; result 0/1 in a0 */
+  else if(this->code==CD_EQ){op3("xor ","a0",r2nd(this),"a0");ol("seqz a0, a0");}
+  else if(this->code==CD_NEQ){op3("xor ","a0",r2nd(this),"a0");ol("snez a0, a0");}
+  else if(this->code==CD_ZLT)op3("slt ","a0",r2nd(this),"a0");
+  else if(this->code==CD_ULT)op3("sltu ","a0",r2nd(this),"a0");
+  else if(this->code==CD_ZGT)op3("slt ","a0","a0",r2nd(this));
+  else if(this->code==CD_UGT)op3("sltu ","a0","a0",r2nd(this));
+  else if(this->code==CD_ZLE){op3("slt ","a0","a0",r2nd(this));ol("xori a0, a0, 1");}
+  else if(this->code==CD_ULE){op3("sltu ","a0","a0",r2nd(this));ol("xori a0, a0, 1");}
+  else if(this->code==CD_ZGE){op3("slt ","a0",r2nd(this),"a0");ol("xori a0, a0, 1");}
+  else if(this->code==CD_UGE){op3("sltu ","a0",r2nd(this),"a0");ol("xori a0, a0, 1");}
+  else if(this->code==CD_BOR2REGS)op3("or ","a0","a0",r2nd(this));
+  else if(this->code==CD_BXOR2REGS)op3("xor ","a0","a0",r2nd(this));
+  else if(this->code==CD_BAND2REGS)op3("and ","a0","a0",r2nd(this));
+  else if(this->code==CD_ADD2REGS)op3("add ","a0","a0",r2nd(this));
+  else if(this->code==CD_SUB2REGS)op3("sub ","a0",r2nd(this),"a0");   /* left-right */
+  else if(this->code==CD_MUL2REGS)op3("mul ","a0","a0",r2nd(this));
+  else if(this->code==CD_DIV2REGS)op3("div ","a0",r2nd(this),"a0");   /* left/right */
+  else if(this->code==CD_MOD2REGS)op3("rem ","a0",r2nd(this),"a0");   /* left%right */
   else if(this->code==CD_STKENTER)
   {
     /* save ra+fp, set s0 to point at the saved fp (like %rbp): saved fp at
@@ -1300,9 +1249,9 @@ func cd_write_riscv(*scode:this)
   {if(this->arg>0)addimm_riscv("a0","a0",-this->arg);}
   else if(this->code==CD_MODSTK)
   {if(this->arg)addimm_riscv("sp","sp",this->arg);}
-  else if(this->code==CD_SHL)ol("sll a0, a1, a0");
-  else if(this->code==CD_ASR)ol("sra a0, a1, a0");
-  else if(this->code==CD_SHR)ol("srl a0, a1, a0");
+  else if(this->code==CD_SHL)op3("sll ","a0",r2nd(this),"a0");
+  else if(this->code==CD_ASR)op3("sra ","a0",r2nd(this),"a0");
+  else if(this->code==CD_SHR)op3("srl ","a0",r2nd(this),"a0");
   else if(this->code==CD_MULREG)xmulreg_riscv(this->arg,this->reg[regnames]);
   else if(this->code==CD_DIVCONST)xdivconst_riscv(this->arg);
   else if(this->code==CD_PUSH){ol("addi sp, sp, -8");ol("sd a0, 0(sp)");}
@@ -1489,25 +1438,25 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_NEG)ol("dsubu $2, $0, $2");
   else if(this->code==CD_LNOT)ol("sltiu $2, $2, 1");
   else if(this->code==CD_BNOT)ol("nor $2, $2, $0");
-  /* compares: $3 = left, $2 = right; result 0/1 in $2 */
-  else if(this->code==CD_EQ){ol("xor $2, $3, $2");ol("sltiu $2, $2, 1");}
-  else if(this->code==CD_NEQ){ol("xor $2, $3, $2");ol("sltu $2, $0, $2");}
-  else if(this->code==CD_ZLT)ol("slt $2, $3, $2");
-  else if(this->code==CD_ULT)ol("sltu $2, $3, $2");
-  else if(this->code==CD_ZGT)ol("slt $2, $2, $3");
-  else if(this->code==CD_UGT)ol("sltu $2, $2, $3");
-  else if(this->code==CD_ZLE){ol("slt $2, $2, $3");ol("xori $2, $2, 1");}
-  else if(this->code==CD_ULE){ol("sltu $2, $2, $3");ol("xori $2, $2, 1");}
-  else if(this->code==CD_ZGE){ol("slt $2, $3, $2");ol("xori $2, $2, 1");}
-  else if(this->code==CD_UGE){ol("sltu $2, $3, $2");ol("xori $2, $2, 1");}
-  else if(this->code==CD_BOR2REGS)ol("or $2, $2, $3");
-  else if(this->code==CD_BXOR2REGS)ol("xor $2, $2, $3");
-  else if(this->code==CD_BAND2REGS)ol("and $2, $2, $3");
-  else if(this->code==CD_ADD2REGS)ol("daddu $2, $2, $3");
-  else if(this->code==CD_SUB2REGS)ol("dsubu $2, $3, $2");   /* left-right */
-  else if(this->code==CD_MUL2REGS)ol("dmul $2, $2, $3");
-  else if(this->code==CD_DIV2REGS)ol("ddiv $2, $3, $2");    /* left/right */
-  else if(this->code==CD_MOD2REGS)ol("drem $2, $3, $2");    /* left%right */
+  /* compares: 2nd operand (left) = r2nd, $2 = right; result 0/1 in $2 */
+  else if(this->code==CD_EQ){op3("xor ","$2",r2nd(this),"$2");ol("sltiu $2, $2, 1");}
+  else if(this->code==CD_NEQ){op3("xor ","$2",r2nd(this),"$2");ol("sltu $2, $0, $2");}
+  else if(this->code==CD_ZLT)op3("slt ","$2",r2nd(this),"$2");
+  else if(this->code==CD_ULT)op3("sltu ","$2",r2nd(this),"$2");
+  else if(this->code==CD_ZGT)op3("slt ","$2","$2",r2nd(this));
+  else if(this->code==CD_UGT)op3("sltu ","$2","$2",r2nd(this));
+  else if(this->code==CD_ZLE){op3("slt ","$2","$2",r2nd(this));ol("xori $2, $2, 1");}
+  else if(this->code==CD_ULE){op3("sltu ","$2","$2",r2nd(this));ol("xori $2, $2, 1");}
+  else if(this->code==CD_ZGE){op3("slt ","$2",r2nd(this),"$2");ol("xori $2, $2, 1");}
+  else if(this->code==CD_UGE){op3("sltu ","$2",r2nd(this),"$2");ol("xori $2, $2, 1");}
+  else if(this->code==CD_BOR2REGS)op3("or ","$2","$2",r2nd(this));
+  else if(this->code==CD_BXOR2REGS)op3("xor ","$2","$2",r2nd(this));
+  else if(this->code==CD_BAND2REGS)op3("and ","$2","$2",r2nd(this));
+  else if(this->code==CD_ADD2REGS)op3("daddu ","$2","$2",r2nd(this));
+  else if(this->code==CD_SUB2REGS)op3("dsubu ","$2",r2nd(this),"$2");   /* left-right */
+  else if(this->code==CD_MUL2REGS)op3("dmul ","$2","$2",r2nd(this));
+  else if(this->code==CD_DIV2REGS)op3("ddiv ","$2",r2nd(this),"$2");    /* left/right */
+  else if(this->code==CD_MOD2REGS)op3("drem ","$2",r2nd(this),"$2");    /* left%right */
   else if(this->code==CD_STKENTER)
   {
     /* save ra+fp, point $fp at the saved fp (like %rbp): saved fp at 0($fp),
@@ -1530,9 +1479,9 @@ func cd_write_mips(*scode:this)
   {if(this->arg>0)addimm_mips("$2","$2",-this->arg);}
   else if(this->code==CD_MODSTK)
   {if(this->arg)addimm_mips("$sp","$sp",this->arg);}
-  else if(this->code==CD_SHL)ol("dsllv $2, $3, $2");
-  else if(this->code==CD_ASR)ol("dsrav $2, $3, $2");
-  else if(this->code==CD_SHR)ol("dsrlv $2, $3, $2");
+  else if(this->code==CD_SHL)op3("dsllv ","$2",r2nd(this),"$2");
+  else if(this->code==CD_ASR)op3("dsrav ","$2",r2nd(this),"$2");
+  else if(this->code==CD_SHR)op3("dsrlv ","$2",r2nd(this),"$2");
   else if(this->code==CD_MULREG)xmulreg_mips(this->arg,regnames[this->reg]);
   else if(this->code==CD_DIVCONST)xdivconst_mips(this->arg);
   else if(this->code==CD_PUSH){ol("daddiu $sp, $sp, -8");ol("sd $2, 0($sp)");}
@@ -1658,166 +1607,29 @@ func cd_write_i386(*scode:this)
   {
     ol("notl %eax");
   }
-  else if(this->code==CD_EQ)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("sete");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_NEQ)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setne");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ZGE)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setge");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_UGE)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setae");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ZLE)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setle");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ULE)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setbe");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ZLT)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setl");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ULT)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setb");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_ZGT)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("setg");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_UGT)
-  {
-    ot("cmpl");
-    ot("%eax, %edx");
-    nl();
-    ot("seta");
-    ot("%al");
-    nl();
-    ot("movzbl");
-    ot("%al, %eax");
-    nl();
-  }
-  else if(this->code==CD_BOR2REGS)
-  {
-    ol("orl %edx, %eax");
-  }
-  else if(this->code==CD_BXOR2REGS)
-  {
-    ol("xorl %edx, %eax");
-  }
-  else if(this->code==CD_BAND2REGS)
-  {
-    ol("andl %edx, %eax");
-  }
-  else if(this->code==CD_ADD2REGS)
-  {
-    ol("addl %edx, %eax");
-  }
-  else if(this->code==CD_SUB2REGS)
-  {
-    ol("subl %eax, %edx");
-    ol("movl %edx, %eax");
-  }
-  else if(this->code==CD_MUL2REGS)
-  {
-    ol("imull %edx");
-  }
-  else if(this->code==CD_DIV2REGS)
-  {
-    ol("xchgl %eax, %edx");
-    ol("movl %edx, %ecx");
-    ol("cltd");
-    ol("idivl %ecx");
-  }
-  else if(this->code==CD_MOD2REGS)
-  {
-    ol("xchgl %eax, %edx");
-    ol("movl %edx, %ecx");
-    ol("cltd");
-    ol("idivl %ecx");
-    ol("movl %edx, %eax");
-  }
+  else if(this->code==CD_EQ)x86cmp(this,"cmpl","%eax","e","movzbl");
+  else if(this->code==CD_NEQ)x86cmp(this,"cmpl","%eax","ne","movzbl");
+  else if(this->code==CD_ZGE)x86cmp(this,"cmpl","%eax","ge","movzbl");
+  else if(this->code==CD_UGE)x86cmp(this,"cmpl","%eax","ae","movzbl");
+  else if(this->code==CD_ZLE)x86cmp(this,"cmpl","%eax","le","movzbl");
+  else if(this->code==CD_ULE)x86cmp(this,"cmpl","%eax","be","movzbl");
+  else if(this->code==CD_ZLT)x86cmp(this,"cmpl","%eax","l","movzbl");
+  else if(this->code==CD_ULT)x86cmp(this,"cmpl","%eax","b","movzbl");
+  else if(this->code==CD_ZGT)x86cmp(this,"cmpl","%eax","g","movzbl");
+  else if(this->code==CD_UGT)x86cmp(this,"cmpl","%eax","a","movzbl");
+  else if(this->code==CD_BOR2REGS)movins("orl ",r2nd(this),"%eax");
+  else if(this->code==CD_BXOR2REGS)movins("xorl ",r2nd(this),"%eax");
+  else if(this->code==CD_BAND2REGS)movins("andl ",r2nd(this),"%eax");
+  else if(this->code==CD_ADD2REGS)movins("addl ",r2nd(this),"%eax");
+  else if(this->code==CD_SUB2REGS)              /* left-right; r2nd holds left */
+  {movins("subl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%eax");}
+  else if(this->code==CD_MUL2REGS){ot("imull ");outstr(r2nd(this));nl();}
+  else if(this->code==CD_DIV2REGS)              /* left/right; %ecx=divisor, %edx scratch */
+  {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
+   ol("cltd");ol("idivl %ecx");}
+  else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %edx */
+  {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
+   ol("cltd");ol("idivl %ecx");ol("movl %edx, %eax");}
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -1877,24 +1689,12 @@ func cd_write_i386(*scode:this)
       nl();
     }
   }
-  else if(this->code==CD_SHL)
-  {
-    ol("movl %eax, %ecx");
-    ol("movl %edx, %eax");
-    ol("sall %cl, %eax");
-  }
+  else if(this->code==CD_SHL)            /* count in %cl, value (left) = r2nd */
+  {ol("movl %eax, %ecx");movins("movl ",r2nd(this),"%eax");ol("sall %cl, %eax");}
   else if(this->code==CD_ASR)
-  {
-    ol("movl %eax, %ecx");
-    ol("movl %edx, %eax");
-    ol("sarl %cl, %eax");
-  }
+  {ol("movl %eax, %ecx");movins("movl ",r2nd(this),"%eax");ol("sarl %cl, %eax");}
   else if(this->code==CD_SHR)
-  {
-    ol("movl %eax, %ecx");
-    ol("movl %edx, %eax");
-    ol("shrl %cl, %eax");
-  }
+  {ol("movl %eax, %ecx");movins("movl ",r2nd(this),"%eax");ol("shrl %cl, %eax");}
   else if(this->code==CD_MULREG)
   {
     xmulreg(this->arg,this->reg[regnames]);
