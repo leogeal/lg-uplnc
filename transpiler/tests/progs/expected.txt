@@ -58,3 +58,4 @@ nest_shr 42
 nest3 42
 leaf_promote 42
 enum 42
+switch 42

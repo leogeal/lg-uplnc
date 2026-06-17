@@ -1324,6 +1324,11 @@ func statemen()
     dodo();
     lastst=stdo;
     }
+  else if(amatch("switch",6))
+    {
+    doswitch();
+    lastst=stswitch;
+    }
   else if(amatch("return",6))
     {
     doreturn();
@@ -1686,6 +1691,88 @@ func dowhile()
   nl();*/
   clab(thelab);
   /*locptr=thesym;*/
+  ssymtabcut(&locsymtab,thesym);
+  delwhile();
+}
+/* switch(expr){ case C: ... break; ... default: ... }  -- C semantics including
+   fall-through. Layout is dispatch-first: the switch value is evaluated once into
+   a temp frame slot, then on entry we jump over the case bodies to a dispatch that
+   compares the saved value against each (constant-expression) case label and jumps
+   to the matching body; bodies fall through to one another and `break` jumps to the
+   end. The compares reuse the ordinary `==` codegen (load/push/load/pop/eq), so the
+   peephole and regspill passes treat them like any expression. break/continue use
+   the existing loop queue (break -> end; continue -> enclosing loop). */
+#define SWMAX 256
+func doswitch()
+{
+  var **ssymlist:thesym;
+  var int:thesp;
+  var int:voff;var int:k;var int:rt;
+  var int:endlab;var int:disp;var int:deflab;
+  var int:i;var int:cont;
+  var [SWMAX]int:cval;
+  var [SWMAX]int:clb;
+  var int:ncase;
+  thesym=locsymtab.front;
+  thesp=Zsp;
+  endlab=getlabel();
+  disp=getlabel();
+  deflab=0;
+  ncase=0;
+  /* evaluate the controlling expression once, save it in a temp frame slot */
+  needbrac(tlarg/*"("*/);
+  rt=expressi();
+  needbrac(trarg/*")"*/);
+  if(rt==T_DOUBLE)zf2i();   /* switch on a double: truncate to int */
+  k=roundup(gettsize(T_INT));
+  voff=Zsp-k;
+  zstlw(voff);
+  Zsp=modstk(voff);
+  /* break -> endlab (restores sp to thesp); continue -> enclosing loop's continue */
+  if(wqptr>0)cont=wqloop[wqptr-1];
+  else cont=endlab;
+  addwhile(thesym,thesp,cont,endlab);
+  jump(disp);               /* on entry, skip the bodies; run the dispatch */
+  /* parse the body: emit case/default labels + statements, record (value,label) */
+  needbrac(tlcomp/*"{"*/);
+  while(!match(trcomp/*"}"*/))
+  {
+    blanks();
+    if((!ch())&&iseof){error("unterminated switch");break;}
+    if(amatch("case",4))
+    {
+      var int:cv;
+      cv=constexpr("case value must be a constant integer");
+      if(!match(":"))error("':' expected after case value");
+      if(ncase>=SWMAX)error("too many case labels");
+      else{cval[ncase]=cv;clb[ncase]=getlabel();clab(clb[ncase]);ncase=ncase+1;}
+    }
+    else if(amatch("default",7))
+    {
+      if(!match(":"))error("':' expected after default");
+      if(deflab)error("duplicate default");
+      else{deflab=getlabel();clab(deflab);}
+    }
+    else statemen();
+  }
+  Zsp=modstk(thesp);        /* end of body: restore sp, fall through to the end */
+  jump(endlab);
+  /* dispatch -- the saved value is at voff(%rbp); compares are balanced push/pops */
+  clab(disp);
+  Zsp=voff;                 /* runtime sp here is voff (entry subtracted to it) */
+  for(i=0;i<ncase;i=i+1)
+  {
+    zldlw(voff);
+    zpush();
+    zldn(cval[i]);
+    zpop();
+    zeq();
+    testnejump(clb[i]);
+  }
+  if(deflab)jump(deflab);
+  else{Zsp=modstk(thesp);jump(endlab);}   /* no match, no default -> restore + exit */
+  clab(endlab);
+  Zsp=thesp;                /* every path reaches here with sp restored to thesp */
   ssymtabcut(&locsymtab,thesym);
   delwhile();
 }

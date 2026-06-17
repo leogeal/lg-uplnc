@@ -314,8 +314,15 @@ What turns a teaching compiler into something you'd build a project with:
     an `L_NUM` literal in `primary()`, so enum constants work anywhere an int
     does, including array dimensions. The compiler uses none, so the self-host
     fixpoints stay byte-identical
-  - ⏳ `unsigned` types, `switch`/`case`, robust function pointers, proper
-    varargs, `const`
+  - ✅ `switch(expr){ case C: … break; … default: … }` — full C semantics
+    including fall-through, stacked cases, `default` anywhere, and `break`.
+    `doswitch()` evaluates the value once into a temp frame slot, then a
+    dispatch-first layout compares it against each constant-expression case label
+    (enum constants work as labels) and jumps to the matching body. `break` uses
+    the existing loop queue (so it exits only the switch); `continue` targets the
+    enclosing loop. Target-neutral (reuses the ordinary `==`/jump IR), so all five
+    backends and the byte-identical fixpoints come for free
+  - ⏳ `unsigned` types, robust function pointers, proper varargs, `const`
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
