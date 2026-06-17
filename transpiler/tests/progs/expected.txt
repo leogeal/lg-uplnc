@@ -59,3 +59,4 @@ nest3 42
 leaf_promote 42
 enum 42
 switch 42
+ptrret 42

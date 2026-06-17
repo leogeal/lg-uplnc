@@ -322,7 +322,15 @@ What turns a teaching compiler into something you'd build a project with:
     the existing loop queue (so it exits only the switch); `continue` targets the
     enclosing loop. Target-neutral (reuses the ordinary `==`/jump IR), so all five
     backends and the byte-identical fixpoints come for free
-  - ⏳ `unsigned` types, robust function pointers, proper varargs, `const`
+  - ✅ Pointer/char **return types are type-correct at the call site** —
+    `ct_FUNC` now propagates the callee's declared return type to the call
+    expression (matching `cttype`, which already did), so `*f()`, `f()[i]`,
+    `f()+n` and `f()->m` work on a call result. Previously every non-`double`
+    return collapsed to `int`. The compiler declares no return types, so the
+    fixpoints are byte-identical
+  - ⏳ struct **return by value** (planned: a struct-copy primitive + whole-struct
+    assignment, then sret via a hidden pointer); `unsigned` types, robust function
+    pointers, proper varargs, `const`
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
