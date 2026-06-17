@@ -222,34 +222,43 @@ else
     done < tests/progs/expected.txt
 fi
 
-echo "[11] example utility: examples/wc.e builds and runs (matches system wc)"
-# A real self-contained utility written in UPLNC (M7 'proof it's real'). Build +
-# run it for the host's native arch (x86_64 or arm64 CI runner) and check output.
+echo "[11] example utilities: examples/*.e build and run (M7 'proof it's real')"
+# Real self-contained utilities written in UPLNC. Build + run them for the host's
+# native arch (x86_64 or arm64 CI runner) and check behaviour against the system.
 HOSTM=$(uname -m)
-if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then WCM="-march=x86_64"; WCC="gcc -no-pie -w"
-elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then WCM="-march=arm64"; WCC="gcc -no-pie -w"
-else WCM=""; WCC=""; fi
+if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then UM="-march=x86_64"; UCC="gcc -no-pie -w"
+elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then UM="-march=arm64"; UCC="gcc -no-pie -w"
+else UM=""; UCC=""; fi
+# build an example utility for the host arch; echoes the binary path or "" on fail
+buildutil() {  # $1 = name (without .e)
+    local s="/tmp/uplnc_$1.s" bin="/tmp/uplnc_$1"
+    "$TDIR/build/lpp1" "../examples/$1.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$s" 2>/dev/null
+    grep -qE '[1-9][0-9]* error' "$s" && { bad "$1.e (compile)"; return 1; }
+    $UCC "$s" -o "$bin" 2>/dev/null || { bad "$1.e (assemble/link)"; return 1; }
+    echo "$bin"
+}
 if [ ! -x "$LANGC" ]; then
     bad "langc not built"
-elif [ -z "$WCC" ]; then
-    echo "  skip - no native toolchain to build wc on $HOSTM"
+elif [ -z "$UCC" ]; then
+    echo "  skip - no native toolchain to build the examples on $HOSTM"
 else
-    "$TDIR/build/lpp1" ../examples/wc.e 2>/dev/null \
-        | "$TDIR/build/langc" $WCM > /tmp/uplnc_wc.s 2>/dev/null
-    if grep -qE '[1-9][0-9]* error' /tmp/uplnc_wc.s; then
-        bad "wc.e (compile)"
-    elif ! $WCC /tmp/uplnc_wc.s -o /tmp/uplnc_wc 2>/dev/null; then
-        bad "wc.e (assemble/link)"
-    else
-        got=$(printf 'hello world\nfoo bar baz\n' | /tmp/uplnc_wc)
+    if WC=$(buildutil wc); then
+        got=$(printf 'hello world\nfoo bar baz\n' | "$WC")
         [ "$got" = "2 5 24" ] && ok "wc.e -> '$got'" || bad "wc.e (got '$got', want '2 5 24')"
-        got=$(printf '' | /tmp/uplnc_wc)
+        got=$(printf '' | "$WC")
         [ "$got" = "0 0 0" ] && ok "wc.e empty input -> '$got'" || bad "wc.e empty (got '$got')"
-        # cross-check the three counts against system wc on this script itself
-        want=$(wc < "$0" | awk '{print $1, $2, $3}')
-        got=$(/tmp/uplnc_wc < "$0")
+        want=$(wc < "$0" | awk '{print $1, $2, $3}'); got=$("$WC" < "$0")
         [ "$got" = "$want" ] && ok "wc.e matches system wc on a real file" \
                              || bad "wc.e vs system wc (got '$got', want '$want')"
+    fi
+    if CAT=$(buildutil cat); then
+        printf 'line1\nline2\n' > /tmp/uplnc_catf1; printf 'AAA\n' > /tmp/uplnc_catf2
+        cmp -s <("$CAT" /tmp/uplnc_catf1 /tmp/uplnc_catf2) <(cat /tmp/uplnc_catf1 /tmp/uplnc_catf2) \
+            && ok "cat.e concatenates files" || bad "cat.e (files)"
+        cmp -s <(printf 'piped\n' | "$CAT") <(printf 'piped\n') \
+            && ok "cat.e reads stdin with no args" || bad "cat.e (stdin)"
+        "$CAT" /tmp/uplnc_nope 2>/dev/null; [ "$?" = 1 ] \
+            && ok "cat.e exits 1 on a missing file" || bad "cat.e (error exit)"
     fi
 fi
 

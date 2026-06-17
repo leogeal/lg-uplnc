@@ -21,9 +21,25 @@ echo "hello world" | /tmp/wc          #  ->  1 2 12
 /tmp/wc < ../examples/wc.e            #  matches system wc
 ```
 
+## `cat.e` — concatenate files
+
+A `cat` taking file names on the command line. With no arguments, or for an
+argument of `-`, it reads standard input. Exits 1 if any file won't open.
+Exercises `main(argc, argv)`, `fopen`/`fgetc`/`fclose`, the `stderr` extern, and
+`fprintf`.
+
+```sh
+cd transpiler
+build/lpp1 ../examples/cat.e | build/langc -march=x86_64 | gcc -no-pie -x assembler - -o /tmp/cat
+/tmp/cat ../examples/wc.e            # print a file
+/tmp/cat a.txt - b.txt < piped       # files with stdin spliced in via "-"
+```
+
+## Building for other targets
+
 Swap `-march=x86_64` for `-march=arm64` / `-march=riscv64` / `-march=mips64`
 (assemble + run with the matching cross-toolchain under qemu), or drop `-march`
-for i386 (`gcc -m32`). The output matches system `wc` on all five.
+for i386 (`gcc -m32`). Both utilities behave identically on all five backends.
 
-The `[11]` section of `transpiler/tests/run_tests.sh` builds and runs `wc` for
-the host's native arch on every CI run.
+The `[11]` section of `transpiler/tests/run_tests.sh` builds and runs both
+utilities for the host's native arch on every CI run.
