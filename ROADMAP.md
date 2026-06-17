@@ -307,13 +307,23 @@ What turns a teaching compiler into something you'd build a project with:
 - ⏳ **Debug info** (DWARF) so `gdb` works
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
-- ⏳ Language gaps: `unsigned` types, `enum`, `switch`/`case`, robust function
-  pointers, proper varargs, `const`
+- 🟡 Language gaps:
+  - ✅ `enum { NAME [= constexpr], ... };` — named integer constants, values
+    running from 0 or a last-set value, with constant-expression values
+    (including prior enum constants). Parsed by `doenum()`; a reference folds to
+    an `L_NUM` literal in `primary()`, so enum constants work anywhere an int
+    does, including array dimensions. The compiler uses none, so the self-host
+    fixpoints stay byte-identical
+  - ⏳ `unsigned` types, `switch`/`case`, robust function pointers, proper
+    varargs, `const`
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
-- 💭 Robustness: the original compiler can loop on malformed input — add limits /
-  graceful errors
+- 🟡 Robustness: the original compiler can loop on malformed input — add limits /
+  graceful errors. One instance fixed: a non-constant array dimension used to
+  spin forever (`number()` not consuming the bad token); the `enum` work routed
+  array dimensions through `constexpr()`, which consumes its tokens and reports a
+  clean error. Other malformed-input loops remain
 
 ## M7 — Proof it's real 🟡
 

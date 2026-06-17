@@ -509,6 +509,7 @@ func parse()
       dotakeof();
     }
     else if(amatch("var",3))dovar();
+    else if(amatch("enum",4))doenum();
     else if(amatch("struct",6))prstrct(dostruct());
     else if(amatch(tfunc/*"func"*/,4))dofunc();
     else if(amatch("method",6))domethod();
@@ -519,6 +520,46 @@ func parse()
     }
     blanks();
   }
+}
+/* parse a constant integer expression (an enum value or an array dimension):
+   one expression below the comma operator, folded; if it does not collapse to a
+   literal, report <what> and return 0. hier1() consumes its tokens, so this also
+   makes a bad value fail cleanly instead of looping (unlike a bare number()). */
+func constexpr(what:*char)
+{
+  var *enode:vnode;
+  var int:v;
+  v=0;
+  vnode=hier1();
+  foldtree(vnode);
+  if(vnode&&(vnode->op==OP_LEAF)&&(vnode->leaf.vid==L_NUM))v=vnode->leaf.val;
+  else error(what);
+  delenode(vnode);
+  return v;
+}
+/* enum { NAME [= constexpr], NAME, ... };  -- introduce named integer constants.
+   Values run sequentially from 0 (or from the last explicit value + 1). An
+   explicit value is any constant integer expression, including a prior enum
+   constant (registered as we go, so `enum{X=10,Y=X+5}` works). The names become
+   global S_CONST symbols; primary() resolves a reference to an L_NUM literal. */
+func doenum()
+{
+  var [NAMESIZE]char:nm;
+  var int:val;
+  val=0;
+  needbrac(tlcomp/*"{"*/);
+  while(1)
+  {
+    blanks();
+    if(streq(line+lptr,trcomp))break;   /* allow an empty list / trailing comma */
+    if(!symname(nm)){error("enum constant name expected");break;}
+    if(match("="))val=constexpr("enum value must be a constant integer");
+    addglb(nm,S_CONST,1,val,T_INT);
+    val=val+1;
+    if(!match(","))break;
+  }
+  needbrac(trcomp/*"}"*/);
+  ns();
 }
 func findtyp(sname:*char)
 {
@@ -4239,12 +4280,17 @@ func primary()
     else if(k=findloc(nm))
     {
       node->leaf.idx=k;
-      cnmlst->addm(nm);
+      if(cnmlst)cnmlst->addm(nm);
     }
     else if(k=findglb(nm))
     {
-      node->leaf.idx=k;
-      cnmlst->addm(nm);
+      if(k->sort==S_CONST)        /* enum constant -> fold to its integer value */
+      {node->leaf.vid=L_NUM;node->leaf.val=k->offset;}
+      else
+      {
+        node->leaf.idx=k;
+        if(cnmlst)cnmlst->addm(nm);
+      }
     }
     else
     {/* undeclared function */
@@ -4252,7 +4298,7 @@ func primary()
       k->sort=S_FUNC;
       k->dfd=0;
       node->leaf.idx=k;
-      cnmlst->addm(nm);
+      if(cnmlst)cnmlst->addm(nm);
     }
     return node;
   }
@@ -4578,10 +4624,11 @@ func gettypen()
   return typptr++;
   }
   if(match("[")){
-  if(!number(dim)){
-    error("dimension expected");
-    dim[0]=1;
-  }
+  /* a constant integer expression (literal, enum constant, or arithmetic on
+     them), not just a bare number -- so [N]int with an enum N works, and a bad
+     dimension errors cleanly instead of looping. */
+  dim[0]=constexpr("array dimension must be a constant integer");
+  if(dim[0]<1)dim[0]=1;
   needbrac("]");
   if(!(t=gettypen()))return 0;
   k=1;

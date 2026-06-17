@@ -68,9 +68,10 @@ struct ssymtab{
 };
 var extern glbsymtab,locsymtab:ssymtab;
 
-#define S_FUNC 1 
-#define S_VARG 2 
-#define S_VARL 3 
+#define S_FUNC 1
+#define S_VARG 2
+#define S_VARL 3
+#define S_CONST 4 /* enum constant: a named integer (value in sym.offset) */
 #define T_INT 1
 #define T_CHAR 2
 #define T_INTP 3
