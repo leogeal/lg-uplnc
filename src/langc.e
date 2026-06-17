@@ -1435,6 +1435,9 @@ func dolocvar()
       error("local multidef");
     }
     addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
+    /* mark int/pointer scalars for leaf-function register promotion; the marker
+       (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
+    if((typ==T_INT)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
     Zsp=modstk(Zsp-k);
   }
   /*  while(symname(sname))
@@ -1994,6 +1997,7 @@ func inittarget_elf()
   target.strictalign=0; /* x86/arm64/riscv tolerate unaligned; mips overrides */
   target.nsavereg=3;    /* RG_B/RG_C/RG_E free for spills (i386 ebx/esi/edi) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
+  target.nlocalreg=0;   /* register-rich targets override; i386/mips have none */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment
    targets (mips faults on an unaligned ld/sd), else 4 as the i386 heritage. */
@@ -2022,6 +2026,7 @@ func inittarget_x86_64()
   target.stackslot=8;
   target.nargreg=6;    /* SysV: %rdi..%r9 */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
+  target.nlocalreg=2;  /* %r10/%r11: free caller-saved (leaf local promotion) */
 }
 func inittarget_arm64()
 {
@@ -2031,6 +2036,7 @@ func inittarget_arm64()
   target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
   target.nargreg=6;    /* AAPCS64 has x0..x7, but we use 6 (as on x86_64) */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
+  target.nlocalreg=2;  /* x11/x12: free caller-saved (leaf local promotion) */
 }
 func inittarget_riscv()
 {
@@ -2042,6 +2048,7 @@ func inittarget_riscv()
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
   target.nsavereg=3;   /* RG_B/RG_C/RG_E are t1/t2/t3, distinct from t0 scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
+  target.nlocalreg=2;  /* t4/t5: free caller-saved (leaf local promotion) */
 }
 func inittarget_mips()
 {

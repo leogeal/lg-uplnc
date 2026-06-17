@@ -280,10 +280,21 @@ wins first:
     (the third register, `RG_E`); deeper spills still go to memory, but those are
     rare (only 16 depth-2 spills in the whole compiler, so a 4th register would
     add little).
-  - Result so far: ~12% of the compiler's own operand-stack spills avoid memory
-    (the rest span a call); all five self-host fixpoints stay byte-identical.
-  - ⏳ Still open: locals still live in the frame (promoting hot locals to
-    registers is the bigger structural piece)
+  - ✅ **Promote locals to registers (leaf functions).** A non-address-taken
+    word-size scalar local in a function that makes no call lives in a free
+    caller-saved register for its whole lifetime instead of the frame — no
+    save/restore needed (no call to clobber it, and the caller doesn't expect a
+    caller-saved register preserved). The front-end marks candidates (`CD_LOCAL`);
+    `promote_locals()` keeps the ones never address-taken (no `CD_LEA` at that
+    offset) and rewrites their `CD_LDLW`/`CD_STLW` to register moves. Two regs
+    (`RG_L0`/`RG_L1`): `%r10`/`%r11` (x86_64), `x11`/`x12` (arm64), `t4`/`t5`
+    (riscv); i386/mips have none free (`nlocalreg=0`, a no-op there). −48 of the
+    compiler's own frame loads/stores on x86_64.
+  - Result so far: ~12% of operand-stack spills avoid memory and leaf-local
+    promotion trims frame traffic; all five self-host fixpoints stay byte-identical.
+  - ⏳ Still open: non-leaf functions need callee-saved registers + prologue/
+    epilogue save/restore (and frame-slot reservation) to promote locals — the
+    bigger structural piece, deferred for its frame-layout risk
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳

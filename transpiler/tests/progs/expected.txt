@@ -56,3 +56,4 @@ const_fold 42
 nest_div 42
 nest_shr 42
 nest3 42
+leaf_promote 42
