@@ -315,11 +315,17 @@ What turns a teaching compiler into something you'd build a project with:
 - 💭 Robustness: the original compiler can loop on malformed input — add limits /
   graceful errors
 
-## M7 — Proof it's real 💭
+## M7 — Proof it's real 🟡
 
 - 💭 Port a few non-trivial programs; build a small self-contained utility in UPLNC
 - 💭 A test/benchmark suite of UPLNC programs with expected output
-- 💭 Re-host: a `langc` that runs natively on arm64 *and* targets arm64, fixpoint-clean
+- ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
+  fixpoint-clean — achieved via the M3 arm64 backend + the host-portability CI.
+  The `test-arm64` job (native `ubuntu-24.04-arm` runner) builds stage-0 with the
+  host `gcc` (a native arm64 binary) and runs `./fixpoint.sh arm64`, which on an
+  `aarch64` host links with the native `gcc` (no qemu): the langc-produced
+  `langc1`/`langc2` run natively and reproduce their own arm64 assembly
+  byte-for-byte. Gated every CI run
 
 ---
 
