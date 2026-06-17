@@ -102,6 +102,7 @@
 #define CD_FSTBR2S   94 /* M4: store float (narrow %xmm0) -> off(%rdx) */
 #define CD_MOVAD     95 /* M5 peephole: mov accumulator -> 2nd reg (%rax->%rdx) */
 #define CD_MOVR      96 /* M5 regspill: reg move dst=reg <- src=arg (RG_* idx) */
+#define CD_LOCAL     97 /* M5 promote-locals: marks a scalar local at offset arg */
 
 
 struct scode
@@ -130,6 +131,8 @@ func cg_print(this:*scodegen);
 #define RG_C 2
 #define RG_D 3
 #define RG_E 4   /* M5 regspill: 3rd save register (depth-2 spills) */
+#define RG_L0 5  /* M5 promote-locals: caller-saved regs holding promoted */
+#define RG_L1 6  /* locals in leaf functions (no save/restore needed) */
 
 func icodegen();
 func dcodegen();
@@ -171,6 +174,9 @@ struct starget{
   int directop;         /* M5 regspill: 1 if the binary-op lowerings read their
                            2nd operand from scode.reg (a save reg) via r2nd(),
                            so regspill can drop the spill->RG_D move entirely.   */
+  int nlocalreg;        /* M5 promote-locals: # of free caller-saved registers
+                           (RG_L0,RG_L1) for holding non-address-taken scalar
+                           locals in leaf functions. 0 where none are free.      */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */

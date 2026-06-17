@@ -223,11 +223,73 @@ func regspill(this:*scodegen)
     i=i+1;
   }
 }
+/* M5 promote-locals (leaf functions): a non-address-taken word-size scalar local
+   in a function that makes no call can live in a free caller-saved register for
+   its whole lifetime instead of the frame -- no save/restore needed, since there
+   is no call to clobber it and the caller does not expect a caller-saved register
+   preserved. The front-end marks candidate locals with CD_LOCAL(offset); here we
+   keep the ones never address-taken (no CD_LEA at that offset), assign each a
+   register (RG_L0,RG_L1; reused frame slots share one), and rewrite their
+   CD_LDLW/CD_STLW to register moves. Markers are always stripped. */
+#define PROMLOC_MAX 512
+func promote_locals(this:*scodegen)
+{
+  var int:i;var int:n;var int:c;var int:o;var int:leaf;
+  var int:ncand;var int:nlea;var int:nused;var int:r;var int:j;var int:taken;
+  var [PROMLOC_MAX]int:cand;   /* candidate local offsets (from CD_LOCAL)     */
+  var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or 0-1       */
+  var [PROMLOC_MAX]int:lea;    /* address-taken offsets (from CD_LEA)         */
+  n=this->codeptr;
+  leaf=1;ncand=0;nlea=0;
+  for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
+  {
+    c=this->codes[i].code;
+    if(c==CD_ZCALL)leaf=0;
+    else if(c==CD_LOCAL)
+    {
+      if(ncand<PROMLOC_MAX){cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;ncand=ncand+1;}
+      this->codes[i].code=CD_IGNORE;
+    }
+    else if(c==CD_LEA)
+    {if(nlea<PROMLOC_MAX){lea[nlea]=this->codes[i].arg;nlea=nlea+1;}}
+  }
+  /* bail (leave everything in the frame) if not a leaf, no free reg, or the
+     address-taken set overflowed -- markers are already safely stripped. */
+  if((target.nlocalreg==0)||(!leaf)||(nlea>=PROMLOC_MAX)||(ncand>=PROMLOC_MAX))return;
+  nused=0;
+  for(i=0;i<ncand;i++)        /* pass 2: assign registers to safe candidates */
+  {
+    o=cand[i];
+    taken=0;
+    for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
+    if(taken)continue;
+    r=0-1;                     /* a reused frame slot keeps its register      */
+    for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
+    if(r>=0){creg[i]=r;continue;}
+    if(nused<target.nlocalreg){creg[i]=RG_L0+nused;nused=nused+1;}
+  }
+  for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
+  {
+    c=this->codes[i].code;
+    if((c==CD_LDLW)||(c==CD_STLW))
+    {
+      o=this->codes[i].arg;
+      r=0-1;
+      for(j=0;j<ncand;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
+      if(r>=0)
+      {
+        if(c==CD_LDLW){this->codes[i].code=CD_MOVR;this->codes[i].arg=r;}  /* mov R->dst */
+        else{this->codes[i].code=CD_MOVR;this->codes[i].reg=r;this->codes[i].arg=RG_A;} /* mov acc->R */
+      }
+    }
+  }
+}
 func cg_print(*scodegen this)
 {
   var int:i;
   peephole(this);
   regspill(this);
+  promote_locals(this);
   for(i=0;i<this->codeptr;i++)
   cd_write(this->codes+i);
 }
@@ -2568,6 +2630,13 @@ func zldlb(int offset)
   cd->code=CD_LDLB;
   cd->arg=offset;
 }
+func zlocal(int offset)   /* M5: mark a word-size scalar body local for promote_locals */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LOCAL;
+  cd->arg=offset;
+}
 func zstow2(int offset)
 {
   var *scode:cd;
@@ -2609,7 +2678,7 @@ var scodegen:cgglb;
 func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
-  chkmem(regnames=calloc(5,sizeof(*char)));
+  chkmem(regnames=calloc(7,sizeof(*char)));
   if(target.arch==ARCH_ARM64)
   {
     /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D); x2/x3/x4 = the regspill
@@ -2619,6 +2688,8 @@ func icodegen()
     regnames[RG_C]="x3";
     regnames[RG_D]="x1";
     regnames[RG_E]="x4";
+    regnames[RG_L0]="x11";   /* promoted locals (leaf): free caller-saved */
+    regnames[RG_L1]="x12";
   }
   else if(target.arch==ARCH_RISCV)
   {
@@ -2630,6 +2701,8 @@ func icodegen()
     regnames[RG_C]="t2";
     regnames[RG_D]="a1";
     regnames[RG_E]="t3";
+    regnames[RG_L0]="t4";    /* promoted locals (leaf): free caller-saved */
+    regnames[RG_L1]="t5";
   }
   else if(target.arch==ARCH_MIPS)
   {
@@ -2653,6 +2726,8 @@ func icodegen()
     regnames[RG_C]="%r12";
     regnames[RG_D]="%rdx";
     regnames[RG_E]="%r13";
+    regnames[RG_L0]="%r10";  /* promoted locals (leaf): free caller-saved */
+    regnames[RG_L1]="%r11";
   }
   else
   {
