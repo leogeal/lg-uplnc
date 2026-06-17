@@ -256,27 +256,34 @@ wins first:
   self-host fixpoints stay byte-for-byte; a `const_fold` golden test + 239
   run-correctness checks pass
 - 🟡 Light **register allocation** — use the register file instead of spilling
-  every temporary to the stack. First slice (`regspill()` in `codegen.e`, a
-  target-neutral peephole after the A/D rule): a binary op with a *complex*
-  right operand normally spills its left operand to the **memory** operand stack
-  (`PUSH`/`POP`) across the right's evaluation; instead hold it in a free
-  register (`RG_B`, then `RG_C`) and copy it to `RG_D` for the operate step.
-  Restricted to **call-free spans** — the save registers are caller-saved on
-  arm64/riscv/mips, so a `CD_ZCALL` in the span reverts that save to memory;
-  the same call-free invariant means they never need prologue save/restore even
-  where they are callee-saved (x86_64 `%rbx`). A `target.nsavereg` field plus a
-  per-backend free-register choice makes it work on **all five** ISAs. The save
-  register must survive every op in its span, so it is chosen clear of each
-  backend's scratch: `%rbx`/`%r12` (x86_64), `%ebx`/`%esi` (i386 — *not* `%ecx`,
-  which shifts/div clobber), `x2`/`x3` (arm64), `t1`/`t2` (riscv), `$14`/`$15`
-  (mips). ~12% of the compiler's own operand-stack spills now avoid memory (the
-  rest span a call). **Operate directly on the save register** (a `target.directop`
-  flag + an `r2nd()` helper in the op lowerings): the binary op reads its 2nd
-  operand straight from the save register, so the spill→`RG_D` move is dropped
-  entirely — 562 of 612 register-held spills on x86_64/arm64 (the rest feed a
-  pointer store and keep the move). All five self-host fixpoints stay
-  byte-identical. Still open: saves >2 deep still go to memory; locals still live
-  in the frame
+  every temporary to the stack. `regspill()` in `codegen.e` is a target-neutral
+  peephole (after the A/D rule): a binary op with a *complex* right operand
+  normally spills its left operand to the **memory** operand stack (`PUSH`/`POP`)
+  across the right's evaluation; instead it holds it in a free register. Built in
+  slices:
+  - ✅ **Spill to a register, not memory.** The `PUSH`/`POP` pair becomes a move
+    into a free save register, restricted to **call-free spans**: the save
+    registers are caller-saved on arm64/riscv/mips, so a `CD_ZCALL` in the span
+    reverts that save to memory — and that same invariant means they never need
+    prologue save/restore even where they are callee-saved (x86_64 `%rbx`).
+  - ✅ **Per-backend save registers** (`target.nsavereg` = how many are free, a
+    `savereg()` mapping picks the *i*-th by nesting depth), each chosen clear of
+    that backend's scratch so a held save survives every op in its span — three
+    deep: `%rbx`/`%r12`/`%r13` (x86_64), `%ebx`/`%esi`/`%edi` (i386 — *not*
+    `%ecx`, which shifts/div clobber), `x2`/`x3`/`x4` (arm64), `t1`/`t2`/`t3`
+    (riscv), `$14`/`$15`/`$24` (mips). Works on all **five** ISAs.
+  - ✅ **Operate directly on the save register** (`target.directop` + an `r2nd()`
+    helper in the op lowerings): the op reads its 2nd operand straight from the
+    save register, so the spill→`RG_D` move is dropped — 562 of 612 register-held
+    spills on x86_64/arm64 (the rest feed a pointer store and keep the move).
+  - ✅ **Three-deep nesting.** Saves up to two levels deep stay in registers
+    (the third register, `RG_E`); deeper spills still go to memory, but those are
+    rare (only 16 depth-2 spills in the whole compiler, so a 4th register would
+    add little).
+  - Result so far: ~12% of the compiler's own operand-stack spills avoid memory
+    (the rest span a call); all five self-host fixpoints stay byte-identical.
+  - ⏳ Still open: locals still live in the frame (promoting hot locals to
+    registers is the bigger structural piece)
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳
