@@ -129,6 +129,7 @@ func cg_print(this:*scodegen);
 #define RG_B 1
 #define RG_C 2
 #define RG_D 3
+#define RG_E 4   /* M5 regspill: 3rd save register (depth-2 spills) */
 
 func icodegen();
 func dcodegen();

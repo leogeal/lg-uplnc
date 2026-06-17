@@ -1992,7 +1992,7 @@ func inittarget_elf()
   target.dir_rodata=".rodata";
   target.bigendian=0;   /* little-endian default; mips overrides */
   target.strictalign=0; /* x86/arm64/riscv tolerate unaligned; mips overrides */
-  target.nsavereg=2;    /* RG_B/RG_C free for spills; riscv/mips override to 0 */
+  target.nsavereg=3;    /* RG_B/RG_C/RG_E free for spills (i386 ebx/esi/edi) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment
@@ -2040,7 +2040,7 @@ func inittarget_riscv()
   target.stackslot=8;  /* RISC-V doesn't fault on 8-byte sp pushes; the
                           pad-to-16-at-calls logic keeps the ABI alignment */
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
-  target.nsavereg=2;   /* RG_B/RG_C are t1/t2, distinct from the t0 scratch */
+  target.nsavereg=3;   /* RG_B/RG_C/RG_E are t1/t2/t3, distinct from t0 scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func inittarget_mips()
@@ -2053,7 +2053,7 @@ func inittarget_mips()
   target.dir_align=".align 3";  /* MIPS .align is power-of-2: 2^3 = 8-byte */
   target.bigendian=1;  /* MSB-first: shifts sub-word param offsets (see dofunc) */
   target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
-  target.nsavereg=2;   /* RG_B/RG_C are $14/$15, distinct from $12/$13 scratch */
+  target.nsavereg=3;   /* RG_B/RG_C/RG_E are $14/$15/$24, distinct from scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
 func printlab(label:int)

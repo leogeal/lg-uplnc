@@ -84,6 +84,15 @@ func is2ndop(code:int)
   return ((code>=CD_ADD2REGS)&&(code<=CD_UGT))
        ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS);
 }
+/* the i-th regspill save register (i = nesting depth among open register saves).
+   Each maps, per backend, to a register clear of RG_A/RG_D and of every op's
+   scratch, so a held save survives anything in its call-free span. */
+func savereg(i:int)
+{
+  if(i==0)return RG_B;
+  if(i==1)return RG_C;
+  return RG_E;
+}
 func ispureload(code:int)
 {
   /* M5: opcodes that load a value into the accumulator (%rax) and read neither
@@ -177,7 +186,7 @@ func regspill(this:*scodegen)
       else
       {
         sidx[sp]=i;
-        if(openreg<target.nsavereg){sreg[sp]=RG_B+openreg;openreg=openreg+1;}
+        if(openreg<target.nsavereg){sreg[sp]=savereg(openreg);openreg=openreg+1;}
         else sreg[sp]=0-1;       /* no free save reg -> memory */
         sp=sp+1;
       }
@@ -2600,47 +2609,50 @@ var scodegen:cgglb;
 func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
-  chkmem(regnames=calloc(4,sizeof(*char)));
+  chkmem(regnames=calloc(5,sizeof(*char)));
   if(target.arch==ARCH_ARM64)
   {
-    /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D), x2/x3 = scratch */
+    /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D); x2/x3/x4 = the regspill
+       saves (RG_B/RG_C/RG_E) -- x9/x10 are this backend's scratch, not these. */
     regnames[RG_A]="x0";
     regnames[RG_B]="x2";
     regnames[RG_C]="x3";
     regnames[RG_D]="x1";
+    regnames[RG_E]="x4";
   }
   else if(target.arch==ARCH_RISCV)
   {
     /* a0 = accumulator (RG_A), a1 = 2nd operand (RG_D), t0 = address scratch
-       (the helpers hardcode t0); t1/t2 = the regspill saves (RG_B/RG_C), kept
-       clear of t0 so a held save survives an address computation in its span. */
+       (the helpers hardcode t0); t1/t2/t3 = the regspill saves (RG_B/RG_C/RG_E),
+       kept clear of t0 so a held save survives an address computation. */
     regnames[RG_A]="a0";
     regnames[RG_B]="t1";
     regnames[RG_C]="t2";
     regnames[RG_D]="a1";
+    regnames[RG_E]="t3";
   }
   else if(target.arch==ARCH_MIPS)
   {
     /* $2 = accumulator (RG_A), $3 = 2nd operand (RG_D), $12/$13 = address+imm
-       scratch (the helpers hardcode them); $14/$15 = the regspill saves
-       (RG_B/RG_C), kept clear of $12/$13 so a held save survives an address
-       computation in its span. N64 args go in $4..$11, clear of all these. */
+       scratch (the helpers hardcode them); $14/$15/$24 = the regspill saves
+       (RG_B/RG_C/RG_E), clear of $12/$13. N64 args go in $4..$11, $25 is $t9. */
     regnames[RG_A]="$2";
     regnames[RG_B]="$14";
     regnames[RG_C]="$15";
     regnames[RG_D]="$3";
+    regnames[RG_E]="$24";
   }
   else if(target.arch==ARCH_X86_64)
   {
     regnames[RG_A]="%rax";
     regnames[RG_B]="%rbx";
-    /* RG_C is a regspill save register, so it must survive every operation in
-       its (call-free) span. %rcx is clobbered by shifts (need %cl) and div/mod
-       (used as the divisor temp), so use %r12 -- callee-saved and otherwise
-       unused by the backend. RG_C is never used by an op lowering (those keep
-       hardcoding %rcx), only by regspill, so this is a pure relocation. */
+    /* The save registers must survive every operation in their (call-free) span.
+       %rcx is clobbered by shifts (need %cl) and div/mod (divisor temp), so
+       RG_C/RG_E use %r12/%r13 -- callee-saved and otherwise unused. They are
+       never used by an op lowering (those keep hardcoding %rcx/%rdx). */
     regnames[RG_C]="%r12";
     regnames[RG_D]="%rdx";
+    regnames[RG_E]="%r13";
   }
   else
   {
@@ -2648,6 +2660,7 @@ func icodegen()
     regnames[RG_B]="%ebx";
     regnames[RG_C]="%esi";  /* not %ecx: shifts/div clobber it (see x86_64) */
     regnames[RG_D]="%edx";
+    regnames[RG_E]="%edi";  /* the only other free callee-saved GPR on i386 */
   }
   ccg=&cgglb;
   cg_init(ccg);
