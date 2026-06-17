@@ -3360,12 +3360,17 @@ func ct_FUNC(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;/*the result*/
-  /* a double-returning function leaves its result in %xmm0 (M4 slice 4b):
-     route the result through the FP path. Only triggers for functions
-     explicitly declared `: double`; everything else stays int (unchanged). */
+  /* propagate the callee's declared return type to the call expression, so
+     pointer- and char-returning functions are type-correct at the call site --
+     *f(), f()->m, f()[i], f()+n all work, matching cttype() which already
+     returns this type. A `:double` return still routes through %xmm0 (M4 slice
+     4b); a plain (int) function is unchanged. Struct returns are not yet
+     supported (separate work), so leave a V_STR result as int here. The compiler
+     declares no return types, so its own calls all stay int and the self-host
+     fixpoints are byte-identical. */
   if(l&&(l->op==OP_LEAF)&&l->leaf.idx&&(l->leaf.idx->sort==S_FUNC)
-     &&(l->leaf.idx->type==T_DOUBLE))
-  lval->typ=T_DOUBLE;
+     &&(typtab[l->leaf.idx->type].sort!=V_STR))
+  lval->typ=l->leaf.idx->type;
   return 0;
 }
 func ct_DOT(node:*enode,lval:*elval)
