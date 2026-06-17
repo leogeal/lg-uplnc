@@ -317,7 +317,13 @@ What turns a teaching compiler into something you'd build a project with:
 
 ## M7 — Proof it's real 🟡
 
-- 💭 Port a few non-trivial programs; build a small self-contained utility in UPLNC
+- 🟡 Port a few non-trivial programs; build a small self-contained utility in UPLNC
+  - ✅ `examples/wc.e` — a faithful `wc` (lines/words/chars from stdin) written
+    in UPLNC. Builds with the stage-0 tools and runs on all **five** backends,
+    matching system `wc`. Exercises `getchar`/EOF, a whitespace state machine,
+    and `printf`. Gated by `run_tests.sh` section `[11]`
+  - ⏳ More / larger programs (a filter taking file args, etc.) to keep
+    surfacing real language and usability gaps
 - 💭 A test/benchmark suite of UPLNC programs with expected output
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
   fixpoint-clean — achieved via the M3 arm64 backend + the host-portability CI.

@@ -222,6 +222,37 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[11] example utility: examples/wc.e builds and runs (matches system wc)"
+# A real self-contained utility written in UPLNC (M7 'proof it's real'). Build +
+# run it for the host's native arch (x86_64 or arm64 CI runner) and check output.
+HOSTM=$(uname -m)
+if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then WCM="-march=x86_64"; WCC="gcc -no-pie -w"
+elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then WCM="-march=arm64"; WCC="gcc -no-pie -w"
+else WCM=""; WCC=""; fi
+if [ ! -x "$LANGC" ]; then
+    bad "langc not built"
+elif [ -z "$WCC" ]; then
+    echo "  skip - no native toolchain to build wc on $HOSTM"
+else
+    "$TDIR/build/lpp1" ../examples/wc.e 2>/dev/null \
+        | "$TDIR/build/langc" $WCM > /tmp/uplnc_wc.s 2>/dev/null
+    if grep -qE '[1-9][0-9]* error' /tmp/uplnc_wc.s; then
+        bad "wc.e (compile)"
+    elif ! $WCC /tmp/uplnc_wc.s -o /tmp/uplnc_wc 2>/dev/null; then
+        bad "wc.e (assemble/link)"
+    else
+        got=$(printf 'hello world\nfoo bar baz\n' | /tmp/uplnc_wc)
+        [ "$got" = "2 5 24" ] && ok "wc.e -> '$got'" || bad "wc.e (got '$got', want '2 5 24')"
+        got=$(printf '' | /tmp/uplnc_wc)
+        [ "$got" = "0 0 0" ] && ok "wc.e empty input -> '$got'" || bad "wc.e empty (got '$got')"
+        # cross-check the three counts against system wc on this script itself
+        want=$(wc < "$0" | awk '{print $1, $2, $3}')
+        got=$(/tmp/uplnc_wc < "$0")
+        [ "$got" = "$want" ] && ok "wc.e matches system wc on a real file" \
+                             || bad "wc.e vs system wc (got '$got', want '$want')"
+    fi
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]
