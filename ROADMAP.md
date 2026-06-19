@@ -328,9 +328,15 @@ What turns a teaching compiler into something you'd build a project with:
     `f()+n` and `f()->m` work on a call result. Previously every non-`double`
     return collapsed to `int`. The compiler declares no return types, so the
     fixpoints are byte-identical
-  - ⏳ struct **return by value** (planned: a struct-copy primitive + whole-struct
-    assignment, then sret via a hidden pointer); `unsigned` types, robust function
-    pointers, proper varargs, `const`
+  - ✅ Whole-struct **assignment** `s1 = s2` (M6 2a) — `ct_structasgn` copies a
+    struct by value between named struct variables (and struct sub-fields, any
+    nesting) word-by-word via the existing `getmem`/`store` at incrementing
+    offsets, so no new opcode and every backend gets it. Through-pointer struct
+    operands error cleanly (not yet supported). The compiler uses no struct
+    assignment, so the fixpoints stay byte-identical. This is the copy foundation
+    for struct return.
+  - ⏳ struct **return by value** (next: sret via a hidden pointer, building on
+    2a's copy); `unsigned` types, robust function pointers, proper varargs, `const`
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout

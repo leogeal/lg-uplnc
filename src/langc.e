@@ -2560,12 +2560,58 @@ func ct_COMMA(node:*enode,lval:*elval)
       return treetocode(cnode->r,lval);
   }
 }
+/* whole-struct assignment  s1 = s2  (M6 2a). Both sides are struct lvalues --
+   always an address (named struct variable or a struct sub-field). Copy the
+   bytes word-by-word (byte tail if any) by reusing getmem/store on constructed
+   scalar lvals at incrementing offsets, so no new opcode or pointer juggling is
+   needed and it works on every backend. Through-pointer struct operands (L_POI)
+   are left for later -- a clean error, not a miscompile. The result is the
+   destination struct lvalue (so `s3 = s1 = s2` chains); return 0 so a statement
+   does not try to rvalue a struct. */
+func ct_structasgn(node:*enode,dst:*elval,lval:*elval)
+{
+  var elval:src;
+  var elval:sw,dw;
+  var int:n,off,ws;
+  if((dst->sort!=L_ID)||(!dst->idx))
+  {error("struct assignment target must be a named struct variable");return 0;}
+  treetocode(node->r,&src);
+  if(typtab[src.typ].sort!=V_STR)
+  {error("struct assignment needs a struct on the right-hand side");return 0;}
+  if((src.sort!=L_ID)||(!src.idx))
+  {error("struct assignment source must be a named struct variable");return 0;}
+  if(typtab[dst->typ].size!=typtab[src.typ].size)
+  error("struct assignment between different-sized structs");
+  n=typtab[dst->typ].size;
+  ws=target.wordsize;
+  off=0;
+  /* a global load reads the symbol name from elval.name, a store from
+     idx->name (existing asymmetry), so copy both into each word lval. */
+  while(off+ws<=n)
+  {
+    sw.sort=L_ID;sw.idx=src.idx;strcp(sw.name,src.name);sw.offset=src.offset+off;sw.typ=T_INT;
+    dw.sort=L_ID;dw.idx=dst->idx;strcp(dw.name,dst->name);dw.offset=dst->offset+off;dw.typ=T_INT;
+    getmem(&sw);store(&dw);
+    off=off+ws;
+  }
+  while(off<n)
+  {
+    sw.sort=L_ID;sw.idx=src.idx;strcp(sw.name,src.name);sw.offset=src.offset+off;sw.typ=T_CHAR;
+    dw.sort=L_ID;dw.idx=dst->idx;strcp(dw.name,dst->name);dw.offset=dst->offset+off;dw.typ=T_CHAR;
+    getmem(&sw);store(&dw);
+    off=off+1;
+  }
+  lval->sort=L_ID;lval->idx=dst->idx;lval->offset=dst->offset;lval->typ=dst->typ;
+  return 0;
+}
 func ct_ASSIGN(node:*enode,lval:*elval)
 {
   var int:k;
   var elval:lval1,lval2;
   k=treetocode(node->l,&lval1);
   if(!k){needlval();return 0;}
+  if(typtab[lval1.typ].sort==V_STR)
+  return ct_structasgn(node,&lval1,lval);   /* M6 2a: whole-struct copy */
   if(lval1.sort==L_POI)
   {
     zpush();
