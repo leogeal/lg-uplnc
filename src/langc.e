@@ -36,6 +36,11 @@ var argstk:int;
 var argtop:int;
 var Zsp:int;
 var curfunc:*ssym;   /* M4 slice 4b: the function being compiled (for its return type) */
+var cursret:*ssym;   /* M6 2b: the hidden sret pointer param of a struct-returning
+                        function (0 if the current function returns a scalar) */
+var g_sretp:*elval;  /* M6 2b: while a struct-returning call is being emitted for
+                        `s = f()`, points at the destination lvalue s so ct_FUNC
+                        passes &s as the sret pointer (0 otherwise) */
 method snamenode.done()
 {
   if(next)
@@ -1134,6 +1139,7 @@ func dofunc()
     gp=addglb(n,S_FUNC,0,0,T_INT);
   }
   curfunc=gp;
+  cursret=0;   /* M6 2b: set below if this function returns a struct */
   if(!match(tlarg/*"("*/))error("missing '('");
   argstk=0;
   Zsp=0;
@@ -1248,6 +1254,27 @@ func dofunc()
   nl();
   /*ol("pushl %ebp");
   ol("movl %esp, %ebp");*/
+  /* M6 2b: a struct-returning function takes a hidden pointer to the caller's
+     result location as its LAST parameter (added after the explicit params, so
+     at the call site it is pushed first and lands in the last argument register /
+     stack slot). doreturn copies the returned struct through it. A method (which
+     already has a hidden 'this') returning a struct is not supported yet. */
+  if((typtab[gp->type].sort==V_STR)&&!(methodcls&&methodidx))
+  {
+    /* the sret pointer is the last param; on the register targets it must land in
+       a free argument register, i.e. the explicit params must leave one. A struct
+       return alongside >= nargreg explicit params (sret would spill to the stack)
+       is not supported yet -- reject cleanly rather than miscompile. i386 passes
+       every param on the stack, so it has no such limit. */
+    if((target.arch!=ARCH_I386)&&(argstk/target.wordsize>=target.nargreg))
+    error("a struct-returning function with this many parameters is not supported yet");
+    if(target.arch!=ARCH_I386)
+    cursret=addloc("0sret",S_VARL,1,-(argstk+target.wordsize),T_INTP);
+    else
+    cursret=addloc("0sret",S_VARL,1,argstk+2*target.wordsize,T_INTP);
+    if(argstk/target.wordsize<8)paramtyp[argstk/target.wordsize]=T_INTP;
+    argstk=argstk+target.wordsize;
+  }
   zenter();
   if(target.arch!=ARCH_I386)
   {
@@ -1356,10 +1383,67 @@ func statemen()
     }
   return lastst;
 }
+/* M6 2b: copy a struct (the lvalue `src`) through the pointer held in the local
+   `sretsym` -- i.e. *sretsym = src. Word-by-word (byte tail if any): load the
+   pointer, push it, load the source word, store it through the popped pointer at
+   the running offset. Used by doreturn to write the result into the caller's
+   sret location. */
+func copystructp(sretsym:*ssym,src:*elval)
+{
+  var elval:pw,sw,dp;
+  var int:n,off,ws;
+  n=typtab[src->typ].size;
+  ws=target.wordsize;
+  off=0;
+  while(off+ws<=n)
+  {
+    pw.sort=L_ID;pw.idx=sretsym;pw.offset=0;pw.typ=T_INTP;getmem(&pw);
+    zpush();
+    sw.sort=L_ID;sw.idx=src->idx;strcp(sw.name,src->name);sw.offset=src->offset+off;sw.typ=T_INT;getmem(&sw);
+    dp.sort=L_SP;dp.offset=off;dp.typ=T_INT;store(&dp);
+    off=off+ws;
+  }
+  while(off<n)
+  {
+    pw.sort=L_ID;pw.idx=sretsym;pw.offset=0;pw.typ=T_INTP;getmem(&pw);
+    zpush();
+    sw.sort=L_ID;sw.idx=src->idx;strcp(sw.name,src->name);sw.offset=src->offset+off;sw.typ=T_CHAR;getmem(&sw);
+    dp.sort=L_SP;dp.offset=off;dp.typ=T_CHAR;store(&dp);
+    off=off+1;
+  }
+}
+/* M6 2b: compute the address of a (named local or global) lvalue into the
+   accumulator and push it -- used to pass &dst as a struct-return sret pointer. */
+func pushaddr(lval:*elval)
+{
+  if(lval->idx&&(lval->idx->sort==S_VARL))zlea(lval->idx->offset+lval->offset);
+  else if(lval->idx&&(lval->idx->sort==S_VARG))zlda(lval->idx->name,lval->offset);
+  else error("cannot take the address of the struct-return target");
+  zpush();
+}
 func doreturn()
 {
   if(!endst())
   {
+    if(cursret)
+    {
+      /* M6 2b: struct-returning function -- the return expression is a struct
+         lvalue; copy it through the hidden sret pointer (do NOT rvalue it). */
+      var *enode:rn;var elval:rlv;
+      rn=bexptree();
+      foldtree(rn);
+      treetocode(rn,&rlv);
+      if(typtab[rlv.typ].sort!=V_STR)
+      error("a struct-returning function must return a struct");
+      else if((rlv.sort!=L_ID)||(!rlv.idx))
+      error("the returned struct must be a named struct variable (returning *p or a struct through a pointer is not supported yet)");
+      else if(typtab[rlv.typ].size!=typtab[curfunc->type].size)
+      error("returned struct has the wrong size");
+      else copystructp(cursret,&rlv);
+      delenode(rn);
+    }
+    else
+    {
     var int:rt;
     rt=expressi();
     /* convert the return value to the function's return type (M4 slice 4b).
@@ -1369,6 +1453,7 @@ func doreturn()
     {if(rt!=T_DOUBLE)i2f();}
     else
     {if(rt==T_DOUBLE)zf2i();}
+    }
   }
   zleave();
   /*ol("movl %ebp, %esp");
@@ -2575,6 +2660,20 @@ func ct_structasgn(node:*enode,dst:*elval,lval:*elval)
   var int:n,off,ws;
   if((dst->sort!=L_ID)||(!dst->idx))
   {error("struct assignment target must be a named struct variable");return 0;}
+  /* M6 2b: s = f(...) where f returns a struct -- have the callee write straight
+     into s through its sret pointer (no temporary, no second copy). */
+  if(node->r&&(node->r->op==OP_FUNC)&&node->r->l
+     &&(node->r->l->op==OP_LEAF)&&node->r->l->leaf.idx
+     &&(node->r->l->leaf.idx->sort==S_FUNC)
+     &&(typtab[node->r->l->leaf.idx->type].sort==V_STR))
+  {
+    var elval:dummy;
+    g_sretp=dst;
+    treetocode(node->r,&dummy);   /* ct_FUNC sees g_sretp and writes into *dst */
+    g_sretp=0;
+    lval->sort=L_ID;lval->idx=dst->idx;lval->offset=dst->offset;lval->typ=dst->typ;
+    return 0;
+  }
   treetocode(node->r,&src);
   if(typtab[src.typ].sort!=V_STR)
   {error("struct assignment needs a struct on the right-hand side");return 0;}
@@ -3259,8 +3358,18 @@ func ct_FUNC(node:*enode,lval:*elval)
      ))
   {
     var int:nargs;
+    var int:structret;var *elval:sretp;
     r=node->r;
     nargs=0;
+    /* M6 2b: struct-returning call -- pass &dst (captured in g_sretp by the
+       `s = f()` handler) as a hidden sret pointer, pushed first so it lands in
+       the last argument slot, matching the callee's last (sret) parameter. */
+    structret=0;sretp=0;
+    if(l->leaf.idx&&(typtab[l->leaf.idx->type].sort==V_STR))
+    {
+      if(!g_sretp)error("a struct-returning call's result must be captured by a struct assignment (s = f(...)); it cannot be used directly here");
+      else{structret=1;sretp=g_sretp;g_sretp=0;}
+    }
     if(target.arch!=ARCH_I386)   /* x86_64 / arm64 / riscv: register convention */
     {
       var int:savezsp;var int:cnt;var *enode:rr;var int:pad;var int:nstack;
@@ -3269,10 +3378,17 @@ func ct_FUNC(node:*enode,lval:*elval)
       savezsp=Zsp;
       cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
       cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
+      if(structret&&(cfp>0))error("struct return with floating-point arguments not supported yet");
+      if(structret)cnt=cnt+1;   /* the hidden sret pointer is an extra argument */
+      /* the sret pointer must land in a register (matching the callee's last
+         param); if the args overflow past the argument registers it would spill
+         to the stack at an offset the callee does not expect -- reject cleanly. */
+      if(structret&&(cnt>target.nargreg))error("a struct-returning call with this many arguments is not supported yet");
       /* RISC-V and MIPS pass FP args as raw bits in the *integer* registers (the
          variadic convention -- what printf reads), so they take the integer path
-         below; only x86_64/arm64 use the separate FP-register marshaling. */
-      if((cfp>0)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS))
+         below; only x86_64/arm64 use the separate FP-register marshaling. A
+         struct-returning call always takes the integer path. */
+      if((cfp>0)&&(!structret)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS))
       {
         /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
            (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
@@ -3307,6 +3423,7 @@ func ct_FUNC(node:*enode,lval:*elval)
         /* push each arg; a double on riscv is fpush'd as raw bits (fsd) so the
            integer marshal ld's it into the arg register. On x86_64/arm64 there
            are no FP args here (cfp==0), so this is the plain integer push. */
+        if(structret)pushaddr(sretp);   /* sret pointer pushed first (deepest) */
         while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);
           if(isfp(lval2.typ))fpush();else zpush();r=r->r;}
         if(cnt>target.nargreg){marshal(target.nargreg);Zsp=modstk(Zsp+target.nargreg*target.stackslot);}
@@ -3317,6 +3434,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     else
     {
+    if(structret){pushaddr(sretp);nargs=nargs+target.wordsize;}   /* sret first (deepest) */
     while(r)
     {
       k=treetocode(r->l,&lval2);
