@@ -335,8 +335,21 @@ What turns a teaching compiler into something you'd build a project with:
     operands error cleanly (not yet supported). The compiler uses no struct
     assignment, so the fixpoints stay byte-identical. This is the copy foundation
     for struct return.
-  - ⏳ struct **return by value** (next: sret via a hidden pointer, building on
-    2a's copy); `unsigned` types, robust function pointers, proper varargs, `const`
+  - ✅ struct **return by value** (M6 2b) — a `:Struct` function takes a hidden
+    sret pointer as its *last* parameter (so it slots in after the explicit params
+    and lands in the last argument register); `doreturn` copies the result through
+    it (`copystructp`). At the call site `s = f(...)` routes the call's sret to
+    `&s` (no temporary, no second copy), via a `g_sretp` hand-off into `ct_FUNC`,
+    which pushes `&s` first so it maps to that last parameter. Reuses the ordinary
+    argument marshaling, so all five backends work. Capture is by direct
+    assignment (`s = f()`, incl. sub-fields and nested struct-returning functions);
+    the returned value must be a named struct (not `return *p`), and on the
+    register targets the explicit args must leave a free register for the sret
+    pointer (i386 has no such limit). Other uses (`f().m`, struct-by-value args,
+    FP args alongside, `return f()`) error cleanly rather than miscompiling. The
+    compiler returns no structs, so the fixpoints stay byte-identical
+  - ⏳ `unsigned` types, robust function pointers, proper varargs, `const`;
+    struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
