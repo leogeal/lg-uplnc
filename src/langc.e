@@ -3085,11 +3085,9 @@ func ct_DIV(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
-  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT))
-  error("unsigned division is not supported yet");   /* needs the unsigned div opcode */
   zpop();
-  div();
-  lval->typ=T_INT;
+  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT)){udiv();lval->typ=T_UINT;}
+  else{div();lval->typ=T_INT;}
   return 0;
 }
 func ct_REM(node:*enode,lval:*elval)
@@ -3098,14 +3096,12 @@ func ct_REM(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT))
-  error("unsigned remainder is not supported yet");   /* needs the unsigned mod opcode */
   zpop();
-  zmod();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT)){umod();lval->typ=T_UINT;}
+  else{zmod();lval->typ=T_INT;}
   return 0;
 }
 func ct_1PP(node:*enode,lval:*elval)
