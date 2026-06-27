@@ -772,6 +772,9 @@ func inittypes()
   strcp(typtab[T_FLOAT].name,"float");
   typtab[T_FLOAT].sort=V_FND;
   typtab[T_FLOAT].size=4;
+  strcp(typtab[T_UINT].name,"unsigned");
+  typtab[T_UINT].sort=V_FND;
+  typtab[T_UINT].size=target.wordsize;
 }
 /* M4: a value of floating-point class (held in %xmm as a double once loaded). */
 func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
@@ -1568,7 +1571,7 @@ func dolocvar()
     addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
     /* mark int/pointer scalars for leaf-function register promotion; the marker
        (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
-    if((typ==T_INT)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
+    if((typ==T_INT)||(typ==T_UINT)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
     Zsp=modstk(Zsp-k);
   }
   /*  while(symname(sname))
@@ -2805,7 +2808,7 @@ func ct_BOR(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_BXOR(node:*enode,lval:*elval)
@@ -2819,7 +2822,7 @@ func ct_BXOR(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_BAND(node:*enode,lval:*elval)
@@ -2833,7 +2836,7 @@ func ct_BAND(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_EQ(node:*enode,lval:*elval)
@@ -2947,7 +2950,7 @@ func ct_SHL(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  if(lval1.typ==T_UINT)lval->typ=T_UINT;else lval->typ=T_INT;   /* result keeps the shifted value's type */
   return 0;
 }
 func ct_SHR(node:*enode,lval:*elval)
@@ -2957,11 +2960,11 @@ func ct_SHR(node:*enode,lval:*elval)
   zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   zpop();
-  asr();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  if(lval1.typ==T_UINT){shr();lval->typ=T_UINT;}   /* logical shift for an unsigned value */
+  else{asr();lval->typ=T_INT;}                       /* arithmetic shift (signed) */
   return 0;
 }
 func ct_MINUS(node:*enode,lval:*elval)
@@ -2978,7 +2981,7 @@ func ct_MINUS(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   if(typtab[lval1.typ].sort==V_PTR||
    typtab[lval1.typ].sort==V_ARR)
   {
@@ -3020,7 +3023,7 @@ func ct_PLUS(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FADD)){lval->typ=T_DOUBLE;return 0;}
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   if(typtab[lval1.typ].sort==V_PTR||
    typtab[lval1.typ].sort==V_ARR)
   {
@@ -3069,7 +3072,7 @@ func ct_MUL(node:*enode,lval:*elval)
   if(fparith(&lval1,&lval2,CD_FMUL)){lval->typ=T_DOUBLE;return 0;}
   zpop();
   mult();
-  lval->typ=T_INT;
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_DIV(node:*enode,lval:*elval)
@@ -3082,6 +3085,8 @@ func ct_DIV(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
+  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT))
+  error("unsigned division is not supported yet");   /* needs the unsigned div opcode */
   zpop();
   div();
   lval->typ=T_INT;
@@ -3093,6 +3098,8 @@ func ct_REM(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT))
+  error("unsigned remainder is not supported yet");   /* needs the unsigned mod opcode */
   zpop();
   zmod();
   lval->sort=L_ONREG;
@@ -3569,7 +3576,7 @@ func store(lval:*elval)
   {
     if(lval->idx->sort==S_VARG)
     {
-      if(lval->typ==T_INT||
+      if(lval->typ==T_INT||lval->typ==T_UINT||
        typtab[lval->typ].sort==V_PTR)
       /*ot("movl %eax, ");*/
       zstow(lval->idx->name,lval->offset);
@@ -3588,7 +3595,7 @@ func store(lval:*elval)
     }
     else if(lval->idx->sort==S_VARL)
     {
-      if(lval->typ==T_INT||
+      if(lval->typ==T_INT||lval->typ==T_UINT||
        typtab[lval->typ].sort==V_PTR)
       /*ot("movl %eax, ");*/
       zstlw(lval->idx->offset+lval->offset);
@@ -3713,7 +3720,7 @@ func getmem(lval:*elval)
     else error("error loading 'float' object");
     lval->typ=T_DOUBLE;
   }
-  else if(lval->typ==T_INT||lval->typ==T_INTP
+  else if(lval->typ==T_INT||lval->typ==T_UINT||lval->typ==T_INTP
       ||lval->typ==T_CHARP
       ||typtab[lval->typ].sort==V_PTR)
   {
@@ -4737,9 +4744,18 @@ func issigned(t:int)
 {
   return (t==T_INT)||(t==T_CHAR);
 }
+/* M6: result type of an integer binary op -- unsigned if either operand is, so
+   unsignedness propagates through arithmetic and a later compare / >> on the
+   result still uses the unsigned variant. */
+func uresult(t1:int,t2:int)
+{
+  if((t1==T_UINT)||(t2==T_UINT))return T_UINT;
+  return T_INT;
+}
 func gettsize(t:int)
 {
   if(t==T_INT)return target.wordsize;
+  else if(t==T_UINT)return target.wordsize;
   else if(t==T_CHAR)return BYTESIZE;
   else if(t==T_DOUBLE)return 8;
   else if(t==T_FLOAT)return 4;
@@ -4829,6 +4845,7 @@ func gettypen()
   trc("gettypename");
   if(amatch("char",4))return T_CHAR;
   if(amatch("int",3))return T_INT;
+  if(amatch("unsigned",8))return T_UINT;
   if(amatch("double",6))return T_DOUBLE;
   if(amatch("float",5))return T_FLOAT;
   if(alpha(ch())){

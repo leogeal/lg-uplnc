@@ -348,8 +348,20 @@ What turns a teaching compiler into something you'd build a project with:
     pointer (i386 has no such limit). Other uses (`f().m`, struct-by-value args,
     FP args alongside, `return f()`) error cleanly rather than miscompiling. The
     compiler returns no structs, so the fixpoints stay byte-identical
-  - ⏳ `unsigned` types, robust function pointers, proper varargs, `const`;
-    struct-return follow-ups (`f().m`, struct-by-value args)
+  - 🟡 `unsigned` int (M6) — a new `T_UINT` base type (`var unsigned:x`).
+    `issigned()` is false for it, so comparisons already route to the unsigned
+    variants; `>>` uses a logical shift (the `CD_SHR` opcode was lowered on every
+    backend but never emitted); arithmetic propagates unsignedness (`uresult`) so
+    nested expressions stay unsigned. Unsigned division/remainder error cleanly
+    for now (they need new per-backend `udiv`/`umod` opcodes — a follow-up).
+    Adding a base type bumps `F_TYPE`, shifting the compiler's own struct
+    type-numbers, so the self-host fixpoint still *reaches* (langc reproduces
+    itself) but the output is no longer byte-identical to the previous `main` —
+    it differs only in vestigial `typptr=` debug comments. `unsigned char` is a
+    follow-up too.
+  - ⏳ unsigned `/` `%` (per-backend opcodes); `unsigned char`; robust function
+    pointers, proper varargs, `const`; struct-return follow-ups (`f().m`,
+    struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout

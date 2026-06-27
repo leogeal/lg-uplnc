@@ -2261,6 +2261,12 @@ func asr()
   cd=cg_getitem(ccg);
   cd->code=CD_ASR;
 }
+func shr()   /* M6: logical (unsigned) right shift; CD_SHR is already lowered on every backend */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_SHR;
+}
 func asl()
 {
   var *scode:cd;

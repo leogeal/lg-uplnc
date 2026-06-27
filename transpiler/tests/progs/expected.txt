@@ -62,3 +62,4 @@ switch 42
 ptrret 42
 struct_assign 42
 struct_return 42
+unsigned 42
