@@ -63,3 +63,4 @@ ptrret 42
 struct_assign 42
 struct_return 42
 unsigned 42
+unsigned_divmod 42

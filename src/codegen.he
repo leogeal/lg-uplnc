@@ -103,6 +103,8 @@
 #define CD_MOVAD     95 /* M5 peephole: mov accumulator -> 2nd reg (%rax->%rdx) */
 #define CD_MOVR      96 /* M5 regspill: reg move dst=reg <- src=arg (RG_* idx) */
 #define CD_LOCAL     97 /* M5 promote-locals: marks a scalar local at offset arg */
+#define CD_UDIV2REGS 98 /* M6 unsigned: left/right (unsigned division) */
+#define CD_UMOD2REGS 99 /* M6 unsigned: left%right (unsigned remainder) */
 
 
 struct scode

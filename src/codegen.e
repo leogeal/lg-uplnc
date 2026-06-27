@@ -82,7 +82,8 @@ func x86cmp(this:*scode,cmpins:*char,acc:*char,cc:*char,movzx:*char)
 func is2ndop(code:int)
 {
   return ((code>=CD_ADD2REGS)&&(code<=CD_UGT))
-       ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS);
+       ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS)
+       ||(code==CD_UDIV2REGS)||(code==CD_UMOD2REGS);
 }
 /* the i-th regspill save register (i = nesting depth among open register saves).
    Each maps, per backend, to a register clear of RG_A/RG_D and of every op's
@@ -472,6 +473,12 @@ func cd_write_x86_64(*scode:this)
   else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %rdx */
   {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
    ol("cqto");ol("idivq %rcx");ol("movq %rdx, %rax");}
+  else if(this->code==CD_UDIV2REGS)             /* unsigned left/right */
+  {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
+   ol("xorq %rdx, %rdx");ol("divq %rcx");}
+  else if(this->code==CD_UMOD2REGS)             /* unsigned left%right */
+  {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
+   ol("xorq %rdx, %rdx");ol("divq %rcx");ol("movq %rdx, %rax");}
   else if(this->code==CD_STKENTER)
   {
     ol("pushq %rbp");
@@ -1074,6 +1081,9 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_DIV2REGS)op3("sdiv ","x0",r2nd(this),"x0");  /* left/right */
   else if(this->code==CD_MOD2REGS)                                    /* left%right */
   {op3("sdiv ","x9",r2nd(this),"x0");ot("msub x0, x9, x0, ");outstr(r2nd(this));nl();}
+  else if(this->code==CD_UDIV2REGS)op3("udiv ","x0",r2nd(this),"x0"); /* unsigned left/right */
+  else if(this->code==CD_UMOD2REGS)                                   /* unsigned left%right */
+  {op3("udiv ","x9",r2nd(this),"x0");ot("msub x0, x9, x0, ");outstr(r2nd(this));nl();}
   else if(this->code==CD_STKENTER)
   {ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");}
   else if(this->code==CD_STKLEAVE)
@@ -1298,6 +1308,8 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_MUL2REGS)op3("mul ","a0","a0",r2nd(this));
   else if(this->code==CD_DIV2REGS)op3("div ","a0",r2nd(this),"a0");   /* left/right */
   else if(this->code==CD_MOD2REGS)op3("rem ","a0",r2nd(this),"a0");   /* left%right */
+  else if(this->code==CD_UDIV2REGS)op3("divu ","a0",r2nd(this),"a0"); /* unsigned left/right */
+  else if(this->code==CD_UMOD2REGS)op3("remu ","a0",r2nd(this),"a0"); /* unsigned left%right */
   else if(this->code==CD_STKENTER)
   {
     /* save ra+fp, set s0 to point at the saved fp (like %rbp): saved fp at
@@ -1528,6 +1540,8 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_MUL2REGS)op3("dmul ","$2","$2",r2nd(this));
   else if(this->code==CD_DIV2REGS)op3("ddiv ","$2",r2nd(this),"$2");    /* left/right */
   else if(this->code==CD_MOD2REGS)op3("drem ","$2",r2nd(this),"$2");    /* left%right */
+  else if(this->code==CD_UDIV2REGS)op3("ddivu ","$2",r2nd(this),"$2");  /* unsigned left/right */
+  else if(this->code==CD_UMOD2REGS)op3("dremu ","$2",r2nd(this),"$2");  /* unsigned left%right */
   else if(this->code==CD_STKENTER)
   {
     /* save ra+fp, point $fp at the saved fp (like %rbp): saved fp at 0($fp),
@@ -1701,6 +1715,12 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %edx */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
    ol("cltd");ol("idivl %ecx");ol("movl %edx, %eax");}
+  else if(this->code==CD_UDIV2REGS)             /* unsigned left/right */
+  {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
+   ol("xorl %edx, %edx");ol("divl %ecx");}
+  else if(this->code==CD_UMOD2REGS)             /* unsigned left%right */
+  {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
+   ol("xorl %edx, %edx");ol("divl %ecx");ol("movl %edx, %eax");}
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2131,6 +2151,18 @@ func zmod()
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_MOD2REGS;
+}
+func udiv()   /* M6 unsigned: left/right (unsigned) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_UDIV2REGS;
+}
+func umod()   /* M6 unsigned: left%right (unsigned) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_UMOD2REGS;
 }
 func zpop()
 {
