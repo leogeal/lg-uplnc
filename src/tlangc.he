@@ -56,6 +56,7 @@ struct ssym{
   int type;
   int line;
   *snamelist nmlst;
+  int cnst; /* M6 const: 1 if this variable may not be assigned to (added last so existing field offsets are unchanged) */
   func init;
   func done;
 };
