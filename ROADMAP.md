@@ -360,8 +360,20 @@ What turns a teaching compiler into something you'd build a project with:
     vestigial `typptr=` debug comments (the machine code is unchanged); every
     later change, including the div/mod opcodes, is byte-identical again. The
     compiler uses no unsigned, so all five fixpoints reach.
-  - ⏳ `unsigned char` (zero-extending loads); robust function pointers, proper
-    varargs, `const`; struct-return follow-ups (`f().m`, struct-by-value args)
+  - 🟡 `const` + variable initializers (M6). Local initializers landed:
+    `var TYPE:name = expr;` emits a direct store at the declaration point (UPLNC
+    had no initializer syntax before this). `const` (a `cnst` flag on `ssym`,
+    added at the struct's end so only `sizeof` moves) is enforced in `ct_ASSIGN`
+    and `++`/`--` for a by-name `L_ID` target -- so a `const` local is initialized
+    once and then immutable, while a write *through* a const pointer (`*p = x`,
+    `L_POI`) is still allowed. The compiler declares no `const`, so all five
+    fixpoints reach (the self-output differs from the prior `main` only in a few
+    `calloc(sizeof(ssym...))` size constants).
+  - ⏳ `const` follow-ups: **global** static initializers (`.data`/value emission)
+    so global `const` is usable, `const` parameters, and `var x:int = e`
+    (name-first) initializers. Then `unsigned char` (zero-extending loads), robust
+    function pointers, proper varargs; struct-return follow-ups (`f().m`,
+    struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout

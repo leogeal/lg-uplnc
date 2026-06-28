@@ -856,7 +856,7 @@ func delsymlist(p:*ssymlist)
 }
 func dovar()
 {
-  var int:typ,istyp,wdfd;
+  var int:typ,istyp,wdfd,wcnst;
   var *ssymlist:lst,lptr;
   var **ssymlist:lpom;
   var *ssym:idx;
@@ -864,10 +864,11 @@ func dovar()
   istyp=0;
   lst=lptr=0;
   lpom=&lst;
-  wdfd=1;
+  wdfd=1;wcnst=0;
   while(1)
   {
     if(amatch("extern",6))wdfd=0;
+    else if(amatch("const",5))wcnst=1;   /* M6: var const TYPE:name */
     else break;
   }
   if(cbtype())
@@ -945,7 +946,8 @@ func dovar()
         break;
       }
     }
-    addglb(lptr->sym.name,S_VARG,wdfd,0,typ);
+    idx=addglb(lptr->sym.name,S_VARG,wdfd,0,typ);
+    if(wcnst)idx->cnst=1;   /* M6 const */
     if(wdfd)++nvars;
   }
   delsymlist(lst);
@@ -1500,14 +1502,18 @@ func dolocvar()
 {
   var [NAMESIZE]char:sname;
   var int:p1;
-  var int:typ,istyp;
+  var int:typ,istyp,wcnst,hasinit,irt;
   var *ssym:idx;
   var int:k;
   var *ssymlist:lst,lptr;
   var **ssymlist:lpom;
+  var *enode:inode;
+  var elval:ilv;
   lst=lptr=0;
   lpom=&lst;
   istyp=0;
+  wcnst=0;hasinit=0;
+  while(amatch("const",5))wcnst=1;   /* M6: var const TYPE:name (local) */
   if(cbtype())
   {
     /*fprintf(stderr,"line=%s\n",line);
@@ -1535,7 +1541,8 @@ func dolocvar()
     lpom=&(*lpom)->next;
     (*lpom)=0;
     if(istyp)
-    {if(match(";"))break;}
+    {if(match(";"))break;
+     if(match("=")){hasinit=1;break;}}   /* M6: var TYPE:name = expr; (initializer) */
     else
     {if(match(":"))break;}
     if(endst())break;
@@ -1568,7 +1575,8 @@ func dolocvar()
     {
       error("local multidef");
     }
-    addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
+    idx=addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
+    if(wcnst)idx->cnst=1;   /* M6 const */
     /* mark int/pointer scalars for leaf-function register promotion; the marker
        (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
     if((typ==T_INT)||(typ==T_UINT)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
@@ -1591,6 +1599,23 @@ func dolocvar()
       break;
     }
     }*/
+  if(hasinit)
+  {
+    /* M6: var TYPE:name = expr;  -- emit the initializer as a direct store to the
+       (last) declared variable. Below the comma operator so it stops at ';'.
+       Stored directly (not via ct_ASSIGN), so a const local is initialized once
+       here and rejected on any later assignment. idx is that last variable. */
+    inode=hier1();
+    foldtree(inode);
+    if(treetocode(inode,&ilv))rvalue(&ilv);
+    irt=ilv.typ;
+    if(isfp(typ)&&!isfp(irt))i2f();
+    else if(!isfp(typ)&&isfp(irt))zf2i();
+    ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
+    store(&ilv);
+    delenode(inode);
+    ns();
+  }
   delsymlist(lst);
 }
 func doif()
@@ -2712,6 +2737,10 @@ func ct_ASSIGN(node:*enode,lval:*elval)
   var elval:lval1,lval2;
   k=treetocode(node->l,&lval1);
   if(!k){needlval();return 0;}
+  /* M6 const: reject assigning to a const variable (directly, by name -- a write
+     *through* a const pointer, `*p = x`, is L_POI and stays allowed). */
+  if((lval1.sort==L_ID)&&lval1.idx&&lval1.idx->cnst)
+  error("assignment to a const variable");
   if(typtab[lval1.typ].sort==V_STR)
   return ct_structasgn(node,&lval1,lval);   /* M6 2a: whole-struct copy */
   if(lval1.sort==L_POI)
@@ -3104,11 +3133,19 @@ func ct_REM(node:*enode,lval:*elval)
   else{zmod();lval->typ=T_INT;}
   return 0;
 }
+/* M6 const: reject ++/-- that targets a const variable by name (a const pointer
+   may still be dereferenced-and-modified, *p++ etc., since that is L_POI). */
+func chkconst(lval:*elval)
+{
+  if((lval->sort==L_ID)&&lval->idx&&lval->idx->cnst)
+  error("modifying a const variable");
+}
 func ct_1PP(node:*enode,lval:*elval)
 {
   var int:k,sz;
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
+  chkconst(lval);
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3131,6 +3168,7 @@ func ct_1MM(node:*enode,lval:*elval)
   var int:k,sz;
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
+  chkconst(lval);
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3153,6 +3191,7 @@ func ct_2PP(node:*enode,lval:*elval)
   var int:k,sz;
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
+  chkconst(lval);
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3176,6 +3215,7 @@ func ct_2MM(node:*enode,lval:*elval)
   var int:k,sz;
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
+  chkconst(lval);
   if(lval->sort==L_POI)
   {
     zpush();
