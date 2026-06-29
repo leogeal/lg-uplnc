@@ -37,6 +37,26 @@ if [ -x "$LPP" ]; then
     echo "$out" | grep -q 'int hello\[3\];'        && ok "macro substitution (GREETING/N)" || bad "macro substitution"
     echo "$out" | grep -q 'literal #define stays'  && ok "string literals preserved"        || bad "string literals"
     echo "$out" | grep -vq 'a comment'             && ok "comments stripped"                 || bad "comments stripped"
+
+    longid=abcdefghijklmnopq
+    printf '#define %s 1\n' "$longid" > "$TMPD/uplnc_pp_longid.e"
+    if "$LPP" "$TMPD/uplnc_pp_longid.e" > "$TMPD/uplnc_pp_longid.out" 2>"$TMPD/uplnc_pp_longid.err"; then
+        bad "lpp1 long identifier exits nonzero"
+    elif grep -q 'identifier too long' "$TMPD/uplnc_pp_longid.err"; then
+        ok "lpp1 long identifier diagnosed"
+    else
+        bad "lpp1 long identifier diagnostic"
+    fi
+
+    longline=$(printf '%0170d' 0 | tr 0 ';')
+    printf '%s\n' "$longline" > "$TMPD/uplnc_pp_longline.e"
+    if "$LPP" "$TMPD/uplnc_pp_longline.e" > "$TMPD/uplnc_pp_longline.out" 2>"$TMPD/uplnc_pp_longline.err"; then
+        bad "lpp1 long line exits nonzero"
+    elif grep -q 'input line too long' "$TMPD/uplnc_pp_longline.err"; then
+        ok "lpp1 long line diagnosed"
+    else
+        bad "lpp1 long line diagnostic"
+    fi
 else
     bad "lpp1 not built"
 fi
@@ -90,6 +110,32 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         ok "float literal pool overflow diagnosed"
     else
         bad "float literal pool overflow diagnostic"
+    fi
+
+    longid=abcdefghijklmnopq
+    printf 'func main(){ var int:%s; return 0; }\n' "$longid" > "$TMPD/uplnc_long_ident.e"
+    if "$LANGC" -march=x86_64 > "$TMPD/uplnc_long_ident.s" 2>"$TMPD/uplnc_long_ident.err" \
+            < "$TMPD/uplnc_long_ident.e"; then
+        bad "long identifier exits nonzero"
+    elif grep -q 'identifier too long' "$TMPD/uplnc_long_ident.s"; then
+        ok "long identifier diagnosed"
+    else
+        bad "long identifier diagnostic"
+    fi
+
+    strchunk=$(printf '%0100d' 0 | tr 0 a)
+    {
+        printf 'func main(){\n'
+        for _ in $(seq 1 180); do printf '  "%s";\n' "$strchunk"; done
+        printf '  return 0;\n}\n'
+    } > "$TMPD/uplnc_string_pool.e"
+    if "$LPP" "$TMPD/uplnc_string_pool.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_string_pool.s" 2>"$TMPD/uplnc_string_pool.err"; then
+        bad "string literal pool overflow exits nonzero"
+    elif grep -q 'string space exhausted' "$TMPD/uplnc_string_pool.s"; then
+        ok "string literal pool overflow diagnosed"
+    else
+        bad "string literal pool overflow diagnostic"
     fi
 else
     bad "langc not built"

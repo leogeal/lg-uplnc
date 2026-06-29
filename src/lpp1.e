@@ -25,6 +25,7 @@ var iptr:int;
 var line,rline:[160]char;
 var lptr,rlptr:int;
 var isinp,iseof:int;
+var errcnt:int;
 var strpool:[3000]char;
 var strptr:int;
 struct cmac{*char n; *char sub;};
@@ -45,19 +46,28 @@ func gch()
 func putres(c:int)
 {
   if(rlptr>=159)
-  {error("output buffer overflow");return 0;}
+  {
+    rline[159]=0;
+    if(c)error("output buffer overflow");
+    return 0;
+  }
   return rline[rlptr++]=c;
 }
 func putmac(c:int)
 {
   /*fprintf(stderr,"putmac:c=%d\n",c);*/
   if(strptr>=2999)
-  {error("string pool full");return 0;}
+  {
+    strpool[2999]=0;
+    strptr=3000;
+    if(c)error("string pool full");
+    return 0;
+  }
   return strpool[strptr++]=c;
 }
 func getnewstr()
 {
-  if(strptr>=2999)
+  if(strptr>2999)
   {error("getnewstr:string pool full");return 0;}
   return strptr;
 }
@@ -101,16 +111,17 @@ func findmac(s:*char)
 }
 func symname(sname:*char)
 {
-  var int:k,l;var char: c;
+  var int:k,l,too_long;var char: c;
   sb();
   if(!alpha(line[lptr]))return 0;
-  for(k=l=0;an(line[lptr]);)
+  for(k=l=too_long=0;an(line[lptr]);)
   {
     if(k<15)
     {sname[l++]=line[lptr++];k++;}
     else
-    {k++;lptr++;}
+    {too_long=1;k++;lptr++;}
   }
+  if(too_long)error("identifier too long");
   sname[l]=0;
   return 1;
 }
@@ -128,6 +139,7 @@ func amatch(lit:*char,len:int)
 func error(p:*char)
 {
   fprintf(stderr,"***** Error:%s\nline:%s\n",p,line);
+  ++errcnt;
 }
 func an(c:int)
 {
@@ -143,18 +155,26 @@ func alpha(c:int)
 }
 func insline()
 {
-  var int:k;
+  var int:k,longline;
   if(!isinp)iseof=1;
   if(iseof)return;
   lptr=0;
+  longline=0;
   line[0]=0;
   while((k=fgetc(ifil))>0)
   {
-    if((k==10)||(lptr>=158))
+    if(k==10)
     {break;}
+    if(lptr>=158)
+    {
+      longline=1;
+      while((k=fgetc(ifil))>0)if(k==10)break;
+      break;
+    }
     line[lptr++]=k;
   }
   line[lptr]=0;
+  if(longline)error("input line too long");
   if(k<0)
   {
     if(iptr>0)
@@ -320,8 +340,9 @@ func prep()
 func doinclude()
 {
   var [160]char:newn;
-  var int:k,c;
+  var int:k,c,too_long;
   var int:delim;
+  too_long=0;
   sb();
   if(ch()=='"'){delim='"';gch();}
   else if(ch()=='<'){delim='>';gch();}
@@ -346,6 +367,13 @@ func doinclude()
     }
   }
   newn[k]=0;
+  if(ch()&&!isblank(ch())&&ch()!=delim)
+  {
+    too_long=1;
+    error("include path too long");
+    while(ch()&&!isblank(ch())&&ch()!=delim)gch();
+  }
+  if(too_long)return;
   /*fprintf(stderr,"new name:%s\n",newn);*/
   if(iptr>=MAXINC-2)
   error("too many nested #include");
@@ -374,6 +402,7 @@ func main(argc:int,argv:**char)
   var *char: outn,inn;
   strptr=0;
   macptr=1;
+  errcnt=0;
   iseof=0;
   isinp=1;
   is_in=is_out=0;
@@ -407,5 +436,6 @@ func main(argc:int,argv:**char)
   
   if(inn)fclose(ifil);
   if(outn)fclose(ofil);
+  if(errcnt)return 1;
   return 0;
 }
