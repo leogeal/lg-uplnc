@@ -2214,9 +2214,9 @@ func _zcall(sname:*char)
 }
 func inittarget()
 {
-  if(archsel==ARCH_X86_64)inittarget_x86_64();
-  else if(archsel==ARCH_ARM64)inittarget_arm64();
-  else if(archsel==ARCH_RISCV)inittarget_riscv();
+  if(archsel==ARCH_X86_64)inittgt_x86_64();
+  else if(archsel==ARCH_ARM64)inittgt_arm64();
+  else if(archsel==ARCH_RISCV)inittgt_riscv();
   else if(archsel==ARCH_MIPS)inittarget_mips();
   else inittarget_i386();
 }
@@ -2258,7 +2258,7 @@ func inittarget_i386()
   target.nargreg=6;    /* i386 is cdecl (stack args); unused */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
 }
-func inittarget_x86_64()
+func inittgt_x86_64()
 {
   inittarget_elf();
   target.arch=ARCH_X86_64;
@@ -2268,7 +2268,7 @@ func inittarget_x86_64()
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* %r10/%r11: free caller-saved (leaf local promotion) */
 }
-func inittarget_arm64()
+func inittgt_arm64()
 {
   inittarget_elf();
   target.arch=ARCH_ARM64;
@@ -2278,7 +2278,7 @@ func inittarget_arm64()
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* x11/x12: free caller-saved (leaf local promotion) */
 }
-func inittarget_riscv()
+func inittgt_riscv()
 {
   inittarget_elf();
   target.arch=ARCH_RISCV;
