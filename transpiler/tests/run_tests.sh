@@ -10,22 +10,24 @@ fail=0
 pass=0
 ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL - $1"; fail=$((fail+1)); }
+TMPD=$(mktemp -d "${TMPDIR:-/tmp}/uplnc-tests.XXXXXX")
+trap 'rm -rf "$TMPD"' EXIT
 
 echo "[1] transpile every UPLNC source without error"
 for f in tlangc.he codegen.he lpp1.e codegen.e langc.e autodyn.e grph.e; do
     if python3 uplnc2c.py "$SRC/$f" -I "$SRC/tlangc.he" -I "$SRC/codegen.he" \
-            >/dev/null 2>/tmp/uplnc2c.err; then
+            >/dev/null 2>"$TMPD/uplnc2c.err"; then
         ok "transpile $f"
     else
-        bad "transpile $f -> $(tail -1 /tmp/uplnc2c.err)"
+        bad "transpile $f -> $(tail -1 "$TMPD/uplnc2c.err")"
     fi
 done
 
 echo "[2] build the stage-0 tools"
-if ./build.sh >/tmp/uplnc_build.log 2>&1; then
+if ./build.sh >"$TMPD/uplnc_build.log" 2>&1; then
     ok "build.sh"
 else
-    bad "build.sh (see /tmp/uplnc_build.log)"
+    bad "build.sh (see $TMPD/uplnc_build.log)"
 fi
 
 echo "[3] lpp1 preprocessor behaves correctly"
@@ -43,11 +45,52 @@ echo "[4] langc compiles a program to i386 assembly"
 LANGC=build/langc
 if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     # a+2 with a variable (constant folding would collapse a literal 40+2 to 42)
-    printf 'func main()\n{\n  var int:a;\n  var int:x;\n  a=40;\n  x=a+2;\n  return x;\n}\n' > /tmp/uplnc_t1.e
-    asm=$("$LPP" /tmp/uplnc_t1.e 2>/dev/null | "$LANGC" 2>/dev/null)
+    printf 'func main()\n{\n  var int:a;\n  var int:x;\n  a=40;\n  x=a+2;\n  return x;\n}\n' > "$TMPD/uplnc_t1.e"
+    asm=$("$LPP" "$TMPD/uplnc_t1.e" 2>/dev/null | "$LANGC" 2>/dev/null)
     echo "$asm" | grep -q '^main:'           && ok "emits a 'main:' label"        || bad "emits 'main:'"
     echo "$asm" | grep -q 'addl %edx, %eax'  && ok "compiles a+2 to add"          || bad "compiles a+2"
     echo "$asm" | grep -q '0 error(s)'       && ok "reports 0 errors"             || bad "reports 0 errors"
+else
+    bad "langc not built"
+fi
+
+echo "[4b] langc rejects malformed input without crashing"
+if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
+    printf 'func main(){ return (1 + ; }\n' > "$TMPD/uplnc_bad_syntax.e"
+    if "$LPP" "$TMPD/uplnc_bad_syntax.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_syntax.s" 2>"$TMPD/uplnc_bad_syntax.err"; then
+        bad "bad syntax exits nonzero"
+    elif grep -q 'Error:wrong expression' "$TMPD/uplnc_bad_syntax.s"; then
+        ok "bad syntax exits nonzero"
+    else
+        bad "bad syntax diagnostic"
+    fi
+
+    longnum=$(printf '%0200d' 0 | tr 0 1)
+    printf 'func main(){ return %s; }\n' "$longnum" > "$TMPD/uplnc_long_numeric.e"
+    if "$LPP" "$TMPD/uplnc_long_numeric.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_long_numeric.s" 2>"$TMPD/uplnc_long_numeric.err"; then
+        bad "long numeric literal exits nonzero"
+    elif grep -q 'numeric literal too long' "$TMPD/uplnc_long_numeric.s"; then
+        ok "long numeric literal diagnosed"
+    else
+        bad "long numeric literal diagnostic"
+    fi
+
+    longfrac=$(printf '%044d' 0 | tr 0 2)
+    {
+        printf 'func main(){\n'
+        for _ in $(seq 1 120); do printf '  return 1.%s;\n' "$longfrac"; done
+        printf '}\n'
+    } > "$TMPD/uplnc_float_pool.e"
+    if "$LPP" "$TMPD/uplnc_float_pool.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_float_pool.s" 2>"$TMPD/uplnc_float_pool.err"; then
+        bad "float literal pool overflow exits nonzero"
+    elif grep -q 'float literal pool full' "$TMPD/uplnc_float_pool.s"; then
+        ok "float literal pool overflow diagnosed"
+    else
+        bad "float literal pool overflow diagnostic"
+    fi
 else
     bad "langc not built"
 fi
@@ -73,7 +116,7 @@ elif [ "$(uname -m)" != "x86_64" ] || ! command -v gcc >/dev/null; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        asm="/tmp/uplnc_x64_$name.s"; bin="/tmp/uplnc_x64_$name"
+        asm="$TMPD/uplnc_x64_$name.s"; bin="$TMPD/uplnc_x64_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=x86_64 > "$asm" 2>/dev/null
         if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
@@ -94,7 +137,7 @@ echo "[7] i386 x87 backend: programs compile (-march=i386), assemble + run (-m32
 # some hosts (e.g. gcc-8 here), so fall back to a versioned gcc that has it.
 M32=""
 for cc in "gcc -m32" "gcc-12 -m32" "gcc-11 -m32" "gcc-10 -m32" "gcc-9 -m32"; do
-    if echo 'int main(void){return 0;}' | $cc -x c - -o /tmp/uplnc_m32probe 2>/dev/null; then
+    if echo 'int main(void){return 0;}' | $cc -x c - -o "$TMPD/uplnc_m32probe" 2>/dev/null; then
         M32="$cc"; break
     fi
 done
@@ -105,7 +148,7 @@ elif [ -z "$M32" ]; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        asm="/tmp/uplnc_i386_$name.s"; bin="/tmp/uplnc_i386_$name"
+        asm="$TMPD/uplnc_i386_$name.s"; bin="$TMPD/uplnc_i386_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=i386 > "$asm" 2>/dev/null
         if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
@@ -135,7 +178,7 @@ elif [ -z "$A64" ]; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        asm="/tmp/uplnc_arm64_$name.s"; bin="/tmp/uplnc_arm64_$name"
+        asm="$TMPD/uplnc_arm64_$name.s"; bin="$TMPD/uplnc_arm64_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=arm64 > "$asm" 2>/dev/null
         if grep -q 'not supported on arm64' "$asm"; then
@@ -167,7 +210,7 @@ elif [ -z "$RV" ]; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        asm="/tmp/uplnc_riscv_$name.s"; bin="/tmp/uplnc_riscv_$name"
+        asm="$TMPD/uplnc_riscv_$name.s"; bin="$TMPD/uplnc_riscv_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=riscv64 > "$asm" 2>/dev/null
         if grep -q 'not supported on riscv' "$asm"; then
@@ -205,7 +248,7 @@ elif [ -z "$MIPS" ]; then
 else
     while read -r name want; do
         [ -z "$name" ] && continue
-        asm="/tmp/uplnc_mips_$name.s"; bin="/tmp/uplnc_mips_$name"
+        asm="$TMPD/uplnc_mips_$name.s"; bin="$TMPD/uplnc_mips_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=mips64 > "$asm" 2>/dev/null
         if grep -q 'not supported on mips' "$asm"; then
@@ -231,7 +274,7 @@ elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then UM="-march=arm6
 else UM=""; UCC=""; fi
 # build an example utility for the host arch; echoes the binary path or "" on fail
 buildutil() {  # $1 = name (without .e)
-    local s="/tmp/uplnc_$1.s" bin="/tmp/uplnc_$1"
+    local s="$TMPD/uplnc_$1.s" bin="$TMPD/uplnc_$1"
     "$TDIR/build/lpp1" "../examples/$1.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$s" 2>/dev/null
     grep -qE '[1-9][0-9]* error' "$s" && { bad "$1.e (compile)"; return 1; }
     $UCC "$s" -o "$bin" 2>/dev/null || { bad "$1.e (assemble/link)"; return 1; }
@@ -252,12 +295,12 @@ else
                              || bad "wc.e vs system wc (got '$got', want '$want')"
     fi
     if CAT=$(buildutil cat); then
-        printf 'line1\nline2\n' > /tmp/uplnc_catf1; printf 'AAA\n' > /tmp/uplnc_catf2
-        cmp -s <("$CAT" /tmp/uplnc_catf1 /tmp/uplnc_catf2) <(cat /tmp/uplnc_catf1 /tmp/uplnc_catf2) \
+        printf 'line1\nline2\n' > "$TMPD/uplnc_catf1"; printf 'AAA\n' > "$TMPD/uplnc_catf2"
+        cmp -s <("$CAT" "$TMPD/uplnc_catf1" "$TMPD/uplnc_catf2") <(cat "$TMPD/uplnc_catf1" "$TMPD/uplnc_catf2") \
             && ok "cat.e concatenates files" || bad "cat.e (files)"
         cmp -s <(printf 'piped\n' | "$CAT") <(printf 'piped\n') \
             && ok "cat.e reads stdin with no args" || bad "cat.e (stdin)"
-        "$CAT" /tmp/uplnc_nope 2>/dev/null; [ "$?" = 1 ] \
+        "$CAT" "$TMPD/uplnc_nope" 2>/dev/null; [ "$?" = 1 ] \
             && ok "cat.e exits 1 on a missing file" || bad "cat.e (error exit)"
     fi
 fi

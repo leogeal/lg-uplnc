@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 use File::Basename;
+use File::Temp qw(tempfile);
 
 $LPP='./lpp1';
 $LANGC='./langc';
@@ -41,12 +42,29 @@ $nfiles=$#enames+1;
 print "$nfiles files to compile\n";
 for($i=0;$i<$nfiles;$i++)
   {
-  $thecmd="$LPP $enames[$i] | $LANGC > $snames[$i]";
-  print $thecmd . "\n";
-  `$thecmd`;
+  print "$LPP $enames[$i] | $LANGC > $snames[$i]\n";
+  ($tmpfh,$tmpname)=tempfile();
+  open($lppfh,'-|',$LPP,$enames[$i]) or die "cannot run $LPP: $!";
+  while(<$lppfh>)
+    {
+    print $tmpfh $_;
+    }
+  close($lppfh) or die "$LPP failed for $enames[$i]";
+  close($tmpfh);
+  $pid=fork();
+  die "fork failed: $!" unless defined $pid;
+  if($pid==0)
+    {
+    open(STDIN,'<',$tmpname) or die "cannot read $tmpname: $!";
+    open(STDOUT,'>',$snames[$i]) or die "cannot write $snames[$i]: $!";
+    exec {$LANGC} $LANGC;
+    die "cannot exec $LANGC: $!";
+    }
+  waitpid($pid,0);
+  unlink($tmpname);
+  die "$LANGC failed for $enames[$i]" if $?;
   }
 $slist="@snames";
 print $slist . "\n";
-$newcmd="gcc -o $outname @snames ";
-print $newcmd . "\n";
-`$newcmd`;
+print "gcc -o $outname @snames\n";
+system('gcc','-o',$outname,@snames)==0 or die "gcc failed";

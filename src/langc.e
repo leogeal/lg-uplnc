@@ -457,6 +457,7 @@ func main(argc:int,argv:**char)
   freesyms();
   /*fprintf(stderr,"(%d)(%d)%s%s",pp,pp2,pp,pp2);*/
   donedyn();
+  if(errcnt)return 1;
   return 0;
 }
 func initsyms()
@@ -1117,9 +1118,7 @@ func dofunc()
   ol(".fnc");
   if(methodcls&&methodidx)
   {
-    strcp(n,typtab[methodcls].name);
-    strcat(n,".");/* DANGEROUS !! */
-    strcat(n,fieldtab[methodidx].name);/* DANGEROUS- FixMe */
+    makemethodname(n,typtab[methodcls].name,fieldtab[methodidx].name);
   }
   else if(!symname(n))
   {
@@ -2533,7 +2532,14 @@ func cttype(node:*enode)
 func treetocode(node:*enode,lval:*elval)
 {
   if(!node)
-  return 0;
+  {
+    lval->sort=L_NUM;
+    lval->idx=0;
+    lval->offset=0;
+    lval->typ=T_INT;
+    lval->val=0;
+    return 0;
+  }
   if(node->op==OP_LEAF)
   {
     if(node->leaf.vid==L_NUM)
@@ -3540,8 +3546,7 @@ func ct_FUNC(node:*enode,lval:*elval)
     zpush();
     nargs=nargs+target.wordsize;
     var [NAMESIZE]char:methodname;
-    strcp(methodname,typtab[typtab[lval2.typ].type].name);
-    strcat(strcat(methodname,"."),l->name);/* DANGEROUS!!! FixMe! */
+    makemethodname(methodname,typtab[typtab[lval2.typ].type].name,l->name);
     cnmlst->addm(methodname);
     if(target.arch!=ARCH_I386)
     {
@@ -4673,13 +4678,28 @@ func qstr(val:*int)
 }
 func addfloat(s:*char)  /* store a float-literal's text, return its pool index */
 {
-  var int:i;
+  var int:i,l;
   if(fpoolptr>=200){error("too many float literals");return 0;}
+  l=strlen1(s);
+  if(fpoolbp+l+1>=4000){error("float literal pool full");return 0;}
   i=fpoolptr++;
   fpooloff[i]=fpoolbp;
   while(*s)fpoolbuf[fpoolbp++]=*s++;
   fpoolbuf[fpoolbp++]=0;
   return i;
+}
+func putnumbuf(buf:*char,bp:*int,c:char,bad:*int)
+{
+  if(bad[0])return 0;
+  if(bp[0]>=47)
+  {
+    error("numeric literal too long");
+    bad[0]=1;
+    return 0;
+  }
+  buf[bp[0]]=c;
+  bp[0]=bp[0]+1;
+  return 1;
 }
 func dumpfloats()       /* emit .LF<i>: .double <text> for each float literal */
 {
@@ -4708,7 +4728,9 @@ func number(val:*int)
   var char:c;
   var [48]char:buf;
   var int:bp;
+  var [1]int:bad;
   k=minus=1;bp=0;
+  bad[0]=0;
   if(match("0x")){
   k=0;
   while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
@@ -4730,30 +4752,37 @@ func number(val:*int)
   if(match("-")){
     minus=-1;
     k=1;
-    buf[bp++]='-';
+    putnumbuf(buf,&bp,'-',bad);
   }
   }
   if(!numeric(ch()))return 0;
   while(numeric(ch())){
   c=inbyte();
-  buf[bp++]=c;
+  putnumbuf(buf,&bp,c,bad);
   k=k*10+(c-'0');
   }
   /* a '.' or exponent makes this a floating-point literal: keep the text and
      hand it to the assembler as a .double (M4). */
   if((ch()=='.')||(ch()=='e')||(ch()=='E')){
     if(ch()=='.'){
-      buf[bp++]=inbyte();
-      while(numeric(ch()))buf[bp++]=inbyte();
+      putnumbuf(buf,&bp,inbyte(),bad);
+      while(numeric(ch()))putnumbuf(buf,&bp,inbyte(),bad);
     }
     if((ch()=='e')||(ch()=='E')){
-      buf[bp++]=inbyte();
-      if((ch()=='+')||(ch()=='-'))buf[bp++]=inbyte();
-      while(numeric(ch()))buf[bp++]=inbyte();
+      putnumbuf(buf,&bp,inbyte(),bad);
+      if((ch()=='+')||(ch()=='-'))putnumbuf(buf,&bp,inbyte(),bad);
+      while(numeric(ch()))putnumbuf(buf,&bp,inbyte(),bad);
     }
+    if(bad[0])strcp(buf,"0.0");
+    else
     buf[bp]=0;
     val[0]=addfloat(buf);
     return 2;
+  }
+  if(bad[0])
+  {
+    val[0]=0;
+    return 1;
   }
   if(minus<0)k=(-k);
   val[0]=k;
@@ -4988,6 +5017,26 @@ func junk()
 func strcp(d:*char,s:*char)
 {
   while(*d++=*s++);
+}
+func strlen1(s:*char)
+{
+  var int:k;
+  k=0;
+  while(s[k])k=k+1;
+  return k;
+}
+func makemethodname(d:*char,cls:*char,meth:*char)
+{
+  if(strlen1(cls)+strlen1(meth)+1>=NAMESIZE)
+  {
+    error("method name too long");
+    strcp(d,"__bad_method");
+    return 0;
+  }
+  strcp(d,cls);
+  strcat(d,".");
+  strcat(d,meth);
+  return 1;
 }
 func findsym(sname:*char,syms:*ssym,ptr:int)
 {
