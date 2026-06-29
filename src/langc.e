@@ -4650,13 +4650,23 @@ func qstr(val:*int)
   k=0;
   if(!match(quote))return 0;
   val[0]=stptr;
+  if(stptr>STMAX)
+  {
+    error("string space exhausted");
+    while(ch()!='"')if(!gch())break;
+    if(ch()=='"')gch();
+    return 1;
+  }
   while(ch()!='"')
   {
     if(!ch())break;
     if(stptr>=STMAX)
     {
       error("string space exhausted");
-      while(!match(quote))if(!gch())break;
+      litq[STMAX]=0;
+      stptr=STMAX+1;
+      while(ch()!='"')if(!gch())break;
+      if(ch()=='"')gch();
       return 1;
     }
     c=gch();
@@ -4672,7 +4682,7 @@ func qstr(val:*int)
       litq[stptr++]=c;
     }
   }
-  gch();
+  if(ch()=='"')gch();
   litq[stptr++]=0;
   return 1;
 }
@@ -4914,11 +4924,14 @@ func gettypen()
   if(amatch("double",6))return T_DOUBLE;
   if(amatch("float",5))return T_FLOAT;
   if(alpha(ch())){
-  k=l=0;
+  var int:too_long;
+  k=l=too_long=0;
   while(an(c=line[lptr+k])){
     if(k<NAMEMAX)tname[l++]=c;
+    else too_long=1;
     k++;
   }
+  if(too_long)error("identifier too long");
   comment();
   outstr("l=");
   outdec(l);
@@ -5225,10 +5238,11 @@ func symname(sname:*char)
 {
   var int:k;
   var int:l;
+  var int:too_long;
   var char:c;
   blanks();
   if(!alpha(ch()))return 0;
-  k=l=0;
+  k=l=too_long=0;
   while(an(ch()))
   {
     if(k<NAMEMAX)
@@ -5238,10 +5252,12 @@ func symname(sname:*char)
     }
     else
     {
+      too_long=1;
       k++;
       gch();
     }
   }
+  if(too_long)error("identifier too long");
   sname[l]=0;
   return 1;
 }
@@ -5249,11 +5265,12 @@ func fsymname(sname:*char)
 {
   var int:k;
   var int:l;
+  var int:too_long;
   var char:c;
   var int:qptr;
   blanks();
   if(!alpha(ch()))return 0;
-  k=l=0;
+  k=l=too_long=0;
   qptr=lptr;
   /*fprintf(stderr,"%s\n",line);*/
   while(an(line[qptr]))
@@ -5266,10 +5283,12 @@ func fsymname(sname:*char)
     }
     else
     {
+      too_long=1;
       k++;
       qptr++;
     }
   }
+  if(too_long)error("identifier too long");
   sname[l]=0;
   return 1;
 }

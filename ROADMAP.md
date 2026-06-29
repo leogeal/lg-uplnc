@@ -377,11 +377,13 @@ What turns a teaching compiler into something you'd build a project with:
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
-- 🟡 Robustness: the original compiler can loop on malformed input — add limits /
-  graceful errors. One instance fixed: a non-constant array dimension used to
-  spin forever (`number()` not consuming the bad token); the `enum` work routed
-  array dimensions through `constexpr()`, which consumes its tokens and reports a
-  clean error. Other malformed-input loops remain
+- 🟡 Robustness: the original compiler can loop or corrupt memory on malformed
+  input — add limits / graceful errors. Fixed so far: non-constant array
+  dimensions route through `constexpr()` instead of spinning; overlong numeric
+  literals, method names, identifiers, string literal pools, and float literal
+  pools now diagnose instead of overflowing or silently truncating; `lpp1` now
+  returns nonzero on preprocessing errors and guards overlong source lines. Other
+  malformed-input loops and parser recovery gaps remain
 
 ## M7 — Proof it's real 🟡
 
