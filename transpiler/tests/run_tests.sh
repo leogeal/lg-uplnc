@@ -86,6 +86,30 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "bad syntax diagnostic"
     fi
 
+    printf "func main(){ return 'unterminated; }\n" > "$TMPD/uplnc_bad_char.e"
+    timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_char.s" 2>"$TMPD/uplnc_bad_char.err" \
+        < "$TMPD/uplnc_bad_char.e"
+    rc=$?
+    if [ "$rc" = 124 ]; then
+        bad "unterminated char literal does not hang"
+    elif [ "$rc" = 0 ]; then
+        bad "unterminated char literal exits nonzero"
+    elif grep -q 'unterminated char const' "$TMPD/uplnc_bad_char.s"; then
+        ok "unterminated char literal diagnosed"
+    else
+        bad "unterminated char literal diagnostic"
+    fi
+
+    printf 'func main(){ if(1){\n' > "$TMPD/uplnc_missing_brace.e"
+    if "$LANGC" -march=x86_64 > "$TMPD/uplnc_missing_brace.s" 2>"$TMPD/uplnc_missing_brace.err" \
+            < "$TMPD/uplnc_missing_brace.e"; then
+        bad "missing nested brace exits nonzero"
+    elif grep -q "missing '}'" "$TMPD/uplnc_missing_brace.s"; then
+        ok "missing nested brace diagnosed"
+    else
+        bad "missing nested brace diagnostic"
+    fi
+
     longnum=$(printf '%0200d' 0 | tr 0 1)
     printf 'func main(){ return %s; }\n' "$longnum" > "$TMPD/uplnc_long_numeric.e"
     if "$LPP" "$TMPD/uplnc_long_numeric.e" 2>/dev/null \
@@ -136,6 +160,15 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         ok "string literal pool overflow diagnosed"
     else
         bad "string literal pool overflow diagnostic"
+    fi
+
+    printf 'func main(){return 0;} /* unterminated\n' > "$TMPD/uplnc_bad_comment.e"
+    if "$LPP" "$TMPD/uplnc_bad_comment.e" > "$TMPD/uplnc_bad_comment.pp" 2>"$TMPD/uplnc_bad_comment.err"; then
+        bad "unterminated block comment exits nonzero"
+    elif grep -q 'unterminated comment' "$TMPD/uplnc_bad_comment.err"; then
+        ok "unterminated block comment diagnosed"
+    else
+        bad "unterminated block comment diagnostic"
     fi
 else
     bad "langc not built"
