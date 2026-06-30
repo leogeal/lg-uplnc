@@ -22,9 +22,15 @@ UNITS="langc codegen autodyn grph lpp1"
 emit() {                              # $1 = output dir
     ./build.sh >/dev/null 2>&1 || { echo "build failed" >&2; exit 1; }
     mkdir -p "$1"
+    local outdir
+    outdir="$(cd "$1" && pwd)"
     for u in $UNITS; do
-        ( cd "$SRCDIR" && "$TDIR/build/lpp1" "$u.e" 2>/dev/null \
-              | "$TDIR/build/langc" ) > "$1/$u.s" 2>/dev/null
+        if ! ( cd "$SRCDIR" && "$TDIR/build/lpp1" "$u.e" > "$outdir/$u.pp" 2>"$outdir/$u.lpp.err" ); then
+            echo "lpp1 failed on $u.e" >&2
+            tail -5 "$outdir/$u.lpp.err" >&2
+            exit 1
+        fi
+        "$TDIR/build/langc" < "$outdir/$u.pp" > "$outdir/$u.s" 2>/dev/null
     done
 }
 

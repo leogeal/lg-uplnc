@@ -382,6 +382,7 @@ func parseopt(argc:int,argv:**char)
           {
           mapname=argv[i]+k+1;
           while(argv[i][k])++k;
+          k=k-1;
           }
         else if(i>=argc-1)
           {
@@ -399,6 +400,7 @@ func parseopt(argc:int,argv:**char)
           {
           graphname=argv[i]+k+1;
           while(argv[i][k])++k;
+          k=k-1;
           }
         else if(i>=argc-1)
           {
@@ -406,7 +408,7 @@ func parseopt(argc:int,argv:**char)
           }
         else
           {
-          mapname=argv[++i];
+          graphname=argv[++i];
           }
         fprintf(stderr," graphname=%s\n",graphname);
         }
@@ -1470,7 +1472,12 @@ func compound()
   while(!match(trcomp/*"}"*/))
   {
     statemen();
-    if(iseof)break;
+    if(iseof)
+    {
+      error("missing '}'");
+      --ncmp;
+      return;
+    }
   }
   --ncmp;
 }
@@ -4624,14 +4631,25 @@ func pstr(val:*int)
   var char:c;
   k=0;
   if(!match("'"))return 0;
-  while((c=gch())!=39)
+  while(1)
   {
+    c=gch();
+    if(c==39)break;
+    if(!c)
+    {
+      error("unterminated char const");
+      break;
+    }
     if(c!=92)
     k=((k&255)<<8)+(c&255);
     else
     {
       c=gch();
-      if(!c)break;
+      if(!c)
+      {
+        error("unterminated char const");
+        break;
+      }
       if(c=='n')c=10;
       else if(c=='t')c=9;
       else if(c=='b')c=8;

@@ -850,9 +850,8 @@ func xdivc_x86_64(k:int)
   else
   l++;
   ol("cqto");
-  ot("divq $");
-  outdec(k);
-  nl();
+  ot("movq $");outdec(k);outstr(", %rcx");nl();
+  ol("idivq %rcx");
 }
 func xmulreg_x86_64(k:int,s:*char)
 {
@@ -2051,9 +2050,8 @@ func xdivconst(k:int)
   else
   l++;
   ol("cltd");
-  ot("divl $");
-  outdec(k);
-  nl();
+  ot("movl $");outdec(k);outstr(", %ecx");nl();
+  ol("idivl %ecx");
 }
 func xmulreg(k:int,s:*char)
 {

@@ -311,7 +311,10 @@ func prep()
         if(!ch())
         {
           if(iseof)
-          break;
+          {
+            error("unterminated comment");
+            break;
+          }
           insline();
           lptr=0;
         }
