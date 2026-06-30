@@ -125,8 +125,13 @@ compile_stage() {                  # $1 = compiler  $2 = outdir  [$3 = runner]
     local cc="$1" outdir="$2" runner="${3:-}" u rc=0
     mkdir -p "$outdir"
     for u in $UNITS; do
-        ( cd "$SRCDIR" && "$LPP0" "$u.e" 2>/dev/null ) \
-            | $runner "$cc" $MARCH > "$outdir/$u.s" 2>"$outdir/$u.err"
+        if ! ( cd "$SRCDIR" && "$LPP0" "$u.e" > "$outdir/$u.pp" 2>"$outdir/$u.lpp.err" ); then
+            echo "  !! lpp1 failed on $u.e"
+            tail -5 "$outdir/$u.lpp.err" | sed 's/^/     /'
+            rc=1
+            continue
+        fi
+        $runner "$cc" $MARCH < "$outdir/$u.pp" > "$outdir/$u.s" 2>"$outdir/$u.err"
         if ! grep -q '0 error(s)' "$outdir/$u.s"; then
             echo "  !! $u.e failed to compile cleanly ($(basename "$cc"))"
             grep -E 'error\(s\)' "$outdir/$u.s" | tail -1 | sed 's/^/     /'

@@ -550,7 +550,7 @@ func cd_write_x86_64(*scode:this)
   }
   else if(this->code==CD_DIVCONST)
   {
-    xdivconst_x86_64(this->arg);
+    xdivc_x86_64(this->arg);
   }
   else if(this->code==CD_PUSH)
   {
@@ -831,7 +831,7 @@ func cd_write_x86_64(*scode:this)
     error("unknown opcode (x86_64)");
   }
 }
-func xdivconst_x86_64(k:int)
+func xdivc_x86_64(k:int)
 {
   var int:l;
   if(k==1)return ;

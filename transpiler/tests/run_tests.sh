@@ -146,8 +146,12 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     # run from the src dir so lpp1's #include "tlangc.he" resolves; timeout
     # guards against a hang on (e.g. accidentally headerless) input.
     for u in langc codegen autodyn grph lpp1; do
-        asm=$(cd "$SRCDIR" && timeout 60 sh -c \
-              "'$TDIR/build/lpp1' $u.e 2>/dev/null | '$TDIR/build/langc' 2>/dev/null")
+        pp="$TMPD/uplnc_self_$u.pp"
+        if ! (cd "$SRCDIR" && "$TDIR/build/lpp1" "$u.e" > "$pp" 2>"$TMPD/uplnc_self_$u.lpp.err"); then
+            bad "self-compile $u.e (lpp1)"
+            continue
+        fi
+        asm=$(timeout 60 "$TDIR/build/langc" < "$pp" 2>/dev/null)
         echo "$asm" | grep -q '0 error(s)' && ok "self-compile $u.e (0 errors)" || bad "self-compile $u.e"
     done
 else
