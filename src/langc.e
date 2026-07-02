@@ -391,6 +391,7 @@ func parseopt(argc:int,argv:**char)
         else
           {
           mapname=argv[++i];
+          break;   /* value taken as a separate arg; stop scanning it as flags */
           }
         fprintf(stderr," mapname=%s\n",mapname);
         }
@@ -409,6 +410,7 @@ func parseopt(argc:int,argv:**char)
         else
           {
           graphname=argv[++i];
+          break;   /* value taken as a separate arg; stop scanning it as flags */
           }
         fprintf(stderr," graphname=%s\n",graphname);
         }
@@ -1620,6 +1622,14 @@ func dolocvar()
     ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
     store(&ilv);
     delenode(inode);
+    blanks();
+    if(ch()==',')
+    {
+      /* var TYPE:a=expr,b;  -- an initializer only attaches to the last
+         declarator here; diagnose it once and skip to ';' (no error cascade). */
+      error("an initializer must be on the last declarator; write 'var TYPE:a,b=expr' or split the declaration");
+      while(ch()&&(ch()!=';'))gch();
+    }
     ns();
   }
   delsymlist(lst);
@@ -1866,9 +1876,10 @@ func doswitch()
     if((!ch())&&iseof){error("unterminated switch");break;}
     if(amatch("case",4))
     {
-      var int:cv;
+      var int:cv;var int:j;
       cv=constexpr("case value must be a constant integer");
       if(!match(":"))error("':' expected after case value");
+      for(j=0;j<ncase;j=j+1)if(cval[j]==cv)error("duplicate case value");
       if(ncase>=SWMAX)error("too many case labels");
       else{cval[ncase]=cv;clb[ncase]=getlabel();clab(clb[ncase]);ncase=ncase+1;}
     }
@@ -2767,6 +2778,7 @@ func ct_ASSIGN(node:*enode,lval:*elval)
      *through* a const pointer, `*p = x`, is L_POI and stays allowed). */
   if((lval1.sort==L_ID)&&lval1.idx&&lval1.idx->cnst)
   error("assignment to a const variable");
+  if(constarr(node->l))error("assignment to a const array element");
   if(typtab[lval1.typ].sort==V_STR)
   return ct_structasgn(node,&lval1,lval);   /* M6 2a: whole-struct copy */
   if(lval1.sort==L_POI)
@@ -3183,6 +3195,22 @@ func ct_REM(node:*enode,lval:*elval)
   else{zmod();lval->typ=T_INT;}
   return 0;
 }
+/* a[i] on a const *array* (not a const pointer) writes a const element -- reject
+   it. a[i] lowers to *(a+i) = OP_STAR(OP_PLUS(a,i)); reach the base leaf and check
+   it is a const array. A write *through* a const pointer (V_PTR) stays allowed,
+   matching the *p=x rule. */
+func constarr(n:*enode)
+{
+  var *enode:base;
+  if(n&&(n->op==OP_STAR)&&n->r&&(n->r->op==OP_PLUS))
+  {
+    base=n->r->l;
+    if(base&&(base->op==OP_LEAF)&&(base->leaf.vid==L_ID)&&base->leaf.idx
+       &&base->leaf.idx->cnst&&(typtab[base->leaf.idx->type].sort==V_ARR))
+    return 1;
+  }
+  return 0;
+}
 /* M6 const: reject ++/-- that targets a const variable by name (a const pointer
    may still be dereferenced-and-modified, *p++ etc., since that is L_POI). */
 func chkconst(lval:*elval)
@@ -3196,6 +3224,7 @@ func ct_1PP(node:*enode,lval:*elval)
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
   chkconst(lval);
+  if(constarr(node->r))error("modifying a const array element");
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3220,6 +3249,7 @@ func ct_1MM(node:*enode,lval:*elval)
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
   chkconst(lval);
+  if(constarr(node->r))error("modifying a const array element");
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3244,6 +3274,7 @@ func ct_2PP(node:*enode,lval:*elval)
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
   chkconst(lval);
+  if(constarr(node->r))error("modifying a const array element");
   if(lval->sort==L_POI)
   {
     zpush();
@@ -3269,6 +3300,7 @@ func ct_2MM(node:*enode,lval:*elval)
   k=treetocode(node->r,lval);
   if(!k){needlval();return 0;}
   chkconst(lval);
+  if(constarr(node->r))error("modifying a const array element");
   if(lval->sort==L_POI)
   {
     zpush();

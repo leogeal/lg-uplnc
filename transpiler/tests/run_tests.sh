@@ -184,6 +184,24 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     else
         bad "many-arg FP call: expected clean arg-count error"
     fi
+
+    # a write to a const array element must be rejected (const-safety hole fix)
+    printf 'func main(){var const [4]int:a;a[0]=9;return a[0];}\n' > "$TMPD/uplnc_constarr.e"
+    "$LPP" "$TMPD/uplnc_constarr.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_constarr.s" 2>/dev/null
+    if grep -q 'const array element' "$TMPD/uplnc_constarr.s"; then
+        ok "const array element write rejected"
+    else
+        bad "const array element write rejected"
+    fi
+
+    # duplicate case labels must be diagnosed
+    printf 'func main(){var int:x;x=1;switch(x){case 1:return 7;case 1:return 8;}return 0;}\n' > "$TMPD/uplnc_dupcase.e"
+    "$LPP" "$TMPD/uplnc_dupcase.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_dupcase.s" 2>/dev/null
+    if grep -q 'duplicate case' "$TMPD/uplnc_dupcase.s"; then
+        ok "duplicate case value diagnosed"
+    else
+        bad "duplicate case value diagnosed"
+    fi
 else
     bad "langc not built"
 fi
