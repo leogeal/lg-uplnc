@@ -247,6 +247,37 @@ else
     done < tests/progs/expected.txt
 fi
 
+echo "[6b] x86_64 ABI: a UPLNC function preserves callee-saved regs for a C caller"
+if [ "$(uname -m)" = "x86_64" ] && command -v gcc >/dev/null && [ -x "$LANGC" ]; then
+    # upf's expression is deep enough that regspill uses the callee-saved spill
+    # registers (rbx/r12/r13). It returns 0, so a C caller that keeps a value in
+    # a callee-saved register across three calls to upf must get it back unchanged.
+    cat > "$TMPD/uplnc_csr.e" <<'EOFU'
+func upf()
+{
+  var int:a;var int:b;var int:c;var int:d;var int:e;var int:f;
+  a=1;b=2;c=3;d=4;e=5;f=6;
+  return (a+b)*(c+d)+(b+c)*(d+e)+(c+d)*(e+f)+(a+f)*(b+e)-((a+b)*(c+d)+(b+c)*(d+e)+(c+d)*(e+f)+(a+f)*(b+e));
+}
+EOFU
+    "$LPP" "$TMPD/uplnc_csr.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_csr.s" 2>/dev/null
+    cat > "$TMPD/uplnc_csr_h.c" <<'EOFC'
+extern long upf(void);
+long __attribute__((noinline)) outer(long x){
+  long acc=x; acc+=upf(); acc+=upf(); acc+=upf(); return acc;
+}
+int main(void){ return outer(1000)==1000 ? 0 : 1; }
+EOFC
+    if gcc -no-pie -O2 -w "$TMPD/uplnc_csr_h.c" "$TMPD/uplnc_csr.s" -o "$TMPD/uplnc_csr" 2>/dev/null; then
+        if "$TMPD/uplnc_csr"; then ok "callee-saved regs preserved across a UPLNC call"
+        else bad "callee-saved regs clobbered across a UPLNC call"; fi
+    else
+        bad "C-interop test failed to build"
+    fi
+else
+    echo "  skip - needs native x86_64 gcc"
+fi
+
 echo "[7] i386 x87 backend: programs compile (-march=i386), assemble + run (-m32)"
 # Find a working 32-bit toolchain. The default 'gcc' may lack 32-bit libgcc on
 # some hosts (e.g. gcc-8 here), so fall back to a versioned gcc that has it.

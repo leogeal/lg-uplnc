@@ -41,6 +41,8 @@ var cursret:*ssym;   /* M6 2b: the hidden sret pointer param of a struct-returni
 var g_sretp:*elval;  /* M6 2b: while a struct-returning call is being emitted for
                         `s = f()`, points at the destination lvalue s so ct_FUNC
                         passes &s as the sret pointer (0 otherwise) */
+var csrslot:int;     /* frame offset where the current function saved the callee-
+                        saved spill regs (x86); used to restore them at return */
 method snamenode.done()
 {
   if(next)
@@ -1315,9 +1317,19 @@ func dofunc()
       }
     }
   }
+  if(target.csrsave)
+  {
+    /* reserve frame slots for the callee-saved spill regs and save them, so a C
+       caller's values in rbx/r12/r13 (i386 ebx/esi/edi) survive a call into this
+       function; restored before every return. */
+    Zsp=modstk(Zsp-target.nsavereg*target.wordsize);
+    csrslot=Zsp;
+    savecsr(csrslot);
+  }
   statemen();
   /*ol("movl %ebp, %esp");
   ol("popl %ebp");*/
+  if(target.csrsave)restcsr(csrslot);
   zleave();
   zret();
   cg_print(&codeg);
@@ -1463,6 +1475,7 @@ func doreturn()
     {if(rt==T_DOUBLE)zf2i();}
     }
   }
+  if(target.csrsave)restcsr(csrslot);
   zleave();
   /*ol("movl %ebp, %esp");
   ol("popl %ebp");*/
@@ -2260,6 +2273,7 @@ func inittarget_elf()
   target.bigendian=0;   /* little-endian default; mips overrides */
   target.strictalign=0; /* x86/arm64/riscv tolerate unaligned; mips overrides */
   target.nsavereg=3;    /* RG_B/RG_C/RG_E free for spills (i386 ebx/esi/edi) */
+  target.csrsave=0;     /* default: save regs are caller-saved (arm64/riscv/mips) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
   target.nlocalreg=0;   /* register-rich targets override; i386/mips have none */
 }
@@ -2292,6 +2306,7 @@ func inittarget_i386()
   target.stackslot=WORDSIZE;
   target.nargreg=6;    /* i386 is cdecl (stack args); unused */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
+  target.csrsave=1;    /* %ebx/%esi/%edi are callee-saved -> save/restore them */
 }
 func inittgt_x86_64()
 {
@@ -2302,6 +2317,7 @@ func inittgt_x86_64()
   target.nargreg=6;    /* SysV: %rdi..%r9 */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* %r10/%r11: free caller-saved (leaf local promotion) */
+  target.csrsave=1;    /* %rbx/%r12/%r13 are callee-saved -> save/restore them */
 }
 func inittgt_arm64()
 {
