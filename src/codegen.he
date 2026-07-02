@@ -111,6 +111,8 @@
 #define CD_FINC      103 /* FP accum += 1.0 */
 #define CD_FDEC      104 /* FP accum -= 1.0 */
 #define CD_FDUP      105 /* i386 x87 only: duplicate st0 so a popping store keeps it */
+#define CD_SAVECSR   106 /* x86: save callee-saved RG_B/RG_C/RG_E to frame slots at arg(%rbp) */
+#define CD_RESTCSR   107 /* x86: restore them from arg(%rbp) before a return */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
@@ -191,6 +193,10 @@ struct starget{
   int nlocalreg;        /* M5 promote-locals: # of free caller-saved registers
                            (RG_L0,RG_L1) for holding non-address-taken scalar
                            locals in leaf functions. 0 where none are free.      */
+  int csrsave;          /* 1 if RG_B/RG_C/RG_E are callee-saved (x86: rbx/r12/r13,
+                           ebx/esi/edi) and must be saved to frame slots at entry
+                           and restored before every return (SysV ABI). 0 where
+                           they are caller-saved (arm64/riscv/mips).              */
   /* assembler directives (ELF/GAS) */
   *char dir_text;       /* code section,   e.g. ".text"         */
   *char dir_align;      /* function align, e.g. ".align 16"     */

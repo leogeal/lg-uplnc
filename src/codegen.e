@@ -489,6 +489,18 @@ func cd_write_x86_64(*scode:this)
     ol("movq %rbp, %rsp");
     ol("popq %rbp");
   }
+  else if(this->code==CD_SAVECSR)
+  {
+    ot("movq %rbx, ");outdec(this->arg);outstr("(%rbp)");nl();
+    ot("movq %r12, ");outdec(this->arg+8);outstr("(%rbp)");nl();
+    ot("movq %r13, ");outdec(this->arg+16);outstr("(%rbp)");nl();
+  }
+  else if(this->code==CD_RESTCSR)
+  {
+    ot("movq ");outdec(this->arg);outstr("(%rbp), %rbx");nl();
+    ot("movq ");outdec(this->arg+8);outstr("(%rbp), %r12");nl();
+    ot("movq ");outdec(this->arg+16);outstr("(%rbp), %r13");nl();
+  }
   else if(this->code==CD_INCREG)
   {
     if(this->arg>0)
@@ -828,9 +840,9 @@ func cd_write_x86_64(*scode:this)
     ol("movsd %xmm1, %xmm0");
   }
   else if(this->code==CD_FINC)
-  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("addsd %xmm1, %xmm0");}
+  {ol("pushq %rax");ol("movq $1, %rax");ol("cvtsi2sd %rax, %xmm1");ol("popq %rax");ol("addsd %xmm1, %xmm0");}
   else if(this->code==CD_FDEC)
-  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("subsd %xmm1, %xmm0");}
+  {ol("pushq %rax");ol("movq $1, %rax");ol("cvtsi2sd %rax, %xmm1");ol("popq %rax");ol("subsd %xmm1, %xmm0");}
   else if(this->code==CD_MARGINT)
   {
     ot("movq ");outdec(this->arg);outstr("(%rsp), ");
@@ -1800,6 +1812,18 @@ func cd_write_i386(*scode:this)
     ol("movl %ebp, %esp");
     ol("popl %ebp");
   }
+  else if(this->code==CD_SAVECSR)
+  {
+    ot("movl %ebx, ");outdec(this->arg);outstr("(%ebp)");nl();
+    ot("movl %esi, ");outdec(this->arg+4);outstr("(%ebp)");nl();
+    ot("movl %edi, ");outdec(this->arg+8);outstr("(%ebp)");nl();
+  }
+  else if(this->code==CD_RESTCSR)
+  {
+    ot("movl ");outdec(this->arg);outstr("(%ebp), %ebx");nl();
+    ot("movl ");outdec(this->arg+4);outstr("(%ebp), %esi");nl();
+    ot("movl ");outdec(this->arg+8);outstr("(%ebp), %edi");nl();
+  }
   else if(this->code==CD_INCREG)
   {
     if(this->arg>0)
@@ -2661,6 +2685,20 @@ func fdup()             /* i386 x87: duplicate st0 (so the popping store keeps i
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FDUP;
+}
+func savecsr(off:int)   /* x86: save the callee-saved spill regs to frame slots */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_SAVECSR;
+  cd->arg=off;
+}
+func restcsr(off:int)   /* x86: restore them before a return */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_RESTCSR;
+  cd->arg=off;
 }
 func cmodstk(k:int)
 {
