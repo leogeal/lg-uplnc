@@ -840,9 +840,9 @@ func cd_write_x86_64(*scode:this)
     ol("movsd %xmm1, %xmm0");
   }
   else if(this->code==CD_FINC)
-  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("addsd %xmm1, %xmm0");}
+  {ol("pushq %rax");ol("movq $1, %rax");ol("cvtsi2sd %rax, %xmm1");ol("popq %rax");ol("addsd %xmm1, %xmm0");}
   else if(this->code==CD_FDEC)
-  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("subsd %xmm1, %xmm0");}
+  {ol("pushq %rax");ol("movq $1, %rax");ol("cvtsi2sd %rax, %xmm1");ol("popq %rax");ol("subsd %xmm1, %xmm0");}
   else if(this->code==CD_MARGINT)
   {
     ot("movq ");outdec(this->arg);outstr("(%rsp), ");
