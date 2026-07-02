@@ -66,3 +66,6 @@ struct_return 42
 unsigned 42
 unsigned_divmod 42
 const_init 42
+ptrarith 42
+ptrchar 42
+mixedtype 42
