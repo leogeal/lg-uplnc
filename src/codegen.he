@@ -108,6 +108,9 @@
 #define CD_FCMP      100 /* FP compare left(2nd)-vs-right(accum); arg=cc; int accum 0/1 */
 #define CD_FBOOL     101 /* FP truthiness: int accum = (FP accum != 0.0) ? 1 : 0 */
 #define CD_FNEG      102 /* FP negate: FP accum = -FP accum */
+#define CD_FINC      103 /* FP accum += 1.0 */
+#define CD_FDEC      104 /* FP accum -= 1.0 */
+#define CD_FDUP      105 /* i386 x87 only: duplicate st0 so a popping store keeps it */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2

@@ -2664,20 +2664,26 @@ func ct_COND(node:*enode,lval:*elval)
   /* c ? a : b  -- node->l = c, node->r = a, node->third = b */
   var elval:lc,la,lb;
   var int:elselab,exitlab;
+  var int:tr,tt,fpres;
+  tr=cttype(node->r);        /* then-branch type (pure oracle, emits no code) */
+  tt=cttype(node->third);    /* else-branch type */
+  fpres=isfp(tr)||isfp(tt);  /* the result is FP if either arm is FP */
   elselab=getlabel();
   exitlab=getlabel();
   if(treetocode(node->l,&lc))rvalue(&lc);   /* condition -> accumulator */
   if(isfp(lc.typ))fbool();                  /* FP condition -> integer truthiness */
   testjump(elselab);                        /* if zero, take the else branch */
   if(treetocode(node->r,&la))rvalue(&la);   /* then  -> accumulator */
+  if(fpres&&!isfp(la.typ))i2f();            /* promote an int then-branch to double */
   jump(exitlab);
   clab(elselab);
   if(treetocode(node->third,&lb))rvalue(&lb);/* else -> accumulator */
+  if(fpres&&!isfp(lb.typ))i2f();            /* promote an int else-branch to double */
   clab(exitlab);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  lval->typ=la.typ;   /* result type taken from the 'then' branch */
+  if(fpres)lval->typ=T_DOUBLE;else lval->typ=la.typ;   /* both arms share the result class */
   return 0;
 }
 func ct_COMMA(node:*enode,lval:*elval)
@@ -3200,7 +3206,8 @@ func ct_1PP(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  increg(sz);
+  if(isfp(lval->typ))finc();else increg(sz);
+  if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3223,7 +3230,8 @@ func ct_1MM(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  decreg(sz);
+  if(isfp(lval->typ))fdec();else decreg(sz);
+  if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3246,9 +3254,10 @@ func ct_2PP(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  increg(sz);
+  if(isfp(lval->typ))finc();else increg(sz);
+  if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
-  decreg(sz);
+  if(isfp(lval->typ))fdec();else decreg(sz);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3270,9 +3279,10 @@ func ct_2MM(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  decreg(sz);
+  if(isfp(lval->typ))fdec();else decreg(sz);
+  if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
-  increg(sz);
+  if(isfp(lval->typ))finc();else increg(sz);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;

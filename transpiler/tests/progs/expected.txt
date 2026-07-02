@@ -74,3 +74,5 @@ args9_stack 42
 fp_cmp 42
 fp_bool 42
 fp_neg 42
+fp_incdec 42
+fp_ternary 42
