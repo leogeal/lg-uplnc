@@ -1534,7 +1534,7 @@ func dolocvar()
     outstr("size:");
     outdec(k);
     nl();
-    k=roundup(k);
+    k=roundup(k);k=slotup(k);
     comment();
     outdec(k);
     nl();
@@ -1570,7 +1570,7 @@ func dolocvar()
     outstr("size:");
     outdec(k);
     nl();
-    k=roundup(k);
+    k=roundup(k);k=slotup(k);
     comment();
     outdec(k);
     nl();
@@ -1859,7 +1859,7 @@ func doswitch()
   rt=expressi();
   needbrac(trarg/*")"*/);
   if(rt==T_DOUBLE)zf2i();   /* switch on a double: truncate to int */
-  k=roundup(gettsize(T_INT));
+  k=roundup(gettsize(T_INT));k=slotup(k);
   voff=Zsp-k;
   zstlw(voff);
   Zsp=modstk(voff);
@@ -2271,6 +2271,17 @@ func roundup(n:int)
   a=4;
   if(target.strictalign)a=target.wordsize;
   if(n&(a-1))n=n+a-(n&(a-1));
+  return n;
+}
+/* round a stack-frame allocation up to the target's sp slot (16 on arm64, 8
+   elsewhere). CD_MODSTK on arm64 rounds each adjustment to 16 to keep sp
+   aligned, so an 8-byte local allocated with modstk(-8) costs 16 but a scope
+   exit releases the ceil16 of the *sum* -- two locals leak 16 bytes per entry.
+   Allocating locals in whole slots makes alloc and release round identically. */
+func slotup(n:int)
+{
+  if(target.stackslot&&(n%target.stackslot))
+  n=n+target.stackslot-(n%target.stackslot);
   return n;
 }
 func inittarget_i386()
