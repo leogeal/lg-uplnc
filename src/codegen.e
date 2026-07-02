@@ -827,6 +827,10 @@ func cd_write_x86_64(*scode:this)
     ol("subsd %xmm0, %xmm1");     /* xmm1 = 0 - xmm0 */
     ol("movsd %xmm1, %xmm0");
   }
+  else if(this->code==CD_FINC)
+  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("addsd %xmm1, %xmm0");}
+  else if(this->code==CD_FDEC)
+  {ol("movq $1, %r11");ol("cvtsi2sd %r11, %xmm1");ol("subsd %xmm1, %xmm0");}
   else if(this->code==CD_MARGINT)
   {
     ot("movq ");outdec(this->arg);outstr("(%rsp), ");
@@ -1191,6 +1195,8 @@ func cd_write_arm64(*scode:this)
   }
   else if(this->code==CD_FBOOL){ol("fcmp d0, #0.0");ol("cset x0, ne");}
   else if(this->code==CD_FNEG)ol("fneg d0, d0");
+  else if(this->code==CD_FINC){ol("fmov d1, #1.0");ol("fadd d0, d0, d1");}
+  else if(this->code==CD_FDEC){ol("fmov d1, #1.0");ol("fsub d0, d0, d1");}
   else if(this->code==CD_MARGINT)
   ptrmem_arm64("ldr",argreg_arm64(this->reg),"sp",this->arg);
   else if(this->code==CD_MARGFP)
@@ -1432,6 +1438,8 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_FBOOL)
   {ol("fmv.d.x fa1, zero");ol("feq.d a0, fa0, fa1");ol("xori a0, a0, 1");}
   else if(this->code==CD_FNEG)ol("fneg.d fa0, fa0");
+  else if(this->code==CD_FINC){ol("li t0, 1");ol("fcvt.d.w fa1, t0");ol("fadd.d fa0, fa0, fa1");}
+  else if(this->code==CD_FDEC){ol("li t0, 1");ol("fcvt.d.w fa1, t0");ol("fsub.d fa0, fa0, fa1");}
   else if(this->code==CD_FLDLOCS)            /* 4-byte float: load + widen */
   {framemem_riscv("flw","ft0",this->arg);ol("fcvt.d.s fa0, ft0");}
   else if(this->code==CD_FLDGLBS)
@@ -1680,6 +1688,8 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_FBOOL)
   {ol("dmtc1 $0, $f4");ol("c.eq.d $f0, $f4");ol("li $2, 1");ol("movt $2, $0, $fcc0");}
   else if(this->code==CD_FNEG)ol("neg.d $f0, $f0");
+  else if(this->code==CD_FINC){ol("li $2, 1");ol("dmtc1 $2, $f4");ol("cvt.d.l $f4, $f4");ol("add.d $f0, $f0, $f4");}
+  else if(this->code==CD_FDEC){ol("li $2, 1");ol("dmtc1 $2, $f4");ol("cvt.d.l $f4, $f4");ol("sub.d $f0, $f0, $f4");}
   else if(this->code==CD_FLDLOCS)            /* 4-byte float: load + widen */
   {framemem_mips("lwc1","$f4",this->arg);ol("cvt.d.s $f0, $f4");}
   else if(this->code==CD_FLDGLBS)
@@ -2064,6 +2074,9 @@ func cd_write_i386(*scode:this)
     ol("movzbl %al, %eax");
   }
   else if(this->code==CD_FNEG)ol("fchs");
+  else if(this->code==CD_FINC){ol("fld1");ol("faddp %st, %st(1)");}
+  else if(this->code==CD_FDEC){ol("fld1");ol("fsubrp %st, %st(1)");}
+  else if(this->code==CD_FDUP)ol("fld %st(0)");
   else if(this->code==CD_F2I)
   {
     /* truncate st0 -> int %eax (round-toward-zero), popping st0. Save the x87
@@ -2630,6 +2643,24 @@ func fneg()             /* FP negate in place */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_FNEG;
+}
+func finc()             /* FP accumulator += 1.0 */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FINC;
+}
+func fdec()             /* FP accumulator -= 1.0 */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FDEC;
+}
+func fdup()             /* i386 x87: duplicate st0 (so the popping store keeps it) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_FDUP;
 }
 func cmodstk(k:int)
 {
