@@ -132,7 +132,7 @@ compile_stage() {                  # $1 = compiler  $2 = outdir  [$3 = runner]
             continue
         fi
         $runner "$cc" $MARCH < "$outdir/$u.pp" > "$outdir/$u.s" 2>"$outdir/$u.err"
-        if ! grep -q '0 error(s)' "$outdir/$u.s"; then
+        if ! grep -qE '(^|[^0-9])0 error\(s\)' "$outdir/$u.s"; then
             echo "  !! $u.e failed to compile cleanly ($(basename "$cc"))"
             grep -E 'error\(s\)' "$outdir/$u.s" | tail -1 | sed 's/^/     /'
             rc=1

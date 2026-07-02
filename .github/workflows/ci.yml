@@ -11,8 +11,8 @@ jobs:
     name: Build + test (host x86_64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Install 32-bit toolchain (for the i386 x87 run-correctness section)
@@ -34,8 +34,8 @@ jobs:
     # arm64 section assembles + runs the -march=arm64 output with the native gcc.
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Build stage-0 tools on arm64
@@ -54,8 +54,8 @@ jobs:
     # The fixpoint is verified in CI (stage-2 == stage-3 assembly), so this is a
     # gate: if a change breaks self-hosting, fixpoint.sh exits non-zero and fails.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Install 32-bit toolchain
@@ -74,8 +74,8 @@ jobs:
     # The x86_64 backend self-hosts natively -- no 32-bit toolchain. langc emits
     # System V x86_64, links with gcc -no-pie, and stage-2 == stage-3. A gate.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Build and run the x86_64 fixpoint check
@@ -91,8 +91,8 @@ jobs:
     # the riscv64 binaries via qemu-user-static (binfmt). Gates the riscv64
     # self-host fixpoint and the run-correctness section of run_tests.sh.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Install RISC-V cross-toolchain + qemu-user
@@ -114,8 +114,8 @@ jobs:
     # big-endian self-host target, so it also guards endianness assumptions.
     # Gates the mips64 fixpoint and the run-correctness section of run_tests.sh.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Install MIPS64 cross-toolchain + qemu-user
@@ -138,8 +138,8 @@ jobs:
     # is the x86_64-host compiler's i386 output, stage-2 the i386-host compiler's;
     # identical => the emitted i386 does not depend on the host word size.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.x'
       - name: Install 32-bit toolchain
