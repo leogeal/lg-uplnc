@@ -1208,7 +1208,7 @@ func dofunc()
       else
       /* stack params sit above the 16-byte frame record at a per-slot stride
          (==wordsize, but 16 on arm64 where each pushed arg is a 16-byte slot) */
-      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-6)*target.stackslot+boff,argtype);
+      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-target.nargreg)*target.stackslot+boff,argtype);
       argstk=argstk+target.wordsize;
     }
     else
@@ -1751,13 +1751,16 @@ func dodo()
   var *ssymlist:thesym;
   var int:thesp;
   var int:theloop;
+  var int:thecont;
   var int:thelab;
   /*thesym=locptr;*/
   thesym=locsymtab.front;
   thesp=Zsp;
   theloop=getlabel();
+  thecont=getlabel();
   thelab=getlabel();
-  addwhile(thesym,thesp,theloop,thelab);
+  /* continue in a do-while re-tests the condition (thecont), not the body top */
+  addwhile(thesym,thesp,thecont,thelab);
   /*printlab(theloop);
   col();
   nl();*/
@@ -1768,6 +1771,7 @@ func dodo()
   error("'while' expected");
   }
   needbrac(tlarg/*"("*/);
+  clab(thecont);
   expressi();
   /*ol("testl %eax, %eax");
   ot("jne");
@@ -3452,6 +3456,9 @@ func ct_FUNC(node:*enode,lval:*elval)
         cint=cnt-cfp;
         if(cint>6)error(">6 integer args alongside floats");
         if(cfp>8)error(">8 floating-point args");
+        /* both guards firing means cnt could exceed atypes[32]; bail before the
+           write loop overruns it (error() does not stop execution on its own) */
+        if((cint>6)||(cfp>8)){lval->sort=L_ONREG;lval->idx=0;lval->offset=0;lval->typ=T_INT;return 0;}
         pad=(((Zsp-cnt*target.stackslot)%16)+16)%16;
         if(pad)Zsp=modstk(Zsp-pad);
         j=cnt-1;rr=r;

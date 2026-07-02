@@ -69,3 +69,5 @@ const_init 42
 ptrarith 42
 ptrchar 42
 mixedtype 42
+dowhile_cont 1
+args9_stack 42

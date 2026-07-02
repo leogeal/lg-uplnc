@@ -170,6 +170,20 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     else
         bad "unterminated block comment diagnostic"
     fi
+
+    # A call with >32 arguments including a floating-point one used to overrun a
+    # fixed [32] type array in ct_FUNC and stack-smash (SIGABRT).  It must now
+    # error cleanly -- a normal nonzero exit, never a signal (>=128).
+    printf 'func f();\nfunc main(){return f(1.0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1);}\n' > "$TMPD/uplnc_manyarg.e"
+    "$LPP" "$TMPD/uplnc_manyarg.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_manyarg.s" 2>/dev/null
+    rc=$?
+    if [ "$rc" -ge 128 ]; then
+        bad "many-arg FP call crashes langc (signal $((rc-128)))"
+    elif grep -qE '[1-9][0-9]* error' "$TMPD/uplnc_manyarg.s"; then
+        ok "many-arg FP call errors cleanly (no arg-array overflow)"
+    else
+        bad "many-arg FP call: expected clean arg-count error"
+    fi
 else
     bad "langc not built"
 fi
