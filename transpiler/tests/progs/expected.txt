@@ -71,3 +71,6 @@ ptrchar 42
 mixedtype 42
 dowhile_cont 1
 args9_stack 42
+fp_cmp 42
+fp_bool 42
+fp_neg 42

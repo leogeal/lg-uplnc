@@ -1664,9 +1664,11 @@ func doif()
 }
 func test(label:int)
 {
+  var int:t;
   needbrac(tlarg/*"("*/);
-  expressi();
+  t=expressi();
   needbrac(trarg/*")"*/);
+  if(isfp(t))fbool();   /* FP condition -> integer truthiness before the branch */
   testjump(label);
 }
 func dobreak()
@@ -1706,7 +1708,7 @@ func dofor()
   col();
   nl();*/
   clab(theloop);
-  expressi();/* i<N */
+  if(isfp(expressi()))fbool();/* i<N */
   testjump(thelab);
   ns();
   /*fprintf(stderr,"dofor:ccg=%d\n",ccg);*/
@@ -2665,6 +2667,7 @@ func ct_COND(node:*enode,lval:*elval)
   elselab=getlabel();
   exitlab=getlabel();
   if(treetocode(node->l,&lc))rvalue(&lc);   /* condition -> accumulator */
+  if(isfp(lc.typ))fbool();                  /* FP condition -> integer truthiness */
   testjump(elselab);                        /* if zero, take the else branch */
   if(treetocode(node->r,&la))rvalue(&la);   /* then  -> accumulator */
   jump(exitlab);
@@ -2785,15 +2788,18 @@ func ct_LOR(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   onelab=getlabel();
   exitlab=getlabel();
+  if(isfp(lval1.typ))fbool();
   testnejump(onelab);
   cnode=node->r;
   while(cnode->op==OP_LOR)
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
+    if(isfp(lval1.typ))fbool();
     testnejump(onelab);
     cnode=cnode->r;
   }
   if(treetocode(cnode,&lval2))rvalue(&lval2);
+  if(isfp(lval2.typ))fbool();
   testnejump(onelab);
   /*ol("xorl %eax, %eax");*/
   zldn(0);
@@ -2818,15 +2824,18 @@ func ct_LAND(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   zerolab=getlabel();
   exitlab=getlabel();
+  if(isfp(lval1.typ))fbool();
   testjump(zerolab);
   cnode=node->r;
   while(cnode->op==OP_LAND)
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
+    if(isfp(lval1.typ))fbool();
     testjump(zerolab);
     cnode=cnode->r;
   }
   if(treetocode(cnode,&lval2))rvalue(&lval2);
+  if(isfp(lval2.typ))fbool();
   testjump(zerolab);
   /*ol("movl $1, %eax");*/
   zldn(1);
@@ -2889,100 +2898,102 @@ func ct_EQ(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  zeq();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_EQ))return 0;
+  zpop();
+  zeq();
   return 0;
 }
 func ct_NEQ(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  zne();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_NE))return 0;
+  zpop();
+  zne();
   return 0;
 }
 func ct_GT(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  lval->sort=L_ONREG;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_GT))return 0;
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ugt();
   else
   zgt();
-
-  lval->sort=L_ONREG;
-  lval->idx=0;
-  lval->offset=0;
-  lval->typ=T_INT;
   return 0;
 }
 func ct_LT(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  lval->sort=L_ONREG;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_LT))return 0;
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ult();
   else
   zlt();
-
-  lval->sort=L_ONREG;
-  lval->idx=0;
-  lval->offset=0;
-  lval->typ=T_INT;
   return 0;
 }
 func ct_GE(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  lval->sort=L_ONREG;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_GE))return 0;
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   uge();
   else
   zge();
-
-  lval->sort=L_ONREG;
-  lval->idx=0;
-  lval->offset=0;
-  lval->typ=T_INT;
   return 0;
 }
 func ct_LE(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  if(isfp(lval1.typ))fpush();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
+  lval->sort=L_ONREG;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=T_INT;
+  if(fcompare(&lval1,&lval2,FCMP_LE))return 0;
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ule();
   else
   zle();
-
-  lval->sort=L_ONREG;
-  lval->idx=0;
-  lval->offset=0;
-  lval->typ=T_INT;
   return 0;
 }
 func ct_SHL(node:*enode,lval:*elval)
@@ -3102,6 +3113,22 @@ func fparith(l1:*elval,l2:*elval,op:int)
     if(l1->typ==T_DOUBLE)fpop();       /* double -> %xmm1 */
     else{zpop();i2f1();}               /* int -> %rdx -> (double)%xmm1 */
     fbinop(op);
+    return 1;
+  }
+  return 0;
+}
+/* FP comparison analogue of fparith: if either operand is FP, finish the compare
+   as an FP compare (integer 0/1 in the accumulator) and return 1; else return 0
+   so the caller does the integer path. The left operand was pushed by the caller
+   (fpush if it is FP, else zpush) exactly as fparith's callers do. */
+func fcompare(l1:*elval,l2:*elval,cc:int)
+{
+  if(isfp(l1->typ)||isfp(l2->typ))
+  {
+    if(!isfp(l2->typ))i2f();        /* right operand (in accum) int -> double */
+    if(isfp(l1->typ))fpop();        /* left double from stack -> 2nd FP reg */
+    else{zpop();i2f1();}            /* left int -> 2nd int reg -> 2nd FP reg */
+    fcmp(cc);
     return 1;
   }
   return 0;
@@ -3256,7 +3283,7 @@ func ct_UMINUS(node:*enode,lval:*elval)
   var int:k;
   k=treetocode(node->r,lval);
   if(k)rvalue(lval);
-  neg();
+  if(isfp(lval->typ))fneg();else neg();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3388,6 +3415,7 @@ func ct_LNOT(node:*enode,lval:*elval)
   var int:k;
   k=treetocode(node->r,lval);
   if(k)rvalue(lval);
+  if(isfp(lval->typ))fbool();   /* !x on a double: (x!=0) then logical-not -> (x==0) */
   lnot();
   lval->sort=L_ONREG;
   lval->idx=0;

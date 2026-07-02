@@ -29,7 +29,7 @@ var errcnt:int;
 var strpool:[3000]char;
 var strptr:int;
 struct cmac{*char n; *char sub;};
-var mactab:[200]cmac;
+var mactab:[300]cmac;
 var macptr:int;
 func strcp(d:*char,s:*char)
 {
@@ -77,7 +77,7 @@ func addmac()
   var int:k,l;
   if(!symname(sname))
   {error("wrong macro name");return;}
-  if(macptr>=199)
+  if(macptr>=299)
   {error("mactab full");return;}
   sb();
   k=getnewstr();

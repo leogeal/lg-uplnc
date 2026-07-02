@@ -105,6 +105,15 @@
 #define CD_LOCAL     97 /* M5 promote-locals: marks a scalar local at offset arg */
 #define CD_UDIV2REGS 98 /* M6 unsigned: left/right (unsigned division) */
 #define CD_UMOD2REGS 99 /* M6 unsigned: left%right (unsigned remainder) */
+#define CD_FCMP      100 /* FP compare left(2nd)-vs-right(accum); arg=cc; int accum 0/1 */
+#define CD_FBOOL     101 /* FP truthiness: int accum = (FP accum != 0.0) ? 1 : 0 */
+#define CD_FNEG      102 /* FP negate: FP accum = -FP accum */
+#define FCMP_EQ 0
+#define FCMP_NE 1
+#define FCMP_GT 2
+#define FCMP_LT 3
+#define FCMP_GE 4
+#define FCMP_LE 5
 
 
 struct scode
