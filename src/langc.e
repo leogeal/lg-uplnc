@@ -3279,35 +3279,52 @@ func ct_MUL(node:*enode,lval:*elval)
 }
 func ct_DIV(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(lval1.typ==T_DOUBLE)fpush();else zpush();
+  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
+  if(lval1.typ==T_DOUBLE)fpush();
+  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
+  else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
+  lval->typ=uresult(lval1.typ,lval2.typ);
+  if(wide)
+  {
+    if(!is64(lval2.typ))i2ll(issigned(lval2.typ));
+    if(isunsigned(lval1.typ)||isunsigned(lval2.typ))zdivmod64("__udivdi3");
+    else zdivmod64("__divdi3");
+    return 0;
+  }
   zpop();
-  no64i386(lval1.typ,lval2.typ);
   if(isunsigned(lval1.typ)||isunsigned(lval2.typ))udiv();
   else div();
-  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_REM(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
+  if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
+  else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  no64i386(lval1.typ,lval2.typ);
+  lval->typ=uresult(lval1.typ,lval2.typ);
+  if(wide)
+  {
+    if(!is64(lval2.typ))i2ll(issigned(lval2.typ));
+    if(isunsigned(lval1.typ)||isunsigned(lval2.typ))zdivmod64("__umoddi3");
+    else zdivmod64("__moddi3");
+    return 0;
+  }
+  zpop();
   if(isunsigned(lval1.typ)||isunsigned(lval2.typ))umod();
   else zmod();
-  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 /* a[i] on a const *array* (not a const pointer) writes a const element -- reject
