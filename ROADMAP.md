@@ -217,6 +217,25 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   `fparg_*`/`fpparam*`/`fpret*` progs now run on i386 too (127 tests pass). `float`
   params/returns and FP *method* args remain rejected cleanly. Both fixpoints
   byte-identical
+- ✅ FP in boolean/relational/unary contexts (audit follow-up): M4 wired FP
+  *values* (arithmetic, load/store, return, args) but every boolean/unary path
+  still operated on the integer accumulator — a silent wrong result on all five
+  backends. Now `< > <= >= == !=`, `if`/`while`/`for` and `?:` truthiness,
+  `! && ||`, unary `-`, `++`/`--`, and the mixed-type `?:` result class all
+  consult `isfp()`: new `CD_FCMP`/`FBOOL`/`FNEG`/`FINC`/`FDEC` (+ i386-only
+  `FDUP` so the popping x87 store keeps the value) and an `fcompare()` mirror of
+  `fparith()`. Non-FP paths are byte-identical, so all five fixpoints hold;
+  `fp_cmp`/`fp_bool`/`fp_neg`/`fp_incdec`/`fp_ternary` golden tests
+- ✅ NaN- and unsigned-complete (follow-up): FP is now IEEE- and sign-correct.
+  Unordered comparisons match C — `!=` is true on NaN, the ordered compares are
+  false, and a NaN is truthy — via `setp`/`setnp` masks (x86), a `vc` (ordered)
+  mask on arm64 `<`/`<=`, and ordered mips predicates (`feq/flt/fle` on RISC-V
+  were already NaN-safe). An unsigned value with the high bit set promotes to its
+  large positive double, not signed −1: new `CD_U2F`/`U2F1` routed by `fpconv()`
+  (`ucvtf` on arm64, `fcvt.d.lu` on RISC-V, the shift-and-double trick on x86_64,
+  `fildll` of a zero-extended word on i386, the same trick on mips). Nested `?:`
+  type propagation fixed in `cttype`. `fp_ternary_nested`/`fp_nan`/`fp_uint`
+  golden tests on all five backends; fixpoints byte-identical
 - 💭 64-bit integers (`long long`) — related width work, often wanted alongside
 
 ## M5 — Optimization 🟡
