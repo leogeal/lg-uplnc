@@ -81,3 +81,5 @@ fp_ternary 42
 fp_ternary_nested 42
 looplocal 42
 fp_promote 42
+llong 42
+ullong 42

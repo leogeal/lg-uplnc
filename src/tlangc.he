@@ -81,7 +81,9 @@ var extern glbsymtab,locsymtab:ssymtab;
 #define T_CHARP 5
 #define T_FLOAT 6 /* M4 slice 5: 4-byte float (stored single, computed double) */
 #define T_UINT 7 /* M6: unsigned int (word-size). issigned()=false, so compares and >> route to the unsigned variants; arithmetic propagates unsignedness */
-#define F_TYPE 8 /*first user-defined type*/
+#define T_LLONG 8 /* long long: always 8-byte signed (i386 rejected for now) */
+#define T_ULLONG 9 /* unsigned long long: 8-byte unsigned */
+#define F_TYPE 10 /*first user-defined type*/
 
 #define NUMTYP 50
 #define MAXTYP 49
