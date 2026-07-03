@@ -113,6 +113,8 @@
 #define CD_FDUP      105 /* i386 x87 only: duplicate st0 so a popping store keeps it */
 #define CD_SAVECSR   106 /* x86: save callee-saved RG_B/RG_C/RG_E to frame slots at arg(%rbp) */
 #define CD_RESTCSR   107 /* x86: restore them from arg(%rbp) before a return */
+#define CD_U2F       108 /* unsigned integer accumulator -> FP accumulator */
+#define CD_U2F1      109 /* unsigned integer 2nd register -> 2nd FP register */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2

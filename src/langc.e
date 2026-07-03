@@ -785,6 +785,14 @@ func inittypes()
 }
 /* M4: a value of floating-point class (held in %xmm as a double once loaded). */
 func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
+func fpconv(t:int)
+{
+  if(t==T_UINT)u2f();else i2f();
+}
+func fpconv1(t:int)
+{
+  if(t==T_UINT)u2f1();else i2f1();
+}
 func initst()
 {
 }
@@ -1470,7 +1478,7 @@ func doreturn()
        A double-returning function leaves the result in %xmm0; otherwise a
        double result is truncated to int (slice 1 behaviour, e.g. main). */
     if(curfunc&&(curfunc->type==T_DOUBLE))
-    {if(rt!=T_DOUBLE)i2f();}
+    {if(rt!=T_DOUBLE)fpconv(rt);}
     else
     {if(rt==T_DOUBLE)zf2i();}
     }
@@ -1630,7 +1638,7 @@ func dolocvar()
     foldtree(inode);
     if(treetocode(inode,&ilv))rvalue(&ilv);
     irt=ilv.typ;
-    if(isfp(typ)&&!isfp(irt))i2f();
+    if(isfp(typ)&&!isfp(irt))fpconv(irt);
     else if(!isfp(typ)&&isfp(irt))zf2i();
     ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
     store(&ilv);
@@ -2718,11 +2726,11 @@ func ct_COND(node:*enode,lval:*elval)
   if(isfp(lc.typ))fbool();                  /* FP condition -> integer truthiness */
   testjump(elselab);                        /* if zero, take the else branch */
   if(treetocode(node->r,&la))rvalue(&la);   /* then  -> accumulator */
-  if(fpres&&!isfp(la.typ))i2f();            /* promote an int then-branch to double */
+  if(fpres&&!isfp(la.typ))fpconv(la.typ);   /* promote an int then-branch to double */
   jump(exitlab);
   clab(elselab);
   if(treetocode(node->third,&lb))rvalue(&lb);/* else -> accumulator */
-  if(fpres&&!isfp(lb.typ))i2f();            /* promote an int else-branch to double */
+  if(fpres&&!isfp(lb.typ))fpconv(lb.typ);   /* promote an int else-branch to double */
   clab(exitlab);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -2822,7 +2830,7 @@ func ct_ASSIGN(node:*enode,lval:*elval)
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   /* convert the RHS (in the accumulator) to the target's class (M4). A float
      destination wants a double in %xmm0 here -- the store then narrows it. */
-  if(isfp(lval1.typ)&&!isfp(lval2.typ))i2f();    /* int -> double */
+  if(isfp(lval1.typ)&&!isfp(lval2.typ))fpconv(lval2.typ); /* int -> double */
   else if(!isfp(lval1.typ)&&isfp(lval2.typ))zf2i();/* double -> int */
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3159,10 +3167,10 @@ func fparith(l1:*elval,l2:*elval,op:int)
   if((l1->typ==T_DOUBLE)||(l2->typ==T_DOUBLE))
   {
     /* right operand is in the accumulator: promote it if it is an int */
-    if(l2->typ!=T_DOUBLE)i2f();        /* (double)%rax -> %xmm0 */
+    if(l2->typ!=T_DOUBLE)fpconv(l2->typ); /* (double)%rax -> %xmm0 */
     /* left operand is on the stack (fpush if double, zpush if int) */
     if(l1->typ==T_DOUBLE)fpop();       /* double -> %xmm1 */
-    else{zpop();i2f1();}               /* int -> %rdx -> (double)%xmm1 */
+    else{zpop();fpconv1(l1->typ);}     /* int -> %rdx -> (double)%xmm1 */
     fbinop(op);
     return 1;
   }
@@ -3176,9 +3184,9 @@ func fcompare(l1:*elval,l2:*elval,cc:int)
 {
   if(isfp(l1->typ)||isfp(l2->typ))
   {
-    if(!isfp(l2->typ))i2f();        /* right operand (in accum) int -> double */
+    if(!isfp(l2->typ))fpconv(l2->typ); /* right operand (in accum) int -> double */
     if(isfp(l1->typ))fpop();        /* left double from stack -> 2nd FP reg */
-    else{zpop();i2f1();}            /* left int -> 2nd int reg -> 2nd FP reg */
+    else{zpop();fpconv1(l1->typ);}  /* left int -> 2nd int reg -> 2nd FP reg */
     fcmp(cc);
     return 1;
   }
