@@ -79,6 +79,36 @@ func x86cmp(this:*scode,cmpins:*char,acc:*char,cc:*char,movzx:*char)
   ot("set");outstr(cc);outstr(" %al");nl();
   ot(movzx);outstr(" %al, ");outstr(acc);nl();
 }
+var ll64lab:int;
+/* i386 64-bit compare helpers: left is 8 bytes on the stack, right = %edx:%eax.
+   The sub/sbb sets flags for the whole 64-bit value; ZF only reflects the high
+   word, so only ZF-free conditions are used (setl/setge/setb/setae) -- '>' and
+   '<=' are done as the swapped subtraction. All pop the 8-byte left and leave
+   0/1 in %eax. %ecx is the only scratch. */
+func lcmp64lr(cc:*char)   /* flags = left(stack) - right(%edx:%eax) */
+{
+  ol("movl (%esp), %ecx");ol("subl %eax, %ecx");
+  ol("movl 4(%esp), %ecx");ol("sbbl %edx, %ecx");
+  ot("set");outstr(cc);outstr(" %al");nl();
+  ol("movzbl %al, %eax");ol("addl $8, %esp");
+}
+func lcmp64rl(cc:*char)   /* flags = right(%edx:%eax) - left(stack) */
+{
+  ol("cmpl (%esp), %eax");ol("movl %edx, %ecx");ol("sbbl 4(%esp), %ecx");
+  ot("set");outstr(cc);outstr(" %al");nl();
+  ol("movzbl %al, %eax");ol("addl $8, %esp");
+}
+func lcmp64eq(cc:*char)   /* cc = "e" (==) or "ne" (!=): both words compared */
+{
+  var int:l;
+  l=++ll64lab;
+  ol("cmpl %eax, (%esp)");
+  ot("jne .LC64");outdec(l);nl();
+  ol("cmpl %edx, 4(%esp)");
+  outstr(".LC64");outdec(l);col();nl();
+  ot("set");outstr(cc);outstr(" %al");nl();
+  ol("movzbl %al, %eax");ol("addl $8, %esp");
+}
 func x64u2f(src:*char,dst:*char)
 {
   var int:lpos,lend;
@@ -1856,6 +1886,53 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_UMOD2REGS)             /* unsigned left%right */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
    ol("xorl %edx, %edx");ol("divl %ecx");ol("movl %edx, %eax");}
+  /* ---- i386 64-bit long long: value in %edx:%eax, left operand on the stack -- */
+  else if(this->code==CD_LDN64)
+  {
+    ot("movl $");outdec(this->arg);outstr(", %eax");nl();
+    if(this->arg<0)ol("movl $-1, %edx");
+    else ol("xorl %edx, %edx");
+  }
+  else if(this->code==CD_LDLW64)
+  {
+    ot("movl ");outdec(this->arg);outstr("(%ebp), %eax");nl();
+    ot("movl ");outdec(this->arg+4);outstr("(%ebp), %edx");nl();
+  }
+  else if(this->code==CD_STLW64)
+  {
+    ot("movl %eax, ");outdec(this->arg);outstr("(%ebp)");nl();
+    ot("movl %edx, ");outdec(this->arg+4);outstr("(%ebp)");nl();
+  }
+  else if(this->code==CD_LDW64)
+  {
+    ot("movl ");outname(this->str);if(this->arg){outstr("+");outdec(this->arg);}outstr(", %eax");nl();
+    ot("movl ");outname(this->str);outstr("+");outdec(this->arg+4);outstr(", %edx");nl();
+  }
+  else if(this->code==CD_STOW64)
+  {
+    ot("movl %eax, ");outname(this->str);if(this->arg){outstr("+");outdec(this->arg);}nl();
+    ot("movl %edx, ");outname(this->str);outstr("+");outdec(this->arg+4);nl();
+  }
+  else if(this->code==CD_PUSH64){ol("pushl %edx");ol("pushl %eax");}
+  else if(this->code==CD_ADD64)
+  {ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
+  else if(this->code==CD_SUB64)
+  {ol("negl %eax");ol("adcl $0, %edx");ol("negl %edx");
+   ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
+  else if(this->code==CD_NEG64)
+  {ol("negl %eax");ol("adcl $0, %edx");ol("negl %edx");}
+  else if(this->code==CD_I2LL)
+  {if(this->arg)ol("cltd");else ol("xorl %edx, %edx");}
+  else if(this->code==CD_EQ64)lcmp64eq("e");
+  else if(this->code==CD_NEQ64)lcmp64eq("ne");
+  else if(this->code==CD_ZLT64)lcmp64lr("l");
+  else if(this->code==CD_ZGE64)lcmp64lr("ge");
+  else if(this->code==CD_ZGT64)lcmp64rl("l");
+  else if(this->code==CD_ZLE64)lcmp64rl("ge");
+  else if(this->code==CD_ULT64)lcmp64lr("b");
+  else if(this->code==CD_UGE64)lcmp64lr("ae");
+  else if(this->code==CD_UGT64)lcmp64rl("b");
+  else if(this->code==CD_ULE64)lcmp64rl("ae");
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2385,6 +2462,20 @@ func zsub()
   cd=cg_getitem(ccg);
   cd->code=CD_SUB2REGS;
 }
+/* i386-only 64-bit (long long) emitters -- see codegen.he. Only called when
+   target.arch==ARCH_I386 && is64(type); the opcodes are lowered only in
+   cd_write_i386. The 8-byte push/read models the operand stack in Zsp bytes. */
+func zldn64(k:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_LDN64;cd->arg=k;}
+func zldlw64(off:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_LDLW64;cd->arg=off;}
+func zstlw64(off:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_STLW64;cd->arg=off;}
+func zldw64(name:*char,off:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_LDW64;cd->str=strdyn(name);cd->arg=off;}
+func zstow64(name:*char,off:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_STOW64;cd->str=strdyn(name);cd->arg=off;}
+func zpush64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_PUSH64;Zsp=Zsp-8;}
+func zadd64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_ADD64;Zsp=Zsp+8;}
+func zsub64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SUB64;Zsp=Zsp+8;}
+func zneg64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_NEG64;}
+func i2ll(sgn:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_I2LL;cd->arg=sgn;}
+func zcmp64(op:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=op;Zsp=Zsp+8;}
 func neg()
 {
   var *scode:cd;

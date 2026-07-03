@@ -115,6 +115,29 @@
 #define CD_RESTCSR   107 /* x86: restore them from arg(%rbp) before a return */
 #define CD_U2F       108 /* unsigned integer accumulator -> FP accumulator */
 #define CD_U2F1      109 /* unsigned integer 2nd register -> 2nd FP register */
+/* i386-only: 64-bit (long long) via %edx:%eax pairs; the left operand of a binary
+   op stays on the stack (8 bytes) and is read with carry/borrow. Never emitted for
+   the other backends (int is already 64-bit there). */
+#define CD_LDN64   110 /* load 64-bit immediate arg -> %edx:%eax (reg!=0 => hi=-1) */
+#define CD_LDLW64  111 /* load local 64-bit at arg(%ebp) -> %edx:%eax */
+#define CD_STLW64  112 /* store %edx:%eax -> local 64-bit at arg(%ebp) */
+#define CD_LDW64   113 /* load global 64-bit str+arg -> %edx:%eax */
+#define CD_STOW64  114 /* store %edx:%eax -> global 64-bit str+arg */
+#define CD_PUSH64  115 /* push %edx:%eax (8 bytes) */
+#define CD_ADD64   116 /* %edx:%eax += 64-bit left on the stack; pop 8 */
+#define CD_SUB64   117 /* %edx:%eax = left(stack) - %edx:%eax; pop 8 */
+#define CD_NEG64   118 /* negate %edx:%eax */
+#define CD_I2LL    119 /* widen %eax int -> %edx:%eax (arg=1 signed, 0 zero-extend) */
+#define CD_EQ64    120 /* 64-bit compare: left(stack) vs %edx:%eax -> %eax 0/1; pop 8 */
+#define CD_NEQ64   121
+#define CD_ZLT64   122
+#define CD_ZGT64   123
+#define CD_ZLE64   124
+#define CD_ZGE64   125
+#define CD_ULT64   126
+#define CD_UGT64   127
+#define CD_ULE64   128
+#define CD_UGE64   129
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
