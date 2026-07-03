@@ -2575,7 +2575,13 @@ func cttype(node:*enode)
     return T_INT;
   }
   else if(node->op==OP_COND)
-  return cttype(node->r);
+  {
+    var int:t1,t2;
+    t1=cttype(node->r);
+    t2=cttype(node->third);
+    if(isfp(t1)||isfp(t2))return T_DOUBLE;
+    return t1;
+  }
   else if(node->op==OP_ASSIGN)
   return cttype(node->l);
   return T_INT;   /* default: treat as int (e.g. call results) */
