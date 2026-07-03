@@ -18,6 +18,7 @@
 #include "codegen.he"
 var extern *int:stderr;
 var extern int:stlab;
+var u2flab:int;
 
 func cg_init(this:*scodegen)
 {
@@ -77,6 +78,42 @@ func x86cmp(this:*scode,cmpins:*char,acc:*char,cc:*char,movzx:*char)
   ot(cmpins);outstr(" ");outstr(acc);outstr(", ");outstr(r2nd(this));nl();
   ot("set");outstr(cc);outstr(" %al");nl();
   ot(movzx);outstr(" %al, ");outstr(acc);nl();
+}
+func x64u2f(src:*char,dst:*char)
+{
+  var int:lpos,lend;
+  lpos=++u2flab;lend=++u2flab;
+  ot("testq ");outstr(src);outstr(", ");outstr(src);nl();
+  ot("jns .LU2F");outdec(lpos);nl();
+  ot("movq ");outstr(src);outstr(", %rcx");nl();
+  ol("andq $1, %rcx");
+  ot("shrq $1, ");outstr(src);nl();
+  ot("orq %rcx, ");outstr(src);nl();
+  ot("cvtsi2sd ");outstr(src);outstr(", ");outstr(dst);nl();
+  ot("addsd ");outstr(dst);outstr(", ");outstr(dst);nl();
+  ot("jmp .LU2F");outdec(lend);nl();
+  outstr(".LU2F");outdec(lpos);col();nl();
+  ot("cvtsi2sd ");outstr(src);outstr(", ");outstr(dst);nl();
+  outstr(".LU2F");outdec(lend);col();nl();
+}
+func mipsu2f(src:*char,dst:*char)
+{
+  var int:lpos,lend;
+  lpos=++u2flab;lend=++u2flab;
+  ot("bgez ");outstr(src);outstr(", .LU2F");outdec(lpos);nl();
+  ol("nop");
+  ot("dsrl $12, ");outstr(src);outstr(", 1");nl();
+  ot("andi $13, ");outstr(src);outstr(", 1");nl();
+  ol("or $12, $12, $13");
+  ot("dmtc1 $12, ");outstr(dst);nl();
+  ot("cvt.d.l ");outstr(dst);outstr(", ");outstr(dst);nl();
+  ot("add.d ");outstr(dst);outstr(", ");outstr(dst);outstr(", ");outstr(dst);nl();
+  ot("b .LU2F");outdec(lend);nl();
+  ol("nop");
+  outstr(".LU2F");outdec(lpos);col();nl();
+  ot("dmtc1 ");outstr(src);outstr(", ");outstr(dst);nl();
+  ot("cvt.d.l ");outstr(dst);outstr(", ");outstr(dst);nl();
+  outstr(".LU2F");outdec(lend);col();nl();
 }
 /* binary ops that consume the 2nd operand (the popped/saved left operand) */
 func is2ndop(code:int)
@@ -815,15 +852,24 @@ func cd_write_x86_64(*scode:this)
   ol("cvtsi2sd %rax, %xmm0");
   else if(this->code==CD_I2F1)
   ol("cvtsi2sd %rdx, %xmm1");
+  else if(this->code==CD_U2F)
+  x64u2f("%rax","%xmm0");
+  else if(this->code==CD_U2F1)
+  x64u2f("%rdx","%xmm1");
   else if(this->code==CD_FCMP)
   {
     ol("ucomisd %xmm0, %xmm1");   /* flags for left(%xmm1) vs right(%xmm0) */
-    if(this->arg==FCMP_EQ)ol("sete %al");
-    else if(this->arg==FCMP_NE)ol("setne %al");
-    else if(this->arg==FCMP_GT)ol("seta %al");
-    else if(this->arg==FCMP_LT)ol("setb %al");
-    else if(this->arg==FCMP_GE)ol("setae %al");
-    else ol("setbe %al");
+    if(this->arg==FCMP_NE){ol("setne %al");ol("setp %cl");ol("orb %cl, %al");}
+    else
+    {
+      if(this->arg==FCMP_EQ)ol("sete %al");
+      else if(this->arg==FCMP_GT)ol("seta %al");
+      else if(this->arg==FCMP_LT)ol("setb %al");
+      else if(this->arg==FCMP_GE)ol("setae %al");
+      else ol("setbe %al");
+      ol("setnp %cl");
+      ol("andb %cl, %al");
+    }
     ol("movzbq %al, %rax");
   }
   else if(this->code==CD_FBOOL)
@@ -831,6 +877,8 @@ func cd_write_x86_64(*scode:this)
     ol("xorpd %xmm1, %xmm1");
     ol("ucomisd %xmm1, %xmm0");   /* right(%xmm0) vs 0.0 */
     ol("setne %al");
+    ol("setp %cl");
+    ol("orb %cl, %al");
     ol("movzbq %al, %rax");
   }
   else if(this->code==CD_FNEG)
@@ -1195,15 +1243,17 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_FDIV)ol("fdiv d0, d1, d0");   /* left/right */
   else if(this->code==CD_I2F)ol("scvtf d0, x0");       /* promote right */
   else if(this->code==CD_I2F1)ol("scvtf d1, x1");      /* promote left */
+  else if(this->code==CD_U2F)ol("ucvtf d0, x0");
+  else if(this->code==CD_U2F1)ol("ucvtf d1, x1");
   else if(this->code==CD_FCMP)
   {
     ol("fcmp d1, d0");                                 /* left(d1) vs right(d0) */
     if(this->arg==FCMP_EQ)ol("cset x0, eq");
     else if(this->arg==FCMP_NE)ol("cset x0, ne");
     else if(this->arg==FCMP_GT)ol("cset x0, gt");
-    else if(this->arg==FCMP_LT)ol("cset x0, lt");
+    else if(this->arg==FCMP_LT){ol("cset x0, lt");ol("cset x9, vc");ol("and x0, x0, x9");}
     else if(this->arg==FCMP_GE)ol("cset x0, ge");
-    else ol("cset x0, le");
+    else {ol("cset x0, le");ol("cset x9, vc");ol("and x0, x0, x9");}
   }
   else if(this->code==CD_FBOOL){ol("fcmp d0, #0.0");ol("cset x0, ne");}
   else if(this->code==CD_FNEG)ol("fneg d0, d0");
@@ -1438,6 +1488,8 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_FDIV)ol("fdiv.d fa0, fa1, fa0");   /* left/right */
   else if(this->code==CD_I2F)ol("fcvt.d.l fa0, a0");        /* promote right */
   else if(this->code==CD_I2F1)ol("fcvt.d.l fa1, a1");       /* promote left */
+  else if(this->code==CD_U2F)ol("fcvt.d.lu fa0, a0");
+  else if(this->code==CD_U2F1)ol("fcvt.d.lu fa1, a1");
   else if(this->code==CD_FCMP)
   {
     if(this->arg==FCMP_EQ)ol("feq.d a0, fa1, fa0");
@@ -1688,13 +1740,15 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_FDIV)ol("div.d $f0, $f2, $f0");   /* left/right */
   else if(this->code==CD_I2F){ol("dmtc1 $2, $f0");ol("cvt.d.l $f0, $f0");}  /* promote right */
   else if(this->code==CD_I2F1){ol("dmtc1 $3, $f2");ol("cvt.d.l $f2, $f2");} /* promote left */
+  else if(this->code==CD_U2F)mipsu2f("$2","$f0");
+  else if(this->code==CD_U2F1)mipsu2f("$3","$f2");
   else if(this->code==CD_FCMP)
   {
     if(this->arg==FCMP_EQ){ol("c.eq.d $f2, $f0");ol("li $2, 1");ol("movf $2, $0, $fcc0");}
     else if(this->arg==FCMP_NE){ol("c.eq.d $f2, $f0");ol("li $2, 1");ol("movt $2, $0, $fcc0");}
     else if(this->arg==FCMP_GT){ol("c.lt.d $f0, $f2");ol("li $2, 1");ol("movf $2, $0, $fcc0");}
     else if(this->arg==FCMP_LT){ol("c.lt.d $f2, $f0");ol("li $2, 1");ol("movf $2, $0, $fcc0");}
-    else if(this->arg==FCMP_GE){ol("c.lt.d $f2, $f0");ol("li $2, 1");ol("movt $2, $0, $fcc0");}
+    else if(this->arg==FCMP_GE){ol("c.le.d $f0, $f2");ol("li $2, 1");ol("movf $2, $0, $fcc0");}
     else {ol("c.le.d $f2, $f0");ol("li $2, 1");ol("movf $2, $0, $fcc0");}
   }
   else if(this->code==CD_FBOOL)
@@ -2076,17 +2130,26 @@ func cd_write_i386(*scode:this)
   {ol("pushl %eax");ol("fildl (%esp)");ol("addl $4, %esp");}
   else if(this->code==CD_I2F1)
   {ol("pushl %edx");ol("fildl (%esp)");ol("addl $4, %esp");}
+  else if(this->code==CD_U2F)
+  {ol("pushl $0");ol("pushl %eax");ol("fildll (%esp)");ol("addl $8, %esp");}
+  else if(this->code==CD_U2F1)
+  {ol("pushl $0");ol("pushl %edx");ol("fildll (%esp)");ol("addl $8, %esp");}
   else if(this->code==CD_FCMP)
   {
     /* after FPOP: st0=left, st1=right. compare, pop both, then setcc on eflags */
     ol("fucomip %st(1), %st");
     ol("fstp %st(0)");
-    if(this->arg==FCMP_EQ)ol("sete %al");
-    else if(this->arg==FCMP_NE)ol("setne %al");
-    else if(this->arg==FCMP_GT)ol("seta %al");
-    else if(this->arg==FCMP_LT)ol("setb %al");
-    else if(this->arg==FCMP_GE)ol("setae %al");
-    else ol("setbe %al");
+    if(this->arg==FCMP_NE){ol("setne %al");ol("setp %cl");ol("orb %cl, %al");}
+    else
+    {
+      if(this->arg==FCMP_EQ)ol("sete %al");
+      else if(this->arg==FCMP_GT)ol("seta %al");
+      else if(this->arg==FCMP_LT)ol("setb %al");
+      else if(this->arg==FCMP_GE)ol("setae %al");
+      else ol("setbe %al");
+      ol("setnp %cl");
+      ol("andb %cl, %al");
+    }
     ol("movzbl %al, %eax");
   }
   else if(this->code==CD_FBOOL)
@@ -2095,6 +2158,8 @@ func cd_write_i386(*scode:this)
     ol("fucomip %st(1), %st");    /* 0.0 vs value; pop 0.0 */
     ol("fstp %st(0)");            /* pop value */
     ol("setne %al");
+    ol("setp %cl");
+    ol("orb %cl, %al");
     ol("movzbl %al, %eax");
   }
   else if(this->code==CD_FNEG)ol("fchs");
@@ -2648,6 +2713,18 @@ func i2f1()             /* M4: promote %rdx (popped left int) -> %xmm1 */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_I2F1;
+}
+func u2f()              /* promote unsigned accumulator -> FP accumulator */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_U2F;
+}
+func u2f1()             /* promote unsigned 2nd register -> 2nd FP register */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_U2F1;
 }
 func fcmp(cc:int)       /* FP compare -> int accumulator 0/1 (arg selects the test) */
 {
