@@ -85,3 +85,4 @@ llong 42
 ullong 42
 llong_add 42
 llong_ucmp 42
+llong_mul 42
