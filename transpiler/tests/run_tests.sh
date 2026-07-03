@@ -69,7 +69,7 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     asm=$("$LPP" "$TMPD/uplnc_t1.e" 2>/dev/null | "$LANGC" 2>/dev/null)
     echo "$asm" | grep -q '^main:'           && ok "emits a 'main:' label"        || bad "emits 'main:'"
     echo "$asm" | grep -q 'addl %edx, %eax'  && ok "compiles a+2 to add"          || bad "compiles a+2"
-    echo "$asm" | grep -q '0 error(s)'       && ok "reports 0 errors"             || bad "reports 0 errors"
+    echo "$asm" | grep -qE '(^|[^0-9])0 error\(s\)'       && ok "reports 0 errors"             || bad "reports 0 errors"
 else
     bad "langc not built"
 fi
@@ -217,7 +217,7 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
             continue
         fi
         asm=$(timeout 60 "$TDIR/build/langc" < "$pp" 2>/dev/null)
-        echo "$asm" | grep -q '0 error(s)' && ok "self-compile $u.e (0 errors)" || bad "self-compile $u.e"
+        echo "$asm" | grep -qE '(^|[^0-9])0 error\(s\)' && ok "self-compile $u.e (0 errors)" || bad "self-compile $u.e"
     done
 else
     bad "langc not built"
