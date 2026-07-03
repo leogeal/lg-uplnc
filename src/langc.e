@@ -3260,18 +3260,21 @@ func fcompare(l1:*elval,l2:*elval,cc:int)
 }
 func ct_MUL(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(lval1.typ==T_DOUBLE)fpush();else zpush();
+  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
+  if(lval1.typ==T_DOUBLE)fpush();
+  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
+  else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FMUL)){lval->typ=T_DOUBLE;return 0;}
-  no64i386(lval1.typ,lval2.typ);
+  lval->typ=uresult(lval1.typ,lval2.typ);
+  if(wide){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zmul64();return 0;}
   zpop();
   mult();
-  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_DIV(node:*enode,lval:*elval)

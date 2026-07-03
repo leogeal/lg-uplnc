@@ -138,6 +138,7 @@
 #define CD_UGT64   127
 #define CD_ULE64   128
 #define CD_UGE64   129
+#define CD_MUL64   130 /* %edx:%eax = (left(stack) * %edx:%eax) low 64 bits; pop 8 */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2

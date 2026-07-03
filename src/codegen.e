@@ -1933,6 +1933,19 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_UGE64)lcmp64lr("ae");
   else if(this->code==CD_UGT64)lcmp64rl("b");
   else if(this->code==CD_ULE64)lcmp64rl("ae");
+  else if(this->code==CD_MUL64)
+  {
+    /* low 64 bits of A(stack)*B(%edx:%eax): a_lo=(%esp) a_hi=4(%esp) b_lo=%eax
+       b_hi=%edx. cross = a_lo*b_hi + a_hi*b_lo (low 32), added to the high word of
+       the full a_lo*b_lo product. Signedness is irrelevant to the low 64 bits. */
+    ol("movl %eax, %ecx");        /* ecx = b_lo */
+    ol("imull (%esp), %edx");     /* edx = b_hi*a_lo */
+    ol("imull 4(%esp), %ecx");    /* ecx = b_lo*a_hi */
+    ol("addl %edx, %ecx");        /* ecx = cross */
+    ol("mull (%esp)");            /* edx:eax = b_lo*a_lo */
+    ol("addl %ecx, %edx");        /* high += cross */
+    ol("addl $8, %esp");
+  }
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2473,6 +2486,7 @@ func zstow64(name:*char,off:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_ST
 func zpush64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_PUSH64;Zsp=Zsp-8;}
 func zadd64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_ADD64;Zsp=Zsp+8;}
 func zsub64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SUB64;Zsp=Zsp+8;}
+func zmul64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_MUL64;Zsp=Zsp+8;}
 func zneg64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_NEG64;}
 func i2ll(sgn:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_I2LL;cd->arg=sgn;}
 func zcmp64(op:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=op;Zsp=Zsp+8;}
