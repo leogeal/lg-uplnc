@@ -782,16 +782,27 @@ func inittypes()
   strcp(typtab[T_UINT].name,"unsigned");
   typtab[T_UINT].sort=V_FND;
   typtab[T_UINT].size=target.wordsize;
+  /* named "long" so cbtype()/findtyp recognize the type-starter keyword (gettypen
+     decides `long` -> int vs `long long` -> this 64-bit type). Parallels how
+     T_UINT is named "unsigned". */
+  strcp(typtab[T_LLONG].name,"long");
+  typtab[T_LLONG].sort=V_FND;
+  typtab[T_LLONG].size=8;
+  strcp(typtab[T_ULLONG].name,"ullong");
+  typtab[T_ULLONG].sort=V_FND;
+  typtab[T_ULLONG].size=8;
 }
 /* M4: a value of floating-point class (held in %xmm as a double once loaded). */
 func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
+func is64(t:int){return (t==T_LLONG)||(t==T_ULLONG);}   /* always-64-bit integer types */
+func isunsigned(t:int){return (t==T_UINT)||(t==T_ULLONG);}
 func fpconv(t:int)
 {
-  if(t==T_UINT)u2f();else i2f();
+  if(isunsigned(t))u2f();else i2f();
 }
 func fpconv1(t:int)
 {
-  if(t==T_UINT)u2f1();else i2f1();
+  if(isunsigned(t))u2f1();else i2f1();
 }
 func initst()
 {
@@ -1608,7 +1619,7 @@ func dolocvar()
     if(wcnst)idx->cnst=1;   /* M6 const */
     /* mark int/pointer scalars for leaf-function register promotion; the marker
        (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
-    if((typ==T_INT)||(typ==T_UINT)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
+    if((typ==T_INT)||(typ==T_UINT)||is64(typ)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
     Zsp=modstk(Zsp-k);
   }
   /*  while(symname(sname))
@@ -3066,7 +3077,7 @@ func ct_SHL(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  if(lval1.typ==T_UINT)lval->typ=T_UINT;else lval->typ=T_INT;   /* result keeps the shifted value's type */
+  lval->typ=uresult(lval1.typ,lval1.typ);   /* result keeps the shifted value's type/signedness */
   return 0;
 }
 func ct_SHR(node:*enode,lval:*elval)
@@ -3079,8 +3090,9 @@ func ct_SHR(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  if(lval1.typ==T_UINT){shr();lval->typ=T_UINT;}   /* logical shift for an unsigned value */
-  else{asr();lval->typ=T_INT;}                       /* arithmetic shift (signed) */
+  if(isunsigned(lval1.typ))shr();   /* logical shift for an unsigned value */
+  else asr();                        /* arithmetic shift (signed) */
+  lval->typ=uresult(lval1.typ,lval1.typ);
   return 0;
 }
 func ct_MINUS(node:*enode,lval:*elval)
@@ -3218,8 +3230,9 @@ func ct_DIV(node:*enode,lval:*elval)
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
   zpop();
-  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT)){udiv();lval->typ=T_UINT;}
-  else{div();lval->typ=T_INT;}
+  if(isunsigned(lval1.typ)||isunsigned(lval2.typ))udiv();
+  else div();
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 func ct_REM(node:*enode,lval:*elval)
@@ -3232,8 +3245,9 @@ func ct_REM(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  if((lval1.typ==T_UINT)||(lval2.typ==T_UINT)){umod();lval->typ=T_UINT;}
-  else{zmod();lval->typ=T_INT;}
+  if(isunsigned(lval1.typ)||isunsigned(lval2.typ))umod();
+  else zmod();
+  lval->typ=uresult(lval1.typ,lval2.typ);
   return 0;
 }
 /* a[i] on a const *array* (not a const pointer) writes a const element -- reject
@@ -3742,7 +3756,7 @@ func store(lval:*elval)
   {
     if(lval->idx->sort==S_VARG)
     {
-      if(lval->typ==T_INT||lval->typ==T_UINT||
+      if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
       /*ot("movl %eax, ");*/
       zstow(lval->idx->name,lval->offset);
@@ -3761,7 +3775,7 @@ func store(lval:*elval)
     }
     else if(lval->idx->sort==S_VARL)
     {
-      if(lval->typ==T_INT||lval->typ==T_UINT||
+      if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
       /*ot("movl %eax, ");*/
       zstlw(lval->idx->offset+lval->offset);
@@ -3886,7 +3900,7 @@ func getmem(lval:*elval)
     else error("error loading 'float' object");
     lval->typ=T_DOUBLE;
   }
-  else if(lval->typ==T_INT||lval->typ==T_UINT||lval->typ==T_INTP
+  else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||lval->typ==T_INTP
       ||lval->typ==T_CHARP
       ||typtab[lval->typ].sort==V_PTR)
   {
@@ -4953,13 +4967,15 @@ func ns()
 }
 func issigned(t:int)
 {
-  return (t==T_INT)||(t==T_CHAR);
+  return (t==T_INT)||(t==T_CHAR)||(t==T_LLONG);
 }
 /* M6: result type of an integer binary op -- unsigned if either operand is, so
    unsignedness propagates through arithmetic and a later compare / >> on the
    result still uses the unsigned variant. */
 func uresult(t1:int,t2:int)
 {
+  if(is64(t1)||is64(t2))
+  {if(isunsigned(t1)||isunsigned(t2))return T_ULLONG;return T_LLONG;}
   if((t1==T_UINT)||(t2==T_UINT))return T_UINT;
   return T_INT;
 }
@@ -4967,6 +4983,8 @@ func gettsize(t:int)
 {
   if(t==T_INT)return target.wordsize;
   else if(t==T_UINT)return target.wordsize;
+  else if(t==T_LLONG)return 8;
+  else if(t==T_ULLONG)return 8;
   else if(t==T_CHAR)return BYTESIZE;
   else if(t==T_DOUBLE)return 8;
   else if(t==T_FLOAT)return 4;
@@ -5045,6 +5063,14 @@ func cbtype()
   return 0;
   return 1;
 }
+func llongtype(uns:int)
+{
+  /* long long is always 64-bit; on i386 (32-bit word) it needs register-pair
+     arithmetic that is not implemented yet -- reject cleanly. */
+  if(target.arch==ARCH_I386)error("64-bit 'long long' is not supported on i386 yet");
+  if(uns)return T_ULLONG;
+  return T_LLONG;
+}
 func gettypen()
 {
   var [NAMESIZE]char:tname;
@@ -5056,7 +5082,17 @@ func gettypen()
   trc("gettypename");
   if(amatch("char",4))return T_CHAR;
   if(amatch("int",3))return T_INT;
-  if(amatch("unsigned",8))return T_UINT;
+  if(amatch("unsigned",8))
+  {
+    /* unsigned long long -> T_ULLONG; unsigned / unsigned long -> word unsigned */
+    if(amatch("long",4)){if(amatch("long",4))return llongtype(1);return T_UINT;}
+    return T_UINT;
+  }
+  if(amatch("long",4))
+  {
+    if(amatch("long",4))return llongtype(0);   /* long long -> 64-bit */
+    return T_INT;                               /* 'long' alone == word-size int */
+  }
   if(amatch("double",6))return T_DOUBLE;
   if(amatch("float",5))return T_FLOAT;
   if(alpha(ch())){
