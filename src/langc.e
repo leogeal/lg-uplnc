@@ -796,6 +796,34 @@ func inittypes()
 func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
 func is64(t:int){return (t==T_LLONG)||(t==T_ULLONG);}   /* always-64-bit integer types */
 func isunsigned(t:int){return (t==T_UINT)||(t==T_ULLONG);}
+/* a 64-bit value on i386 (32-bit word) -- needs %edx:%eax pair codegen. On the
+   64-bit backends is64 values use the normal word path, so ll32 is false there. */
+func ll32(t:int){return (target.arch==ARCH_I386)&&is64(t);}
+/* i386 64-bit binary-op helpers. wide64: is this a 64-bit op on i386 (either
+   operand 64-bit)? cpush64: push the left operand 8-byte (widening a narrow int).
+   ccmp64: after the right operand, widen it and emit the signed/unsigned 64-bit
+   compare. The narrow operand is sign-extended (issigned) or zero-extended. */
+func wide64(l1:int,rn:*enode){return (target.arch==ARCH_I386)&&(is64(l1)||is64(cttype(rn)));}
+func cpush64(l1:*elval,w:int)
+{
+  if(isfp(l1->typ))fpush();
+  else if(w){if(!is64(l1->typ))i2ll(issigned(l1->typ));zpush64();}
+  else zpush();
+}
+func ccmp64(l1:*elval,l2:*elval,sop:int,uop:int)
+{
+  if(!is64(l2->typ))i2ll(issigned(l2->typ));
+  if(isunsigned(l1->typ)||isunsigned(l2->typ))zcmp64(uop);
+  else zcmp64(sop);
+}
+/* reject the i386 64-bit ops not yet implemented (multiply/divide/remainder/
+   shift). The message contains "not supported on i386" so the test harness skips
+   these on i386 rather than failing. */
+func no64i386(l1:int,l2:int)
+{
+  if((target.arch==ARCH_I386)&&(is64(l1)||is64(l2)))
+  error("this 64-bit long long operation is not supported on i386 yet");
+}
 func fpconv(t:int)
 {
   if(isunsigned(t))u2f();else i2f();
@@ -2842,7 +2870,9 @@ func ct_ASSIGN(node:*enode,lval:*elval)
   /* convert the RHS (in the accumulator) to the target's class (M4). A float
      destination wants a double in %xmm0 here -- the store then narrows it. */
   if(isfp(lval1.typ)&&!isfp(lval2.typ))fpconv(lval2.typ); /* int -> double */
-  else if(!isfp(lval1.typ)&&isfp(lval2.typ))zf2i();/* double -> int */
+  else if(!isfp(lval1.typ)&&isfp(lval2.typ))
+  {zf2i();if(ll32(lval1.typ))i2ll(1);}   /* double -> int, widen to ll on i386 */
+  else if(ll32(lval1.typ)&&!is64(lval2.typ))i2ll(issigned(lval2.typ)); /* int -> ll widen */
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -2966,45 +2996,51 @@ func ct_BAND(node:*enode,lval:*elval)
 }
 func ct_EQ(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_EQ))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_EQ64,CD_EQ64);return 0;}
   zpop();
   zeq();
   return 0;
 }
 func ct_NEQ(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_NE))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_NEQ64,CD_NEQ64);return 0;}
   zpop();
   zne();
   return 0;
 }
 func ct_GT(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_GT))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_ZGT64,CD_UGT64);return 0;}
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ugt();
@@ -3014,15 +3050,17 @@ func ct_GT(node:*enode,lval:*elval)
 }
 func ct_LT(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_LT))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_ZLT64,CD_ULT64);return 0;}
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ult();
@@ -3032,15 +3070,17 @@ func ct_LT(node:*enode,lval:*elval)
 }
 func ct_GE(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_GE))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_ZGE64,CD_UGE64);return 0;}
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   uge();
@@ -3050,15 +3090,17 @@ func ct_GE(node:*enode,lval:*elval)
 }
 func ct_LE(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(isfp(lval1.typ))fpush();else zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=T_INT;
   if(fcompare(&lval1,&lval2,FCMP_LE))return 0;
+  if(w){ccmp64(&lval1,&lval2,CD_ZLE64,CD_ULE64);return 0;}
   zpop();
   if(!issigned(lval1.typ)||!issigned(lval2.typ))
   ule();
@@ -3073,6 +3115,7 @@ func ct_SHL(node:*enode,lval:*elval)
   zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   zpop();
+  no64i386(lval1.typ,lval1.typ);
   asl();
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3090,6 +3133,7 @@ func ct_SHR(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
+  no64i386(lval1.typ,lval1.typ);
   if(isunsigned(lval1.typ))shr();   /* logical shift for an unsigned value */
   else asr();                        /* arithmetic shift (signed) */
   lval->typ=uresult(lval1.typ,lval1.typ);
@@ -3098,18 +3142,22 @@ func ct_SHR(node:*enode,lval:*elval)
 func ct_MINUS(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
-  var int:isptr;
+  var int:isptr;var int:wide;
   isptr=0;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(lval1.typ==T_DOUBLE)fpush();else zpush();
+  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
+  if(lval1.typ==T_DOUBLE)fpush();
+  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
+  else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   if(fparith(&lval1,&lval2,CD_FSUB))
   {lval->sort=L_ONREG;lval->idx=0;lval->offset=0;lval->typ=T_DOUBLE;return 0;}
-  zpop();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=uresult(lval1.typ,lval2.typ);
+  if(wide){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zsub64();return 0;}
+  zpop();
   if(typtab[lval1.typ].sort==V_PTR||
    typtab[lval1.typ].sort==V_ARR)
   {
@@ -3142,16 +3190,22 @@ func ct_MINUS(node:*enode,lval:*elval)
 func ct_PLUS(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;
-  var int:isptr;
+  var int:isptr;var int:wide;
   isptr=0;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  if(lval1.typ==T_DOUBLE)fpush();else zpush();
+  /* i386 64-bit: push the left as 8 bytes (widening a narrow operand) so the
+     add reads it from the stack with carry. `wide` also covers int+ll. */
+  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
+  if(lval1.typ==T_DOUBLE)fpush();
+  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
+  else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FADD)){lval->typ=T_DOUBLE;return 0;}
   lval->typ=uresult(lval1.typ,lval2.typ);
+  if(wide){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zadd64();return 0;}
   if(typtab[lval1.typ].sort==V_PTR||
    typtab[lval1.typ].sort==V_ARR)
   {
@@ -3214,6 +3268,7 @@ func ct_MUL(node:*enode,lval:*elval)
   lval->idx=0;
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FMUL)){lval->typ=T_DOUBLE;return 0;}
+  no64i386(lval1.typ,lval2.typ);
   zpop();
   mult();
   lval->typ=uresult(lval1.typ,lval2.typ);
@@ -3230,6 +3285,7 @@ func ct_DIV(node:*enode,lval:*elval)
   lval->offset=0;
   if(fparith(&lval1,&lval2,CD_FDIV)){lval->typ=T_DOUBLE;return 0;}
   zpop();
+  no64i386(lval1.typ,lval2.typ);
   if(isunsigned(lval1.typ)||isunsigned(lval2.typ))udiv();
   else div();
   lval->typ=uresult(lval1.typ,lval2.typ);
@@ -3245,6 +3301,7 @@ func ct_REM(node:*enode,lval:*elval)
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
+  no64i386(lval1.typ,lval2.typ);
   if(isunsigned(lval1.typ)||isunsigned(lval2.typ))umod();
   else zmod();
   lval->typ=uresult(lval1.typ,lval2.typ);
@@ -3380,7 +3437,7 @@ func ct_UMINUS(node:*enode,lval:*elval)
   var int:k;
   k=treetocode(node->r,lval);
   if(k)rvalue(lval);
-  if(isfp(lval->typ))fneg();else neg();
+  if(isfp(lval->typ))fneg();else if(ll32(lval->typ))zneg64();else neg();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3756,9 +3813,10 @@ func store(lval:*elval)
   {
     if(lval->idx->sort==S_VARG)
     {
-      if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
+      if(ll32(lval->typ))
+      zstow64(lval->idx->name,lval->offset);
+      else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
-      /*ot("movl %eax, ");*/
       zstow(lval->idx->name,lval->offset);
       else if(lval->typ==T_CHAR)
       /*ot("movb %al, ");*/
@@ -3775,9 +3833,10 @@ func store(lval:*elval)
     }
     else if(lval->idx->sort==S_VARL)
     {
-      if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
+      if(ll32(lval->typ))
+      zstlw64(lval->idx->offset+lval->offset);
+      else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
-      /*ot("movl %eax, ");*/
       zstlw(lval->idx->offset+lval->offset);
       else if(lval->typ==T_CHAR)
       /*ot("movb %al, ");*/
@@ -3899,6 +3958,12 @@ func getmem(lval:*elval)
     cfldlocs(lval->idx->offset+lval->offset);
     else error("error loading 'float' object");
     lval->typ=T_DOUBLE;
+  }
+  else if(ll32(lval->typ))   /* i386 64-bit: load 8 bytes into %edx:%eax */
+  {
+    if(lval->idx->sort==S_VARG)zldw64(lval->name,lval->offset);
+    else if(lval->idx->sort==S_VARL)zldlw64(lval->idx->offset+lval->offset);
+    else error("getmem ll ?");
   }
   else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||lval->typ==T_INTP
       ||lval->typ==T_CHARP
@@ -5065,9 +5130,6 @@ func cbtype()
 }
 func llongtype(uns:int)
 {
-  /* long long is always 64-bit; on i386 (32-bit word) it needs register-pair
-     arithmetic that is not implemented yet -- reject cleanly. */
-  if(target.arch==ARCH_I386)error("64-bit 'long long' is not supported on i386 yet");
   if(uns)return T_ULLONG;
   return T_LLONG;
 }

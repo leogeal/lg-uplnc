@@ -83,3 +83,5 @@ looplocal 42
 fp_promote 42
 llong 42
 ullong 42
+llong_add 42
+llong_ucmp 42
