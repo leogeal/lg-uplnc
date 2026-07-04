@@ -26,7 +26,9 @@ var line,rline:[160]char;
 var lptr,rlptr:int;
 var isinp,iseof:int;
 var errcnt:int;
-var strpool:[3000]char;
+/* macro name+body pool: the compiler's own headers (tlangc.he + codegen.he
+   #defines) live here when self-preprocessing, so grow it with the opcode set */
+var strpool:[6000]char;
 var strptr:int;
 struct cmac{*char n; *char sub;};
 var mactab:[300]cmac;
@@ -56,10 +58,10 @@ func putres(c:int)
 func putmac(c:int)
 {
   /*fprintf(stderr,"putmac:c=%d\n",c);*/
-  if(strptr>=2999)
+  if(strptr>=5999)
   {
-    strpool[2999]=0;
-    strptr=3000;
+    strpool[5999]=0;
+    strptr=6000;
     if(c)error("string pool full");
     return 0;
   }
@@ -67,7 +69,7 @@ func putmac(c:int)
 }
 func getnewstr()
 {
-  if(strptr>2999)
+  if(strptr>5999)
   {error("getnewstr:string pool full");return 0;}
   return strptr;
 }

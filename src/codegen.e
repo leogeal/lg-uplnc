@@ -703,6 +703,8 @@ func cd_write_x86_64(*scode:this)
       nl();
     }
   }
+  else if(this->code==CD_LDNW)   /* wide literal: the assembler computes the value */
+  {ot("movabsq $");outstr(this->str);outstr(", ");outstr(regnames[this->reg]);nl();}
   else if(this->code==CD_LDA)
   {
     ot("movq $");
@@ -1265,6 +1267,8 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_RET)ol("ret");
   else if(this->code==CD_LDLIT)litaddr_arm64(regnames[this->reg],this->arg);
   else if(this->code==CD_LDN)loadimm_arm64(regnames[this->reg],this->arg);
+  else if(this->code==CD_LDNW)   /* wide literal: gas ldr= pseudo (literal pool) */
+  {ot("ldr ");outstr(regnames[this->reg]);outstr(", =");outstr(this->str);nl();}
   else if(this->code==CD_LDA)gaddr_arm64(regnames[this->reg],this->str,this->arg);
   else if(this->code==CD_LEA)addimm_arm64(regnames[this->reg],"x29",this->arg);
   else if(this->code==CD_STOW)
@@ -1516,6 +1520,8 @@ func cd_write_riscv(*scode:this)
    if(this->arg)addimm_riscv(regnames[this->reg],regnames[this->reg],this->arg);}
   else if(this->code==CD_LDN)
   {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
+  else if(this->code==CD_LDNW)   /* wide literal: the li macro takes any 64-bit value */
+  {ot("li ");outstr(regnames[this->reg]);outstr(", ");outstr(this->str);nl();}
   else if(this->code==CD_LDA)gaddr_riscv(regnames[this->reg],this->str,this->arg);
   else if(this->code==CD_LEA)addimm_riscv(regnames[this->reg],"s0",this->arg);
   else if(this->code==CD_STOW)
@@ -1764,6 +1770,8 @@ func cd_write_mips(*scode:this)
    if(this->arg)addimm_mips(regnames[this->reg],regnames[this->reg],this->arg);}
   else if(this->code==CD_LDN)
   {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
+  else if(this->code==CD_LDNW)   /* wide literal: dli builds any 64-bit value */
+  {ot("dli ");outstr(regnames[this->reg]);outstr(", ");outstr(this->str);nl();}
   else if(this->code==CD_LDA)gaddr_mips(regnames[this->reg],this->str,this->arg);
   else if(this->code==CD_LEA)addimm_mips(regnames[this->reg],"$fp",this->arg);
   else if(this->code==CD_STOW)
@@ -2162,6 +2170,14 @@ func cd_write_i386(*scode:this)
       outstr(", ");outstr(regnames[this->reg]);
       nl();
     }
+  }
+  else if(this->code==CD_LDNW)
+  {
+    /* wide literal on i386: the 64-bit value lands in %edx:%eax. dumpfloats
+       emitted it as `.LF<arg>: .quad <text>` (the assembler computed the two's
+       complement), so load its two little-endian words. */
+    ot("movl .LF");outdec(this->arg);outstr(", %eax");nl();
+    ot("movl .LF");outdec(this->arg);outstr("+4, %edx");nl();
   }
   else if(this->code==CD_LDA)
   {
@@ -3087,6 +3103,14 @@ func zldn(k:int)
   cd=cg_getitem(ccg);
   cd->code=CD_LDN;
   cd->arg=k;
+}
+func zldnw(idx:int,s:*char)  /* wide 64-bit literal: pool index + its text */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LDNW;
+  cd->arg=idx;
+  cd->str=strdyn(s);
 }
 func zlda(*char:name,int offset)
 {

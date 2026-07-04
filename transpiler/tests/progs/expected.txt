@@ -97,3 +97,4 @@ llong_ternary 42
 llong_ret 42
 llong_bitwise 42
 llong_indirect 42
+llong_lit 42
