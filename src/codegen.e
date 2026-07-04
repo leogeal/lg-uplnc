@@ -109,6 +109,24 @@ func lcmp64eq(cc:*char)   /* cc = "e" (==) or "ne" (!=): both words compared */
   ot("set");outstr(cc);outstr(" %al");nl();
   ol("movzbl %al, %eax");ol("addl $8, %esp");
 }
+/* i386 64-bit shift: value 8 bytes on the stack, count in %eax. shld/shrd handle
+   the cross-word bits (count masked to 0..31); testb $32 handles count>=32 by
+   moving a whole word over. big2 fills the vacated word (0, or sign for sar). */
+func llshift(cross:*char,main:*char,big1:*char,big2:*char)
+{
+  var int:l;
+  l=++ll64lab;
+  ol("movl %eax, %ecx");        /* count -> %cl */
+  ol("movl (%esp), %eax");      /* lo */
+  ol("movl 4(%esp), %edx");     /* hi */
+  ol(cross);
+  ol(main);
+  ol("testb $32, %cl");
+  ot("je .LS64");outdec(l);nl();
+  ol(big1);ol(big2);
+  outstr(".LS64");outdec(l);col();nl();
+  ol("addl $8, %esp");
+}
 func x64u2f(src:*char,dst:*char)
 {
   var int:lpos,lend;
@@ -1957,6 +1975,12 @@ func cd_write_i386(*scode:this)
     ot("call ");outstr(this->str);nl();
     ol("addl $24, %esp");         /* pop 16 call args + the 8-byte A operand */
   }
+  else if(this->code==CD_SHL64)
+  llshift("shld %cl, %eax, %edx","sall %cl, %eax","movl %eax, %edx","xorl %eax, %eax");
+  else if(this->code==CD_SHR64)
+  llshift("shrd %cl, %edx, %eax","shrl %cl, %edx","movl %edx, %eax","xorl %edx, %edx");
+  else if(this->code==CD_SAR64)
+  llshift("shrd %cl, %edx, %eax","sarl %cl, %edx","movl %edx, %eax","sarl $31, %edx");
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2499,6 +2523,9 @@ func zadd64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_ADD64;Zsp=Zsp+8;}
 func zsub64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SUB64;Zsp=Zsp+8;}
 func zmul64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_MUL64;Zsp=Zsp+8;}
 func zdivmod64(name:*char){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_DIVMOD64;cd->str=strdyn(name);Zsp=Zsp+8;}
+func zshl64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SHL64;Zsp=Zsp+8;}
+func zshr64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SHR64;Zsp=Zsp+8;}
+func zsar64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SAR64;Zsp=Zsp+8;}
 func zneg64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_NEG64;}
 func i2ll(sgn:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_I2LL;cd->arg=sgn;}
 func zcmp64(op:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=op;Zsp=Zsp+8;}

@@ -88,3 +88,4 @@ llong_ucmp 42
 llong_mul 42
 llong_div 42
 llong_udiv 42
+llong_shift 42

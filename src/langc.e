@@ -816,14 +816,6 @@ func ccmp64(l1:*elval,l2:*elval,sop:int,uop:int)
   if(isunsigned(l1->typ)||isunsigned(l2->typ))zcmp64(uop);
   else zcmp64(sop);
 }
-/* reject the i386 64-bit ops not yet implemented (multiply/divide/remainder/
-   shift). The message contains "not supported on i386" so the test harness skips
-   these on i386 rather than failing. */
-func no64i386(l1:int,l2:int)
-{
-  if((target.arch==ARCH_I386)&&(is64(l1)||is64(l2)))
-  error("this 64-bit long long operation is not supported on i386 yet");
-}
 func fpconv(t:int)
 {
   if(isunsigned(t))u2f();else i2f();
@@ -3110,33 +3102,40 @@ func ct_LE(node:*enode,lval:*elval)
 }
 func ct_SHL(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  wide=ll32(lval1.typ);          /* the shifted value is 64-bit on i386 */
+  if(wide)zpush64();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  no64i386(lval1.typ,lval1.typ);
-  asl();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=uresult(lval1.typ,lval1.typ);   /* result keeps the shifted value's type/signedness */
+  if(wide){zshl64();return 0;}
+  zpop();
+  asl();
   return 0;
 }
 func ct_SHR(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  wide=ll32(lval1.typ);
+  if(wide)zpush64();else zpush();
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  no64i386(lval1.typ,lval1.typ);
-  if(isunsigned(lval1.typ))shr();   /* logical shift for an unsigned value */
-  else asr();                        /* arithmetic shift (signed) */
   lval->typ=uresult(lval1.typ,lval1.typ);
+  if(wide)
+  {
+    if(isunsigned(lval1.typ))zshr64();   /* logical shift for an unsigned value */
+    else zsar64();                       /* arithmetic shift (signed) */
+    return 0;
+  }
+  zpop();
+  if(isunsigned(lval1.typ))shr();
+  else asr();
   return 0;
 }
 func ct_MINUS(node:*enode,lval:*elval)

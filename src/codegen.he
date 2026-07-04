@@ -140,6 +140,9 @@
 #define CD_UGE64   129
 #define CD_MUL64   130 /* %edx:%eax = (left(stack) * %edx:%eax) low 64 bits; pop 8 */
 #define CD_DIVMOD64 131 /* i386: call libgcc helper str as f(left,edx:eax)->edx:eax; pop 8 */
+#define CD_SHL64   132 /* i386: 64-bit left(stack) << %eax count -> %edx:%eax; pop 8 */
+#define CD_SHR64   133 /* i386: 64-bit logical right shift (unsigned) */
+#define CD_SAR64   134 /* i386: 64-bit arithmetic right shift (signed) */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
