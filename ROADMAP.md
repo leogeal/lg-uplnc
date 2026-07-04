@@ -284,9 +284,13 @@ byte-identical and all five self-host fixpoints reach at every step.
   `: long long` return annotation (same convention as `: double`). This makes
   `long long` fully first-class on i386, so the harness's i386 "not supported"
   skip is retired and every `long long` test runs on all five backends. (PR #69)
-- ⏳ One deferred edge: on i386, `unsigned long long` >= 2^63 converted to
-  `double` is approximate (signed `fildll`; a fully-correct unsigned conversion
-  needs a +2^64 correction with a float constant when the top bit is set).
+- ✅ i386 `unsigned long long` >= 2^63 → `double` — the last edge, now correct. A
+  signed `fildll` reads such a value as `v - 2^64`, so `ull2f`/`ull2f1` add `2^64`
+  back when the top bit is set (the exact double `0x43F0000000000000`, pushed as
+  bytes so no data-section constant is needed; x87's 80-bit registers make the
+  correction exact — no double rounding). i386 now matches the 64-bit backends'
+  `u2f`, so `long long` ↔ `double` is fully correct on every backend.
+  (`llong_u2f` golden test)
 
 ## M5 — Optimization 🟡
 

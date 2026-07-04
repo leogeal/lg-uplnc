@@ -127,6 +127,23 @@ func llshift(cross:*char,main:*char,big1:*char,big2:*char)
   outstr(".LS64");outdec(l);col();nl();
   ol("addl $8, %esp");
 }
+/* i386 unsigned-64->double correction. A signed fildll reads %edx:%eax as signed,
+   so a value >= 2^63 comes out as (v - 2^64); when the preceding test set SF (the
+   64-bit value's top bit), add back 2^64 (the exact double 0x43F0000000000000,
+   pushed as bytes so no data-section constant is needed). x87's 80-bit registers
+   make the correction exact -- no double rounding. */
+func ull2fcorr()
+{
+  var int:l;
+  l=++ll64lab;
+  ot("jns .LU64");outdec(l);nl();
+  ol("pushl $0x43f00000");      /* high 32 bits of 2^64 as a double */
+  ol("pushl $0");               /* low 32 bits */
+  ol("fldl (%esp)");            /* st0 = 2^64, st1 = value */
+  ol("addl $8, %esp");
+  ol("faddp %st, %st(1)");      /* st0 = value + 2^64 */
+  outstr(".LU64");outdec(l);col();nl();
+}
 func x64u2f(src:*char,dst:*char)
 {
   var int:lpos,lend;
@@ -2310,6 +2327,12 @@ func cd_write_i386(*scode:this)
   {ol("pushl %edx");ol("pushl %eax");ol("fildll (%esp)");ol("addl $8, %esp");}
   else if(this->code==CD_LL2F1)    /* signed 64-bit left(stack) -> x87 (2nd operand) */
   {ol("fildll (%esp)");ol("addl $8, %esp");}
+  else if(this->code==CD_ULL2F)    /* unsigned 64-bit %edx:%eax -> x87 double */
+  {ol("pushl %edx");ol("pushl %eax");ol("fildll (%esp)");ol("addl $8, %esp");
+   ol("testl %edx, %edx");ull2fcorr();}   /* %edx = high word; correct if top bit set */
+  else if(this->code==CD_ULL2F1)   /* unsigned 64-bit left(stack) -> x87 (2nd operand) */
+  {ol("fildll (%esp)");ol("testl $-2147483648, 4(%esp)");ull2fcorr();
+   ol("addl $8, %esp");}
   else if(this->code==CD_F2LL)     /* x87 double -> signed 64-bit %edx:%eax (chop) */
   {
     ol("subl $12, %esp");
@@ -2766,6 +2789,19 @@ func ll2f1()            /* i386: signed 64-bit left(stack) -> x87 (2nd operand) 
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LL2F1;
+  Zsp=Zsp+8;
+}
+func ull2f()            /* i386: unsigned 64-bit %edx:%eax -> x87 double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_ULL2F;
+}
+func ull2f1()           /* i386: unsigned 64-bit left(stack) -> x87 (2nd operand) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_ULL2F1;
   Zsp=Zsp+8;
 }
 func cfldloc(offset:int)   /* M4: load local double */

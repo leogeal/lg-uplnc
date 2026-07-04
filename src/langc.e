@@ -822,7 +822,7 @@ func ccmp64(l1:*elval,l2:*elval,sop:int,uop:int)
 }
 func fpconv(t:int)
 {
-  if(ll32(t))ll2f();   /* i386 64-bit -> double via fildll (signed; ull>=2^63 approx) */
+  if(ll32(t)){if(isunsigned(t))ull2f();else ll2f();}   /* i386 64-bit -> double via fildll */
   else if(isunsigned(t))u2f();else i2f();
 }
 func fpconv1(t:int)
@@ -3236,7 +3236,7 @@ func fparith(l1:*elval,l2:*elval,op:int)
     if(l2->typ!=T_DOUBLE)fpconv(l2->typ); /* (double)%rax -> %xmm0 */
     /* left operand is on the stack (fpush if double, zpush/zpush64 if int) */
     if(l1->typ==T_DOUBLE)fpop();       /* double -> %xmm1 */
-    else if(ll32(l1->typ))ll2f1();     /* i386 64-bit left (8 bytes on stack) -> x87 */
+    else if(ll32(l1->typ)){if(isunsigned(l1->typ))ull2f1();else ll2f1();}  /* i386 64-bit left -> x87 */
     else{zpop();fpconv1(l1->typ);}     /* int -> %rdx -> (double)%xmm1 */
     fbinop(op);
     return 1;
@@ -3253,7 +3253,7 @@ func fcompare(l1:*elval,l2:*elval,cc:int)
   {
     if(!isfp(l2->typ))fpconv(l2->typ); /* right operand (in accum) int -> double */
     if(isfp(l1->typ))fpop();        /* left double from stack -> 2nd FP reg */
-    else if(ll32(l1->typ))ll2f1();  /* i386 64-bit left (8 bytes on stack) -> x87 */
+    else if(ll32(l1->typ)){if(isunsigned(l1->typ))ull2f1();else ll2f1();}  /* i386 64-bit left -> x87 */
     else{zpop();fpconv1(l1->typ);}  /* left int -> 2nd int reg -> 2nd FP reg */
     fcmp(cc);
     return 1;

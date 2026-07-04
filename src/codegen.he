@@ -146,6 +146,8 @@
 #define CD_LL2F    135 /* i386: signed 64-bit %edx:%eax -> x87 double (fildll) */
 #define CD_F2LL    136 /* i386: x87 double -> signed 64-bit %edx:%eax (chop, fistpll) */
 #define CD_LL2F1   137 /* i386: signed 64-bit left(stack) -> x87 (2nd FP operand); pop 8 */
+#define CD_ULL2F   138 /* i386: unsigned 64-bit %edx:%eax -> x87 double (+2^64 if top bit) */
+#define CD_ULL2F1  139 /* i386: unsigned 64-bit left(stack) -> x87 (2nd FP operand); pop 8 */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
