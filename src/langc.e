@@ -22,9 +22,13 @@
 var starget:target;
 var archsel:int;   /* target arch selected by -march (default ARCH_I386=0) */
 /* M4 float-literal pool: literals are kept as text and emitted as `.double
-   <text>` so the assembler computes the IEEE-754 bits. */
+   <text>` so the assembler computes the IEEE-754 bits. Wide (64-bit) integer
+   literals share the pool (fpoolkind=1) and are emitted as `.quad <text>` --
+   the assembler computes the 64-bit value, so the compiler never needs an int
+   wider than its own host word (it may itself be running on i386). */
 var fpoolbuf:[4000]char;
 var fpooloff:[200]int;
+var fpoolkind:[200]int;
 var fpoolptr:int;
 var fpoolbp:int;
 var errcnt:int;
@@ -2440,6 +2444,8 @@ func pretree(node:*enode,ofil:*int)
     fprintf(ofil,"%d",node->leaf.val);
     else if(node->leaf.vid==L_FNUM)
     fprintf(ofil,"%s",fpoolbuf+fpooloff[node->leaf.val]);
+    else if(node->leaf.vid==L_WNUM)
+    fprintf(ofil,"%s",fpoolbuf+fpooloff[node->leaf.val]);
     else if(node->leaf.vid==L_STR)
     fprintf(ofil,"\"\"",litq+node->leaf.val);
     else if(node->leaf.vid==L_ID)
@@ -2598,6 +2604,8 @@ func cttype(node:*enode)
     return T_INT;
     else if(node->leaf.vid==L_FNUM)
     return T_DOUBLE;
+    else if(node->leaf.vid==L_WNUM)
+    {if(target.arch==ARCH_I386)return T_LLONG;return T_INT;}
     else if(node->leaf.vid==L_ID)
     return node->leaf.idx->type;
     else if(node->leaf.vid==L_STR)
@@ -2695,6 +2703,16 @@ func treetocode(node:*enode,lval:*elval)
       lval->offset=0;
       lval->typ=T_DOUBLE;
       lval->val=node->leaf.val;   /* float-pool index */
+      return 1;
+    }
+    else if(node->leaf.vid==L_WNUM)
+    {
+      lval->sort=L_WNUM;
+      lval->idx=0;
+      lval->offset=0;
+      /* a 64-bit value: plain int on the 64-bit targets, long long on i386 */
+      if(target.arch==ARCH_I386)lval->typ=T_LLONG;else lval->typ=T_INT;
+      lval->val=node->leaf.val;   /* pool index of the literal text */
       return 1;
     }
     else if(node->leaf.vid==L_ID)
@@ -3937,6 +3955,8 @@ func rvalue(lval:*elval)
   loadnum(lval);
   else if(lval->sort==L_FNUM)/*float literal -> %xmm0*/
   cloadflit(lval->val);
+  else if(lval->sort==L_WNUM)/*wide 64-bit literal (text)*/
+  loadwnum(lval);
   else if(lval->sort==L_ID&&lval->idx)/*variable...*/
   getmem(lval);
   else if(lval->sort==L_POI)
@@ -4073,6 +4093,10 @@ func getmem(lval:*elval)
     else error("still: how to getmem?");
   }
   else error("again error");
+}
+func loadwnum(lval:*elval)  /* wide 64-bit literal: pool index + its text */
+{
+  zldnw(lval->val,fpoolbuf+fpooloff[lval->val]);
 }
 func loadnum(lval:*elval)
 {
@@ -4798,7 +4822,7 @@ func primary()
       node=getenode();
       node->l=node->r=node->third=0;
       node->op=OP_LEAF;
-      node->leaf.vid=(nr==2)?L_FNUM:L_NUM;   /* 2 => float literal; uses ?: */
+      node->leaf.vid=(nr==2)?L_FNUM:((nr==3)?L_WNUM:L_NUM); /* 2=float, 3=wide int */
       node->leaf.val=num[0];
       return node;
     }
@@ -4971,6 +4995,22 @@ func addfloat(s:*char)  /* store a float-literal's text, return its pool index *
   fpoolbuf[fpoolbp++]=0;
   return i;
 }
+func addwide(s:*char)   /* store a wide integer literal's text (emitted as .quad) */
+{
+  var int:i;
+  i=addfloat(s);
+  fpoolkind[i]=1;
+  return i;
+}
+func numgt(a:*char,b:*char)  /* digit-string a > b, same length, textual compare */
+{
+  while(*a)
+  {
+    if(*a!=*b)return *a>*b;
+    a++;b++;
+  }
+  return 0;
+}
 func putnumbuf(buf:*char,bp:*int,c:char,bad:*int)
 {
   if(bad[0])return 0;
@@ -5000,7 +5040,9 @@ func dumpfloats()       /* emit .LF<i>: .double <text> for each float literal */
   for(i=0;i<fpoolptr;i++)
   {
     outstr(".LF");outdec(i);col();nl();
-    ot(".double ");outstr(fpoolbuf+fpooloff[i]);nl();
+    if(fpoolkind[i])ot(".quad ");
+    else ot(".double ");
+    outstr(fpoolbuf+fpooloff[i]);nl();
   }
 }
 func number(val:*int)
@@ -5011,13 +5053,17 @@ func number(val:*int)
   var char:c;
   var [48]char:buf;
   var int:bp;
+  var int:dl;
   var [1]int:bad;
   k=minus=1;bp=0;
   bad[0]=0;
   if(match("0x")){
   k=0;
+  putnumbuf(buf,&bp,'0',bad);
+  putnumbuf(buf,&bp,'x',bad);
   while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
     c=inbyte();
+    putnumbuf(buf,&bp,c,bad);
     if(numeric(c)){
     k=(k<<4)+(c-'0');
     }
@@ -5026,6 +5072,14 @@ func number(val:*int)
       k=(k<<4)+(c-'a'+10);
     }
   }
+  /* a hex value that does not fit a *signed* 32-bit int (more than 8 digits, or
+     8 digits with the top bit set) is kept as text and the assembler computes
+     the 64-bit value -- so 0xffffffff is 4294967295 on every target and stage
+     (the old accumulate-in-int path made it -1 in a 32-bit build but positive in
+     a self-hosted 64-bit build). 16 digits max. */
+  dl=bp-2;
+  if(bad[0]||(dl>16)){error("integer literal too large");val[0]=0;return 1;}
+  if((dl>8)||((dl==8)&&(buf[2]>'7'))){buf[bp]=0;val[0]=addwide(buf);return 3;}
   val[0]=k;
   return 1;
   }
@@ -5067,6 +5121,16 @@ func number(val:*int)
     val[0]=0;
     return 1;
   }
+  /* a value that does not fit a 32-bit int becomes a *wide* literal: the text is
+     kept (like float literals) and the assembler computes the 64-bit value, so
+     this works even when the compiler itself runs on a 32-bit host. Textual
+     magnitude compare -- the accumulated k may already have wrapped. */
+  buf[bp]=0;
+  dl=bp;if(minus<0)dl--;
+  if((dl>19)||((dl==19)&&numgt(buf+(bp-dl),"9223372036854775807")))
+  {error("integer literal too large");val[0]=0;return 1;}
+  if((dl>10)||((dl==10)&&numgt(buf+(bp-dl),"2147483647")))
+  {val[0]=addwide(buf);return 3;}
   if(minus<0)k=(-k);
   val[0]=k;
   return 1;

@@ -303,6 +303,23 @@ byte-identical and all five self-host fixpoints reach at every step.
   mixed-width stack bug (`int + (ll*ll)` pushed 4 bytes where the 64-bit op
   popped 8). Five golden tests (`llong_bitwise`/`bool`/`ternary`/`indirect`/`ret`);
   all five fixpoints byte-identical.
+- ✅ **Wide (64-bit) integer literals** — `x = 10000000000;` used to silently
+  truncate to 32 bits on *every* backend: the lexer accumulated into the
+  compiler's own int, which is 32-bit in the stage-0 seed (C `int`) and on an
+  i386 host. Following the float-literal precedent, a literal that does not fit
+  a signed 32-bit int is now kept as *text* (`L_WNUM`, sharing the float pool)
+  and the assembler computes the 64-bit value — so it works whatever the
+  compiler's own host width: `movabsq $<text>` (x86_64), `ldr =<text>` (arm64),
+  `li` (riscv), `dli` (mips), and on i386 a `.LF<i>: .quad <text>` pool entry
+  loaded as two words into `%edx:%eax` (typed `long long`). Decimal and hex
+  (`0x…`), negatives, and a "too large" diagnostic past 2^63-1 / 16 hex digits;
+  8-digit high-bit hex (`0xffffffff`) is now 4294967295 on every target and
+  stage — the old accumulate path made it -1 in a 32-bit build but positive in
+  a self-hosted 64-bit build (a stage divergence, unified). Wide literals fold
+  like floats (i.e. not at all), so the deferred `1<<33` fold-width note is now
+  only about *folded expressions*, not literals. lpp1's macro pool grew
+  3000→6000 (the compiler's own headers filled it). `llong_lit` golden test on
+  all five backends; all five fixpoints byte-identical.
 
 ## M5 — Optimization 🟡
 
