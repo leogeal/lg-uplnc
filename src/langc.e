@@ -799,15 +799,19 @@ func isunsigned(t:int){return (t==T_UINT)||(t==T_ULLONG);}
 /* a 64-bit value on i386 (32-bit word) -- needs %edx:%eax pair codegen. On the
    64-bit backends is64 values use the normal word path, so ll32 is false there. */
 func ll32(t:int){return (target.arch==ARCH_I386)&&is64(t);}
-/* i386 64-bit binary-op helpers. wide64: is this a 64-bit op on i386 (either
-   operand 64-bit)? cpush64: push the left operand 8-byte (widening a narrow int).
-   ccmp64: after the right operand, widen it and emit the signed/unsigned 64-bit
-   compare. The narrow operand is sign-extended (issigned) or zero-extended. */
-func wide64(l1:int,rn:*enode){return (target.arch==ARCH_I386)&&(is64(l1)||is64(cttype(rn)));}
+/* i386 64-bit binary-op helpers. wide64: is this a 64-bit *integer* op on i386?
+   (false when either operand is FP -- that goes through fparith/fcompare, which
+   convert a 64-bit operand to double.) cpush64: push the left operand as 8 bytes
+   whenever it is 64-bit (so its full value survives into either the integer path
+   or the FP conversion), widening a narrow int for a 64-bit integer result.
+   ccmp64: after the right operand, widen it and emit the signed/unsigned compare. */
+func wide64(l1:int,rn:*enode)
+{return (target.arch==ARCH_I386)&&!isfp(l1)&&!isfp(cttype(rn))&&(is64(l1)||is64(cttype(rn)));}
 func cpush64(l1:*elval,w:int)
 {
   if(isfp(l1->typ))fpush();
-  else if(w){if(!is64(l1->typ))i2ll(issigned(l1->typ));zpush64();}
+  else if(ll32(l1->typ))zpush64();      /* left already 64-bit: push 8 bytes */
+  else if(w){if(!is64(l1->typ))i2ll(issigned(l1->typ));zpush64();}  /* narrow -> widen */
   else zpush();
 }
 func ccmp64(l1:*elval,l2:*elval,sop:int,uop:int)
@@ -818,7 +822,8 @@ func ccmp64(l1:*elval,l2:*elval,sop:int,uop:int)
 }
 func fpconv(t:int)
 {
-  if(isunsigned(t))u2f();else i2f();
+  if(ll32(t))ll2f();   /* i386 64-bit -> double via fildll (signed; ull>=2^63 approx) */
+  else if(isunsigned(t))u2f();else i2f();
 }
 func fpconv1(t:int)
 {
@@ -2863,7 +2868,7 @@ func ct_ASSIGN(node:*enode,lval:*elval)
      destination wants a double in %xmm0 here -- the store then narrows it. */
   if(isfp(lval1.typ)&&!isfp(lval2.typ))fpconv(lval2.typ); /* int -> double */
   else if(!isfp(lval1.typ)&&isfp(lval2.typ))
-  {zf2i();if(ll32(lval1.typ))i2ll(1);}   /* double -> int, widen to ll on i386 */
+  {if(ll32(lval1.typ))zf2ll();else zf2i();}   /* double -> int/ll (i386 fistpll for ll) */
   else if(ll32(lval1.typ)&&!is64(lval2.typ))i2ll(issigned(lval2.typ)); /* int -> ll widen */
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3144,10 +3149,8 @@ func ct_MINUS(node:*enode,lval:*elval)
   var int:isptr;var int:wide;
   isptr=0;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
-  if(lval1.typ==T_DOUBLE)fpush();
-  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
-  else zpush();
+  wide=wide64(lval1.typ,node->r);
+  cpush64(&lval1,wide);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   if(fparith(&lval1,&lval2,CD_FSUB))
   {lval->sort=L_ONREG;lval->idx=0;lval->offset=0;lval->typ=T_DOUBLE;return 0;}
@@ -3194,10 +3197,8 @@ func ct_PLUS(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   /* i386 64-bit: push the left as 8 bytes (widening a narrow operand) so the
      add reads it from the stack with carry. `wide` also covers int+ll. */
-  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
-  if(lval1.typ==T_DOUBLE)fpush();
-  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
-  else zpush();
+  wide=wide64(lval1.typ,node->r);
+  cpush64(&lval1,wide);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3233,8 +3234,9 @@ func fparith(l1:*elval,l2:*elval,op:int)
   {
     /* right operand is in the accumulator: promote it if it is an int */
     if(l2->typ!=T_DOUBLE)fpconv(l2->typ); /* (double)%rax -> %xmm0 */
-    /* left operand is on the stack (fpush if double, zpush if int) */
+    /* left operand is on the stack (fpush if double, zpush/zpush64 if int) */
     if(l1->typ==T_DOUBLE)fpop();       /* double -> %xmm1 */
+    else if(ll32(l1->typ))ll2f1();     /* i386 64-bit left (8 bytes on stack) -> x87 */
     else{zpop();fpconv1(l1->typ);}     /* int -> %rdx -> (double)%xmm1 */
     fbinop(op);
     return 1;
@@ -3251,6 +3253,7 @@ func fcompare(l1:*elval,l2:*elval,cc:int)
   {
     if(!isfp(l2->typ))fpconv(l2->typ); /* right operand (in accum) int -> double */
     if(isfp(l1->typ))fpop();        /* left double from stack -> 2nd FP reg */
+    else if(ll32(l1->typ))ll2f1();  /* i386 64-bit left (8 bytes on stack) -> x87 */
     else{zpop();fpconv1(l1->typ);}  /* left int -> 2nd int reg -> 2nd FP reg */
     fcmp(cc);
     return 1;
@@ -3261,10 +3264,8 @@ func ct_MUL(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
-  if(lval1.typ==T_DOUBLE)fpush();
-  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
-  else zpush();
+  wide=wide64(lval1.typ,node->r);
+  cpush64(&lval1,wide);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3280,10 +3281,8 @@ func ct_DIV(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
-  if(lval1.typ==T_DOUBLE)fpush();
-  else if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
-  else zpush();
+  wide=wide64(lval1.typ,node->r);
+  cpush64(&lval1,wide);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -3306,9 +3305,8 @@ func ct_REM(node:*enode,lval:*elval)
 {
   var elval:lval1,lval2;var int:wide;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  wide=(target.arch==ARCH_I386)&&(is64(lval1.typ)||is64(cttype(node->r)));
-  if(wide){if(!is64(lval1.typ))i2ll(issigned(lval1.typ));zpush64();}
-  else zpush();
+  wide=wide64(lval1.typ,node->r);
+  cpush64(&lval1,wide);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   lval->sort=L_ONREG;
   lval->idx=0;

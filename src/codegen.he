@@ -143,6 +143,9 @@
 #define CD_SHL64   132 /* i386: 64-bit left(stack) << %eax count -> %edx:%eax; pop 8 */
 #define CD_SHR64   133 /* i386: 64-bit logical right shift (unsigned) */
 #define CD_SAR64   134 /* i386: 64-bit arithmetic right shift (signed) */
+#define CD_LL2F    135 /* i386: signed 64-bit %edx:%eax -> x87 double (fildll) */
+#define CD_F2LL    136 /* i386: x87 double -> signed 64-bit %edx:%eax (chop, fistpll) */
+#define CD_LL2F1   137 /* i386: signed 64-bit left(stack) -> x87 (2nd FP operand); pop 8 */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
