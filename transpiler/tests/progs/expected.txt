@@ -92,3 +92,8 @@ llong_shift 42
 llong_fp 42
 llong_args 42
 llong_u2f 42
+llong_bool 42
+llong_ternary 42
+llong_ret 42
+llong_bitwise 42
+llong_indirect 42

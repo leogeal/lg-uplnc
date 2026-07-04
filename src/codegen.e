@@ -1956,6 +1956,10 @@ func cd_write_i386(*scode:this)
    ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
   else if(this->code==CD_NEG64)
   {ol("negl %eax");ol("adcl $0, %edx");ol("negl %edx");}
+  else if(this->code==CD_LNOT64)
+  {ol("orl %edx, %eax");ol("sete %al");ol("movzbl %al, %eax");}
+  else if(this->code==CD_BNOT64)
+  {ol("notl %eax");ol("notl %edx");}
   else if(this->code==CD_I2LL)
   {if(this->arg)ol("cltd");else ol("xorl %edx, %edx");}
   else if(this->code==CD_EQ64)lcmp64eq("e");
@@ -1998,6 +2002,45 @@ func cd_write_i386(*scode:this)
   llshift("shrd %cl, %edx, %eax","shrl %cl, %edx","movl %edx, %eax","xorl %edx, %edx");
   else if(this->code==CD_SAR64)
   llshift("shrd %cl, %edx, %eax","sarl %cl, %edx","movl %edx, %eax","sarl $31, %edx");
+  else if(this->code==CD_BOR64)
+  {ol("orl (%esp), %eax");ol("orl 4(%esp), %edx");ol("addl $8, %esp");}
+  else if(this->code==CD_BXOR64)
+  {ol("xorl (%esp), %eax");ol("xorl 4(%esp), %edx");ol("addl $8, %esp");}
+  else if(this->code==CD_BAND64)
+  {ol("andl (%esp), %eax");ol("andl 4(%esp), %edx");ol("addl $8, %esp");}
+  else if(this->code==CD_INC64)
+  {
+    if(this->arg>0)
+    {ot("addl $");outdec(this->arg);outstr(", %eax");nl();ol("adcl $0, %edx");}
+  }
+  else if(this->code==CD_DEC64)
+  {
+    if(this->arg>0)
+    {ot("subl $");outdec(this->arg);outstr(", %eax");nl();ol("sbbl $0, %edx");}
+  }
+  else if(this->code==CD_TESTJUMP64)
+  {
+    ol("movl %eax, %ecx");ol("orl %edx, %ecx");
+    ot("je");tab();printlab(this->arg);nl();
+  }
+  else if(this->code==CD_TESTNEJUMP64)
+  {
+    ol("movl %eax, %ecx");ol("orl %edx, %ecx");
+    ot("jne");tab();printlab(this->arg);nl();
+  }
+  else if(this->code==CD_LBRW64)
+  {
+    ol("movl %eax, %ecx");
+    ot("movl ");outdec(this->arg);outstr("(%ecx), %eax");nl();
+    ot("movl ");outdec(this->arg+4);outstr("(%ecx), %edx");nl();
+  }
+  else if(this->code==CD_STOW264)
+  {
+    ol("movl (%esp), %ecx");
+    ot("movl %eax, ");outdec(this->arg);outstr("(%ecx)");nl();
+    ot("movl %edx, ");outdec(this->arg+4);outstr("(%ecx)");nl();
+    ol("addl $4, %esp");
+  }
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2570,6 +2613,17 @@ func zsar64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SAR64;Zsp=Zsp+8;}
 func zneg64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_NEG64;}
 func i2ll(sgn:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_I2LL;cd->arg=sgn;}
 func zcmp64(op:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=op;Zsp=Zsp+8;}
+func zlbrw64(offset:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_LBRW64;cd->arg=offset;}
+func zstow264(offset:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_STOW264;cd->arg=offset;Zsp=Zsp+target.stackslot;}
+func lnot64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_LNOT64;}
+func bnot64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_BNOT64;}
+func zbor64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_BOR64;Zsp=Zsp+8;}
+func zxor64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_BXOR64;Zsp=Zsp+8;}
+func zand64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_BAND64;Zsp=Zsp+8;}
+func increg64(k:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_INC64;cd->arg=k;}
+func decreg64(k:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_DEC64;cd->arg=k;}
+func testjump64(label:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_TESTJUMP64;cd->arg=label;}
+func testnejump64(label:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_TESTNEJUMP64;cd->arg=label;}
 func neg()
 {
   var *scode:cd;
