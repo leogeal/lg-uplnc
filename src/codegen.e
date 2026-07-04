@@ -1946,6 +1946,17 @@ func cd_write_i386(*scode:this)
     ol("addl %ecx, %edx");        /* high += cross */
     ol("addl $8, %esp");
   }
+  else if(this->code==CD_DIVMOD64)
+  {
+    /* cdecl call f(A,B): A(dividend) is on the stack, B(divisor) in %edx:%eax.
+       Push B, then a copy of A on top, so the args land as f(A,B) -> %edx:%eax. */
+    ol("pushl %edx");             /* b_hi */
+    ol("pushl %eax");             /* b_lo ; A now at 8(%esp),12(%esp) */
+    ol("pushl 12(%esp)");         /* a_hi */
+    ol("pushl 12(%esp)");         /* a_lo ; args now [esp]=A, [esp+8]=B */
+    ot("call ");outstr(this->str);nl();
+    ol("addl $24, %esp");         /* pop 16 call args + the 8-byte A operand */
+  }
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
@@ -2487,6 +2498,7 @@ func zpush64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_PUSH64;Zsp=Zsp-8;}
 func zadd64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_ADD64;Zsp=Zsp+8;}
 func zsub64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_SUB64;Zsp=Zsp+8;}
 func zmul64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_MUL64;Zsp=Zsp+8;}
+func zdivmod64(name:*char){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_DIVMOD64;cd->str=strdyn(name);Zsp=Zsp+8;}
 func zneg64(){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_NEG64;}
 func i2ll(sgn:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=CD_I2LL;cd->arg=sgn;}
 func zcmp64(op:int){var *scode:cd;cd=cg_getitem(ccg);cd->code=op;Zsp=Zsp+8;}
