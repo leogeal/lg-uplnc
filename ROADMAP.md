@@ -291,6 +291,18 @@ byte-identical and all five self-host fixpoints reach at every step.
   correction exact — no double rounding). i386 now matches the 64-bit backends'
   `u2f`, so `long long` ↔ `double` is fully correct on every backend.
   (`llong_u2f` golden test)
+- ✅ i386 remaining edges (PR #72) — bitwise `| ^ &` (word-wise on the 8-byte
+  stack operand), truthiness in every boolean context (`if`/`while`/`for`/`do`,
+  `&& || !`, `?:` — `testjump64`/`lnot64` OR both halves, so a value with only
+  the *high* word set is truthy), `++`/`--` with carry (`adcl`/`sbbl`),
+  pointer/array indirection (`*p`, `p[i]` — `LBRW64` loads via `%ecx`; `STOW264`
+  reads the pointer from the stack since `%edx` holds the value's high word), and
+  return conversions via a unified `convto(dst,src)` helper (also used by
+  assign/init/ternary). Extending the `cttype` oracle to propagate 64-bit-ness
+  through binary/bitwise/shift/unary/ternary shapes also fixed a latent
+  mixed-width stack bug (`int + (ll*ll)` pushed 4 bytes where the 64-bit op
+  popped 8). Five golden tests (`llong_bitwise`/`bool`/`ternary`/`indirect`/`ret`);
+  all five fixpoints byte-identical.
 
 ## M5 — Optimization 🟡
 
