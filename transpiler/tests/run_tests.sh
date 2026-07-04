@@ -297,9 +297,7 @@ else
         asm="$TMPD/uplnc_i386_$name.s"; bin="$TMPD/uplnc_i386_$name"
         "$TDIR/build/lpp1" "tests/progs/$name.e" 2>/dev/null \
             | "$TDIR/build/langc" -march=i386 > "$asm" 2>/dev/null
-        if grep -q 'not supported on i386' "$asm"; then
-            echo "  skip - i386 $name.e (64-bit long long not implemented on i386 yet)"
-        elif grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
+        if grep -qE 'not yet|[1-9][0-9]* error' "$asm"; then
             bad "i386 $name.e (compile)"
         # -no-pie: non-PIC absolute addressing; -fsigned-char to match i386 char
         elif ! $M32 -no-pie -fsigned-char "$asm" -o "$bin" 2>/dev/null; then

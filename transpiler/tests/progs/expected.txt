@@ -90,3 +90,4 @@ llong_div 42
 llong_udiv 42
 llong_shift 42
 llong_fp 42
+llong_args 42
