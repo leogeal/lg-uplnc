@@ -2306,6 +2306,24 @@ func cd_write_i386(*scode:this)
     ol("movl 4(%esp), %eax");
     ol("addl $8, %esp");
   }
+  else if(this->code==CD_LL2F)     /* signed 64-bit %edx:%eax -> x87 double */
+  {ol("pushl %edx");ol("pushl %eax");ol("fildll (%esp)");ol("addl $8, %esp");}
+  else if(this->code==CD_LL2F1)    /* signed 64-bit left(stack) -> x87 (2nd operand) */
+  {ol("fildll (%esp)");ol("addl $8, %esp");}
+  else if(this->code==CD_F2LL)     /* x87 double -> signed 64-bit %edx:%eax (chop) */
+  {
+    ol("subl $12, %esp");
+    ol("fnstcw (%esp)");           /* save control word */
+    ol("movzwl (%esp), %eax");
+    ol("orb $12, %ah");            /* rounding-control = chop (toward zero) */
+    ol("movw %ax, 2(%esp)");
+    ol("fldcw 2(%esp)");
+    ol("fistpll 4(%esp)");         /* store 64-bit int */
+    ol("fldcw (%esp)");            /* restore control word */
+    ol("movl 4(%esp), %eax");      /* low */
+    ol("movl 8(%esp), %edx");      /* high */
+    ol("addl $12, %esp");
+  }
   else if(this->code==CD_FLDLOCS)   /* 4-byte float: x87 loads/stores it directly */
   {ot("flds ");outdec(this->arg);outstr("(%ebp)");nl();}
   else if(this->code==CD_FLDGLBS)
@@ -2730,6 +2748,25 @@ func zf2i()             /* M4: convert FP accumulator to int accumulator */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_F2I;
+}
+func zf2ll()            /* i386: double -> signed 64-bit %edx:%eax (chop) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_F2LL;
+}
+func ll2f()             /* i386: signed 64-bit %edx:%eax -> x87 double */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LL2F;
+}
+func ll2f1()            /* i386: signed 64-bit left(stack) -> x87 (2nd operand) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LL2F1;
+  Zsp=Zsp+8;
 }
 func cfldloc(offset:int)   /* M4: load local double */
 {
