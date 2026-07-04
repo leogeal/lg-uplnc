@@ -3705,6 +3705,7 @@ func ct_FUNC(node:*enode,lval:*elval)
          x87 accumulator (st0) into the slot. Ints/pointers are the usual 4-byte
          push. A float argument has already decayed to a double in st0. */
       if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
+      else if(ll32(lval2.typ)){zpush64();nargs=nargs+8;}  /* 64-bit arg: 8 bytes */
       else{zpush();nargs=nargs+target.wordsize;}
       r=r->r;
     }
