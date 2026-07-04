@@ -829,6 +829,31 @@ func fpconv1(t:int)
 {
   if(isunsigned(t))u2f1();else i2f1();
 }
+func convto(dst:int,src:int)
+{
+  if(isfp(dst)&&!isfp(src))fpconv(src);
+  else if(!isfp(dst)&&isfp(src))
+  {if(ll32(dst))zf2ll();else zf2i();}
+  else if(ll32(dst)&&!is64(src))i2ll(issigned(src));
+}
+func condtype(t1:int,t2:int)
+{
+  if(isfp(t1)||isfp(t2))return T_DOUBLE;
+  if(is64(t1)||is64(t2))return uresult(t1,t2);
+  return t1;
+}
+func branchzero(t:int,label:int)
+{
+  if(isfp(t)){fbool();testjump(label);}
+  else if(ll32(t))testjump64(label);
+  else testjump(label);
+}
+func branchnonzero(t:int,label:int)
+{
+  if(isfp(t)){fbool();testnejump(label);}
+  else if(ll32(t))testnejump64(label);
+  else testnejump(label);
+}
 func initst()
 {
 }
@@ -1510,13 +1535,10 @@ func doreturn()
     {
     var int:rt;
     rt=expressi();
-    /* convert the return value to the function's return type (M4 slice 4b).
-       A double-returning function leaves the result in %xmm0; otherwise a
-       double result is truncated to int (slice 1 behaviour, e.g. main). */
-    if(curfunc&&(curfunc->type==T_DOUBLE))
-    {if(rt!=T_DOUBLE)fpconv(rt);}
-    else
-    {if(rt==T_DOUBLE)zf2i();}
+    /* convert the return value to the function's return type. A long long return
+       on i386 must leave the full %edx:%eax pair, not just the low word. */
+    if(curfunc)convto(curfunc->type,rt);
+    else if(rt==T_DOUBLE)zf2i();
     }
   }
   if(target.csrsave)restcsr(csrslot);
@@ -1674,8 +1696,7 @@ func dolocvar()
     foldtree(inode);
     if(treetocode(inode,&ilv))rvalue(&ilv);
     irt=ilv.typ;
-    if(isfp(typ)&&!isfp(irt))fpconv(irt);
-    else if(!isfp(typ)&&isfp(irt))zf2i();
+    convto(typ,irt);
     ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
     store(&ilv);
     delenode(inode);
@@ -1735,8 +1756,7 @@ func test(label:int)
   needbrac(tlarg/*"("*/);
   t=expressi();
   needbrac(trarg/*")"*/);
-  if(isfp(t))fbool();   /* FP condition -> integer truthiness before the branch */
-  testjump(label);
+  branchzero(t,label);
 }
 func dobreak()
 {
@@ -1760,7 +1780,7 @@ func dofor()
   var int:thesp;
   var int:theloop,thecont;
   var int:thelab;
-  var int:tl;
+  var int:tl;var int:ct;
   /*thesym=locptr;*/
   thesym=locsymtab.front;
   thesp=Zsp;
@@ -1775,8 +1795,8 @@ func dofor()
   col();
   nl();*/
   clab(theloop);
-  if(isfp(expressi()))fbool();/* i<N */
-  testjump(thelab);
+  ct=expressi();/* i<N */
+  branchzero(ct,thelab);
   ns();
   /*fprintf(stderr,"dofor:ccg=%d\n",ccg);*/
   var *scodegen:savecg;
@@ -1822,6 +1842,7 @@ func dodo()
   var int:theloop;
   var int:thecont;
   var int:thelab;
+  var int:ct;
   /*thesym=locptr;*/
   thesym=locsymtab.front;
   thesp=Zsp;
@@ -1841,13 +1862,13 @@ func dodo()
   }
   needbrac(tlarg/*"("*/);
   clab(thecont);
-  expressi();
+  ct=expressi();
   /*ol("testl %eax, %eax");
   ot("jne");
   tab();
   printlab(theloop);
   nl();*/
-  testnejump(theloop);
+  branchnonzero(ct,theloop);
   /*printlab(thelab);
   col();
   nl();*/
@@ -2616,15 +2637,30 @@ func cttype(node:*enode)
     if((t1==T_DOUBLE)||(t2==T_DOUBLE))return T_DOUBLE;
     if((typtab[t1].sort==V_PTR)||(typtab[t1].sort==V_ARR))return t1;
     if((typtab[t2].sort==V_PTR)||(typtab[t2].sort==V_ARR))return t2;
-    return T_INT;
+    return uresult(t1,t2);
+  }
+  else if(node->op==OP_BOR||node->op==OP_BXOR||node->op==OP_BAND)
+  {
+    return uresult(cttype(node->l),cttype(node->r));
+  }
+  else if(node->op==OP_SHL||node->op==OP_SHR)
+  {
+    var int:t1;
+    t1=cttype(node->l);
+    return uresult(t1,t1);
+  }
+  else if(node->op==OP_UMINUS||node->op==OP_BNOT
+       ||node->op==OP_1PP||node->op==OP_1MM
+       ||node->op==OP_2PP||node->op==OP_2MM)
+  {
+    return cttype(node->r);
   }
   else if(node->op==OP_COND)
   {
     var int:t1,t2;
     t1=cttype(node->r);
     t2=cttype(node->third);
-    if(isfp(t1)||isfp(t2))return T_DOUBLE;
-    return t1;
+    return condtype(t1,t2);
   }
   else if(node->op==OP_ASSIGN)
   return cttype(node->l);
@@ -2752,26 +2788,25 @@ func ct_COND(node:*enode,lval:*elval)
   /* c ? a : b  -- node->l = c, node->r = a, node->third = b */
   var elval:lc,la,lb;
   var int:elselab,exitlab;
-  var int:tr,tt,fpres;
+  var int:tr,tt,res;
   tr=cttype(node->r);        /* then-branch type (pure oracle, emits no code) */
   tt=cttype(node->third);    /* else-branch type */
-  fpres=isfp(tr)||isfp(tt);  /* the result is FP if either arm is FP */
+  res=condtype(tr,tt);
   elselab=getlabel();
   exitlab=getlabel();
   if(treetocode(node->l,&lc))rvalue(&lc);   /* condition -> accumulator */
-  if(isfp(lc.typ))fbool();                  /* FP condition -> integer truthiness */
-  testjump(elselab);                        /* if zero, take the else branch */
+  branchzero(lc.typ,elselab);               /* if zero, take the else branch */
   if(treetocode(node->r,&la))rvalue(&la);   /* then  -> accumulator */
-  if(fpres&&!isfp(la.typ))fpconv(la.typ);   /* promote an int then-branch to double */
+  convto(res,la.typ);
   jump(exitlab);
   clab(elselab);
   if(treetocode(node->third,&lb))rvalue(&lb);/* else -> accumulator */
-  if(fpres&&!isfp(lb.typ))fpconv(lb.typ);   /* promote an int else-branch to double */
+  convto(res,lb.typ);
   clab(exitlab);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
-  if(fpres)lval->typ=T_DOUBLE;else lval->typ=la.typ;   /* both arms share the result class */
+  lval->typ=res;
   return 0;
 }
 func ct_COMMA(node:*enode,lval:*elval)
@@ -2866,10 +2901,7 @@ func ct_ASSIGN(node:*enode,lval:*elval)
   if(treetocode(node->r,&lval2))rvalue(&lval2);
   /* convert the RHS (in the accumulator) to the target's class (M4). A float
      destination wants a double in %xmm0 here -- the store then narrows it. */
-  if(isfp(lval1.typ)&&!isfp(lval2.typ))fpconv(lval2.typ); /* int -> double */
-  else if(!isfp(lval1.typ)&&isfp(lval2.typ))
-  {if(ll32(lval1.typ))zf2ll();else zf2i();}   /* double -> int/ll (i386 fistpll for ll) */
-  else if(ll32(lval1.typ)&&!is64(lval2.typ))i2ll(issigned(lval2.typ)); /* int -> ll widen */
+  convto(lval1.typ,lval2.typ);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -2885,19 +2917,16 @@ func ct_LOR(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   onelab=getlabel();
   exitlab=getlabel();
-  if(isfp(lval1.typ))fbool();
-  testnejump(onelab);
+  branchnonzero(lval1.typ,onelab);
   cnode=node->r;
   while(cnode->op==OP_LOR)
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
-    if(isfp(lval1.typ))fbool();
-    testnejump(onelab);
+    branchnonzero(lval1.typ,onelab);
     cnode=cnode->r;
   }
   if(treetocode(cnode,&lval2))rvalue(&lval2);
-  if(isfp(lval2.typ))fbool();
-  testnejump(onelab);
+  branchnonzero(lval2.typ,onelab);
   /*ol("xorl %eax, %eax");*/
   zldn(0);
   jump(exitlab);
@@ -2921,19 +2950,16 @@ func ct_LAND(node:*enode,lval:*elval)
   if(treetocode(node->l,&lval1))rvalue(&lval1);
   zerolab=getlabel();
   exitlab=getlabel();
-  if(isfp(lval1.typ))fbool();
-  testjump(zerolab);
+  branchzero(lval1.typ,zerolab);
   cnode=node->r;
   while(cnode->op==OP_LAND)
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
-    if(isfp(lval1.typ))fbool();
-    testjump(zerolab);
+    branchzero(lval1.typ,zerolab);
     cnode=cnode->r;
   }
   if(treetocode(cnode,&lval2))rvalue(&lval2);
-  if(isfp(lval2.typ))fbool();
-  testjump(zerolab);
+  branchzero(lval2.typ,zerolab);
   /*ol("movl $1, %eax");*/
   zldn(1);
   jump(exitlab);
@@ -2951,44 +2977,50 @@ func ct_LAND(node:*enode,lval:*elval)
 }
 func ct_BOR(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  zor();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=uresult(lval1.typ,lval2.typ);
+  if(w){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zbor64();return 0;}
+  zpop();
+  zor();
   return 0;
 }
 func ct_BXOR(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  zxor();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=uresult(lval1.typ,lval2.typ);
+  if(w){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zxor64();return 0;}
+  zpop();
+  zxor();
   return 0;
 }
 func ct_BAND(node:*enode,lval:*elval)
 {
-  var elval:lval1,lval2;
+  var elval:lval1,lval2;var int:w;
   if(treetocode(node->l,&lval1))rvalue(&lval1);
-  zpush();
+  w=wide64(lval1.typ,node->r);
+  cpush64(&lval1,w);
   if(treetocode(node->r,&lval2))rvalue(&lval2);
-  zpop();
-  zand();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
   lval->typ=uresult(lval1.typ,lval2.typ);
+  if(w){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zand64();return 0;}
+  zpop();
+  zand();
   return 0;
 }
 func ct_EQ(node:*enode,lval:*elval)
@@ -3364,7 +3396,7 @@ func ct_1PP(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  if(isfp(lval->typ))finc();else increg(sz);
+  if(isfp(lval->typ))finc();else if(ll32(lval->typ))increg64(sz);else increg(sz);
   if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
   lval->sort=L_ONREG;
@@ -3389,7 +3421,7 @@ func ct_1MM(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  if(isfp(lval->typ))fdec();else decreg(sz);
+  if(isfp(lval->typ))fdec();else if(ll32(lval->typ))decreg64(sz);else decreg(sz);
   if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
   lval->sort=L_ONREG;
@@ -3414,10 +3446,10 @@ func ct_2PP(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  if(isfp(lval->typ))finc();else increg(sz);
+  if(isfp(lval->typ))finc();else if(ll32(lval->typ))increg64(sz);else increg(sz);
   if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
-  if(isfp(lval->typ))fdec();else decreg(sz);
+  if(isfp(lval->typ))fdec();else if(ll32(lval->typ))decreg64(sz);else decreg(sz);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3440,10 +3472,10 @@ func ct_2MM(node:*enode,lval:*elval)
   if(typtab[lval->typ].sort==V_PTR)
   sz=gettsize(typtab[lval->typ].type);
   else sz=1;
-  if(isfp(lval->typ))fdec();else decreg(sz);
+  if(isfp(lval->typ))fdec();else if(ll32(lval->typ))decreg64(sz);else decreg(sz);
   if(isfp(lval->typ)&&(target.arch==ARCH_I386))fdup();
   store(lval);
-  if(isfp(lval->typ))finc();else increg(sz);
+  if(isfp(lval->typ))finc();else if(ll32(lval->typ))increg64(sz);else increg(sz);
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3586,8 +3618,9 @@ func ct_LNOT(node:*enode,lval:*elval)
   var int:k;
   k=treetocode(node->r,lval);
   if(k)rvalue(lval);
-  if(isfp(lval->typ))fbool();   /* !x on a double: (x!=0) then logical-not -> (x==0) */
-  lnot();
+  if(isfp(lval->typ)){fbool();lnot();}   /* !x on a double: (x!=0) then logical-not -> (x==0) */
+  else if(ll32(lval->typ))lnot64();
+  else lnot();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3599,7 +3632,7 @@ func ct_BNOT(node:*enode,lval:*elval)
   var int:k;
   k=treetocode(node->r,lval);
   if(k)rvalue(lval);
-  bnot();
+  if(ll32(lval->typ))bnot64();else bnot();
   lval->sort=L_ONREG;
   lval->idx=0;
   lval->offset=0;
@@ -3880,12 +3913,17 @@ func store(lval:*elval)
     {zpop();cfstbre2s(lval->offset);}
     else
     {
+      if(ll32(lval->typ))
+      zstow264(lval->offset);
+      else
+      {
       zpop();
       if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
       zstob2(lval->offset);
       else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
       zstow2(lval->offset);
       else error("error storing object if strange size");
+      }
       /*outdec(lval->offset);outstr("(%edx)");nl();*/
     }
   }
@@ -3921,6 +3959,8 @@ func loadbyre(lval:*elval)
   cfldbre(lval->offset);
   else if(lval->typ==T_FLOAT)
   {cfldbres(lval->offset);lval->typ=T_DOUBLE;}
+  else if(ll32(lval->typ))
+  zlbrw64(lval->offset);
   else if(typtab[lval->typ].size==BYTESIZE)/*ot("movsbl ");*/
   zlbrb(lval->offset);
   else if(typtab[lval->typ].size==target.wordsize)/*ot("movl ");*/

@@ -148,6 +148,17 @@
 #define CD_LL2F1   137 /* i386: signed 64-bit left(stack) -> x87 (2nd FP operand); pop 8 */
 #define CD_ULL2F   138 /* i386: unsigned 64-bit %edx:%eax -> x87 double (+2^64 if top bit) */
 #define CD_ULL2F1  139 /* i386: unsigned 64-bit left(stack) -> x87 (2nd FP operand); pop 8 */
+#define CD_LBRW64  140 /* i386: load 64-bit through ptr off(%eax) -> %edx:%eax */
+#define CD_STOW264 141 /* i386: store %edx:%eax through ptr saved on stack */
+#define CD_LNOT64  142 /* i386: logical-not of %edx:%eax -> %eax 0/1 */
+#define CD_BNOT64  143 /* i386: bitwise-not of %edx:%eax */
+#define CD_BOR64   144 /* i386: %edx:%eax |= 64-bit left on stack; pop 8 */
+#define CD_BXOR64  145 /* i386: %edx:%eax ^= 64-bit left on stack; pop 8 */
+#define CD_BAND64  146 /* i386: %edx:%eax &= 64-bit left on stack; pop 8 */
+#define CD_INC64   147 /* i386: %edx:%eax += arg */
+#define CD_DEC64   148 /* i386: %edx:%eax -= arg */
+#define CD_TESTJUMP64 149 /* i386: jump if %edx:%eax is zero */
+#define CD_TESTNEJUMP64 150 /* i386: jump if %edx:%eax is nonzero */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
