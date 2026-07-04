@@ -236,7 +236,57 @@ literals are emitted as `.double <text>` so the assembler computes the IEEE bits
   `fildll` of a zero-extended word on i386, the same trick on mips). Nested `?:`
   type propagation fixed in `cttype`. `fp_ternary_nested`/`fp_nan`/`fp_uint`
   golden tests on all five backends; fixpoints byte-identical
-- 💭 64-bit integers (`long long`) — related width work, often wanted alongside
+- ✅ 64-bit integers (`long long`) — done; see the dedicated section below
+
+## M4B — 64-bit integers (`long long`) ✅
+
+A guaranteed-64-bit integer type — `long long` / `unsigned long long`
+(`T_LLONG`/`T_ULLONG`, both 8 bytes). On x86_64/arm64/riscv/mips `int` is already
+64-bit (`target.wordsize`==8), so `long long` reuses the word codegen there; on
+i386 (32-bit word) it is a genuine 64-bit type built from `%edx:%eax` register
+pairs. Every 64-bit-specific i386 path is gated behind
+`ll32(t)` = `target.arch==ARCH_I386 && is64(t)`, and the i386-only `CD_*64`
+opcodes are lowered only in `cd_write_i386`, so the four 64-bit backends stay
+byte-identical and all five self-host fixpoints reach at every step.
+
+- ✅ Slice 1 — **the four 64-bit backends.** `T_LLONG`/`T_ULLONG` parsed by
+  `gettypen` (`long long`, `unsigned long long`; `long`/`unsigned long` alias the
+  word int/uint). `is64()`/`isunsigned()` thread through `issigned`, `uresult`
+  (propagates 64-bit-ness and unsignedness), `gettsize`, and the word load/store
+  gates. On the 64-bit targets `long long` behaves exactly like `int`; i386
+  rejected cleanly at this stage. Bumping `F_TYPE` only shifts the compiler's own
+  struct type-numbers in debug comments (machine code unchanged), so the fixpoints
+  stay byte-identical. (PR #63)
+- ✅ i386 slice 2a — **foundations.** 64-bit value in `%edx:%eax`; a binary op's
+  left operand stays 8 bytes on the stack and is read with carry/borrow (no scarce
+  second register pair). Load/store, load-immediate, add/sub/neg, all six compares
+  (signed + unsigned, via `sub`/`sbb` + ZF-free `setcc`; `>`/`<=` swapped;
+  `==`/`!=` branch-based), int↔ll conversion, and mixed-width (`ll op int`).
+  Multiply/divide/shift still rejected cleanly. (PR #64)
+- ✅ i386 slice 2b — **multiply.** Low 64 bits of `A*B` via three 32-bit
+  multiplies (`a_lo*b_lo` full 64-bit + the cross terms folded into the high
+  word); one `mull` routine serves both signed and unsigned. (PR #65)
+- ✅ i386 slice 2c — **divide/modulo** via the libgcc helpers
+  (`__divdi3`/`__udivdi3`/`__moddi3`/`__umoddi3`) — what gcc itself emits for i386
+  (32-bit x86 has no 64-bit divide). The toolchain links libgcc and the compiler
+  never divides 64-bit, so the fixpoints are unaffected; `llong.e` (`* / %`) now
+  runs on i386 too. (PR #66)
+- ✅ i386 slice 2d — **shifts.** `shld`/`shrd` for the cross-word bits, `testb
+  $32` for the count≥32 case; `long long` gets arithmetic right-shift,
+  `unsigned long long` logical. Completes every 64-bit *integer* op on i386. (PR #67)
+- ✅ i386 slice 2e — **`long long`↔`double`** via x87 (`fildll`/`fistpll`, which
+  load/store 64-bit integers directly), plus mixed `ll`/`double` arithmetic (a
+  64-bit left operand is pushed 8 bytes and loaded with `fildll` from the stack;
+  `wide64` excludes the FP case so mixed ops go through the x87 path). (PR #68)
+- ✅ i386 slice 2f — **8-byte function args/returns.** A `long long` argument is
+  pushed as 8 bytes across the cdecl boundary (the callee already laid out 8-byte
+  param slots) and returned in `%edx:%eax`; a returned `long long` needs the
+  `: long long` return annotation (same convention as `: double`). This makes
+  `long long` fully first-class on i386, so the harness's i386 "not supported"
+  skip is retired and every `long long` test runs on all five backends. (PR #69)
+- ⏳ One deferred edge: on i386, `unsigned long long` >= 2^63 converted to
+  `double` is approximate (signed `fildll`; a fully-correct unsigned conversion
+  needs a +2^64 correction with a float constant when the top bit is set).
 
 ## M5 — Optimization 🟡
 
