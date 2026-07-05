@@ -486,10 +486,16 @@ What turns a teaching compiler into something you'd build a project with:
     `ssym.ginit` field (value/pool-index in `sym.offset`), so like the `cnst`
     field only the `calloc` size constants move — all five fixpoints reach.
     `globinit` golden test on all five backends.
-  - ⏳ `const` follow-ups: `const` parameters, and `var x:int = e`
-    (name-first) initializers. Then `unsigned char` (zero-extending loads), robust
-    function pointers, proper varargs; struct-return follow-ups (`f().m`,
-    struct-by-value args)
+  - ✅ **Name-first initializers** — `var name:TYPE = expr;` now takes an
+    initializer too (locals and globals), closing the asymmetry with the
+    type-first form: after `gettypen()` the parser accepts `=` where it used to
+    demand `;`, and the existing shared init machinery (runtime store for
+    locals, constant `.data`/`.rodata` emission for globals, last-declarator
+    rule, `const` enforcement) does the rest. `init_namefirst` golden test on
+    all five backends.
+  - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
+    (zero-extending loads), robust function pointers, proper varargs;
+    struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
