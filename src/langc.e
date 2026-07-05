@@ -1004,7 +1004,8 @@ func dovar()
       else
       break;
     }
-    ns();
+    if(match("="))hasinit=1;  /* var name:TYPE = constexpr; (init block ends with ns) */
+    else ns();
   }
   for(lptr=lst;lptr;lptr=lptr->next)
   {
@@ -1708,7 +1709,8 @@ func dolocvar()
   if(!istyp)
   {
     typ=gettypen();
-    ns();
+    if(match("="))hasinit=1;  /* var name:TYPE = expr; (the init block ends with ns) */
+    else ns();
     k=gettsize(typ);
     comment();
     outstr("size:");
