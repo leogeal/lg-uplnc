@@ -471,8 +471,22 @@ What turns a teaching compiler into something you'd build a project with:
     `L_POI`) is still allowed. The compiler declares no `const`, so all five
     fixpoints reach (the self-output differs from the prior `main` only in a few
     `calloc(sizeof(ssym...))` size constants).
-  - ⏳ `const` follow-ups: **global** static initializers (`.data`/value emission)
-    so global `const` is usable, `const` parameters, and `var x:int = e`
+  - ✅ **Global variable initializers + usable global `const`** —
+    `var TYPE:name = constexpr;` at file scope lays the value down statically:
+    `dumpglbs` emits the variable into `.data` instead of `.comm` — or into
+    **`.rodata` when it is `const`**, so a stray write through a pointer faults
+    instead of corrupting silently (the compile-time `cnst` check already covered
+    by-name writes). The initializer must fold to a constant leaf: an integer
+    (`GI_VAL`, emitted `.byte`/`.long`/`.quad` by type), a wide 64-bit literal
+    (`GI_WIDE`, `.quad <text>` — the assembler computes it), or a float literal
+    (`GI_FLT`, `.double`/`.float <text>`); a unary minus on a float literal is
+    folded textually (foldtree never folds FP). Same last-declarator rule as
+    locals; extern+initializer, non-constant expressions, wide-on-32-bit-int and
+    float/int mismatches all diagnose cleanly. The kind lives in a new
+    `ssym.ginit` field (value/pool-index in `sym.offset`), so like the `cnst`
+    field only the `calloc` size constants move — all five fixpoints reach.
+    `globinit` golden test on all five backends.
+  - ⏳ `const` follow-ups: `const` parameters, and `var x:int = e`
     (name-first) initializers. Then `unsigned char` (zero-extending loads), robust
     function pointers, proper varargs; struct-return follow-ups (`f().m`,
     struct-by-value args)

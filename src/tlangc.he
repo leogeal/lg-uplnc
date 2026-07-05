@@ -57,9 +57,16 @@ struct ssym{
   int line;
   *snamelist nmlst;
   int cnst; /* M6 const: 1 if this variable may not be assigned to (added last so existing field offsets are unchanged) */
+  int ginit; /* global initializer kind (GI_*); the value or pool index is in offset */
   func init;
   func done;
 };
+/* global initializer kinds (ssym.ginit); GI_VAL keeps the value in sym.offset,
+   the text kinds keep a float-pool index there (the assembler computes them) */
+#define GI_NONE 0
+#define GI_VAL  1
+#define GI_WIDE 2
+#define GI_FLT  3
 struct ssymlist{
   ssym sym;
   *ssymlist next;

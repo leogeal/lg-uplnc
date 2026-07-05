@@ -936,7 +936,7 @@ func delsymlist(p:*ssymlist)
 }
 func dovar()
 {
-  var int:typ,istyp,wdfd,wcnst;
+  var int:typ,istyp,wdfd,wcnst,hasinit;
   var *ssymlist:lst,lptr;
   var **ssymlist:lpom;
   var *ssym:idx;
@@ -944,7 +944,7 @@ func dovar()
   istyp=0;
   lst=lptr=0;
   lpom=&lst;
-  wdfd=1;wcnst=0;
+  wdfd=1;wcnst=0;hasinit=0;
   while(1)
   {
     if(amatch("extern",6))wdfd=0;
@@ -977,7 +977,8 @@ func dovar()
     lpom=&(*lpom)->next;
     (*lpom)=0;
     if(istyp)
-    {if(match(";"))break;}
+    {if(match(";"))break;
+     if(match("=")){hasinit=1;break;}}  /* var TYPE:name = constexpr; (global) */
     else
     {if(match(":"))break;}
     if(endst())break;
@@ -1030,7 +1031,67 @@ func dovar()
     if(wcnst)idx->cnst=1;   /* M6 const */
     if(wdfd)++nvars;
   }
+  if(hasinit)
+  {
+    /* var TYPE:name = constexpr;  -- a *static* initializer: the value is laid
+       down in .data (.rodata if const) by dumpglbs, no code runs. idx is the
+       (single/last) declared variable, like the local-initializer rule. */
+    if(!wdfd)error("an extern declaration cannot have an initializer");
+    else doginit(idx,typ);
+    blanks();
+    if(ch()==',')
+    {
+      error("an initializer must be on the last declarator; split the declaration");
+      junk();
+    }
+    ns();
+  }
   delsymlist(lst);
+}
+/* parse + validate a global initializer for idx (of type typ). Must fold to a
+   constant leaf: an integer (GI_VAL, value in sym.offset), a wide 64-bit
+   literal (GI_WIDE, float-pool index -- the assembler computes the value), or a
+   float literal (GI_FLT, float-pool index, emitted .double/.float). A unary
+   minus on a float literal is folded here textually (foldtree never folds FP). */
+func doginit(idx:*ssym,typ:int)
+{
+  var *enode:inode;var *enode:leaf;
+  var int:kind,v;
+  var [52]char:nbuf;var int:i;var *char:s;
+  inode=hier1();
+  foldtree(inode);
+  leaf=inode;
+  kind=GI_NONE;v=0;
+  if(leaf&&(leaf->op==OP_UMINUS)&&leaf->r&&(leaf->r->op==OP_LEAF)
+   &&(leaf->r->leaf.vid==L_FNUM))
+  {
+    /* -3.14: prepend the sign to the literal's pool text */
+    s=fpoolbuf+fpooloff[leaf->r->leaf.val];
+    i=0;nbuf[i++]='-';
+    while(*s&&(i<51))nbuf[i++]=*s++;
+    nbuf[i]=0;
+    kind=GI_FLT;v=addfloat(nbuf);
+  }
+  else if(leaf&&(leaf->op==OP_LEAF))
+  {
+    if(leaf->leaf.vid==L_NUM){kind=GI_VAL;v=leaf->leaf.val;}
+    else if(leaf->leaf.vid==L_WNUM){kind=GI_WIDE;v=leaf->leaf.val;}
+    else if(leaf->leaf.vid==L_FNUM){kind=GI_FLT;v=leaf->leaf.val;}
+  }
+  delenode(inode);
+  if(kind==GI_NONE)
+  {error("a global initializer must be a constant expression");return;}
+  /* type/kind agreement */
+  if(isfp(typ))
+  {if(kind!=GI_FLT){error("a float global needs a float literal initializer (e.g. 1.0)");return;}}
+  else if(kind==GI_FLT)
+  {error("a float initializer on an integer global");return;}
+  else if((kind==GI_WIDE)&&!is64(typ)&&(target.wordsize<8))
+  {error("initializer does not fit a 32-bit int");return;}
+  if((typtab[typ].sort==V_ARR)||(typtab[typ].sort==V_STR))
+  {error("arrays and structs cannot be initialized yet");return;}
+  idx->ginit=kind;
+  idx->offset=v;
 }
 func addmac()
 {
@@ -5517,6 +5578,7 @@ func dumpglbs()
   {
     if(lst->sym.sort==S_VARG)if(lst->sym.dfd)
     {
+      if(lst->sym.ginit){dumpginit(&lst->sym);continue;}
       defstora();
       outname(lst->sym.name);
       comma();
@@ -5530,6 +5592,32 @@ func dumpglbs()
       nl();
     }
   }
+}
+/* lay down one initialized global: value bytes in .data -- or .rodata when it
+   is const, so a stray write through a pointer faults instead of corrupting.
+   The assembler computes wide/float texts (like the .LF pool). */
+func dumpginit(sym:*ssym)
+{
+  var int:t;
+  t=sym->type;
+  if(sym->cnst){ot(target.dir_section);ot(target.dir_rodata);nl();}
+  else ol(".data");
+  if(t!=T_CHAR){ot(target.dir_align);nl();}
+  outasm(target.dir_globl);
+  outname(sym->name);
+  nl();
+  outname(sym->name);
+  col();
+  nl();
+  if(t==T_CHAR)ot(".byte ");
+  else if(t==T_DOUBLE)ot(".double ");
+  else if(t==T_FLOAT)ot(".float ");
+  else if(is64(t)||(target.wordsize==8))ot(".quad ");
+  else ot(".long ");
+  if(sym->ginit==GI_VAL)outdec(sym->offset);
+  else outstr(fpoolbuf+fpooloff[sym->offset]);
+  nl();
+  ol(".text");   /* back to code for whatever follows */
 }
 func trailer()
 {
