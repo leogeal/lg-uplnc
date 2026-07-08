@@ -100,3 +100,5 @@ llong_indirect 42
 llong_lit 42
 globinit 42
 init_namefirst 42
+fnptr 42
+fnptr_nest 42

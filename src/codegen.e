@@ -481,6 +481,14 @@ func cd_write_x86_64(*scode:this)
     if(strid(this->str,"getchar")||strid(this->str,"fgetc")||strid(this->str,"getc"))
     ol("cltq");
   }
+  else if(this->code==CD_ICALL)
+  {
+    /* the callee address was pushed below the args; %r11 is caller-saved, not
+       an arg register, and untouched by CD_MARSHAL. %al=0: no xmm args. */
+    ot("movq ");outdec(this->arg);outstr("(%rsp), %r11");nl();
+    ol("movb $0, %al");
+    ol("call *%r11");
+  }
   else if(this->code==CD_SPILLARGS)
   {
     /* callee prologue: spill the incoming arg registers to their param slots
@@ -1189,6 +1197,11 @@ func cd_write_arm64(*scode:this)
     if(strid(this->str,"getchar")||strid(this->str,"fgetc")||strid(this->str,"getc"))
     ol("sxtw x0, w0");
   }
+  else if(this->code==CD_ICALL)
+  {
+    ot("ldr x9, [sp, #");outdec(this->arg);outstr("]");nl();
+    ol("blr x9");
+  }
   else if(this->code==CD_SPILLARGS)
   {
     var int:i;
@@ -1438,6 +1451,8 @@ func cd_write_riscv(*scode:this)
        getchar/fgetc need no fixup (unlike the x86_64 cltq). */
     ot("call ");outname(this->str);nl();
   }
+  else if(this->code==CD_ICALL)
+  {ot("ld t0, ");outdec(this->arg);outstr("(sp)");nl();ol("jalr t0");}
   else if(this->code==CD_SPILLARGS)
   {
     var int:i;
@@ -1688,6 +1703,12 @@ func cd_write_mips(*scode:this)
     ot("dla $25, ");outname(this->str);nl();
     ol("jalr $25");
   }
+  else if(this->code==CD_ICALL)
+  {
+    /* indirect through $t9 -- exactly the MIPS PIC callee convention above */
+    ot("ld $25, ");outdec(this->arg);outstr("($sp)");nl();
+    ol("jalr $25");
+  }
   else if(this->code==CD_SPILLARGS)
   {
     var int:i;
@@ -1857,6 +1878,12 @@ func cd_write_i386(*scode:this)
     ot("call ");
     outname(this->str);
     nl();
+  }
+  else if(this->code==CD_ICALL)
+  {
+    /* cdecl: args are on the stack; the callee address sits just below them */
+    ot("movl ");outdec(this->arg);outstr("(%esp), %ecx");nl();
+    ol("call *%ecx");
   }
   else if(this->code==CD_LAB)
   {
@@ -2828,6 +2855,13 @@ func marshal(n:int)     /* x86_64 SysV: load n pushed args into arg registers */
   cd=cg_getitem(ccg);
   cd->code=CD_MARSHAL;
   cd->arg=n;
+}
+func icall(off:int)     /* indirect call through the function address at off(sp) */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_ICALL;
+  cd->arg=off;
 }
 func cloadflit(idx:int) /* M4: load float literal .LF<idx> into the FP accum */
 {

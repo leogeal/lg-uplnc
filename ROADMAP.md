@@ -493,8 +493,24 @@ What turns a teaching compiler into something you'd build a project with:
     locals, constant `.data`/`.rodata` emission for globals, last-declarator
     rule, `const` enforcement) does the rest. `init_namefirst` golden test on
     all five backends.
+  - ✅ **Function pointers** — a bare function name (or `&f`) is now a value:
+    its address, loaded like a global's (`CD_LDA`). Any expression can be
+    *called*: variables, parameters (callbacks — `apply(f,x){return f(x);}`),
+    dispatch-table elements (`tab[i](x)`); the postfix-`(` grammar already
+    parsed these, so the work was `ct_FUNC`'s indirect branch + one `CD_ICALL`
+    opcode. The callee address is evaluated first and pushed as the deepest
+    stack slot — *below* the args, so the existing marshal offsets are unchanged
+    — then `CD_ICALL` loads it into a per-backend scratch register and calls
+    through it: `call *%r11` (x86_64, `%al`=0), `call *%ecx` (i386 cdecl),
+    `blr x9` (arm64), `jalr t0` (riscv), and `jalr $25` on mips — which is
+    exactly the `$t9` PIC convention that target already requires for direct
+    calls. Indirect calls take int/pointer args and return int/pointer;
+    FP args, more than `nargreg` args, and double returns through a pointer
+    error cleanly. `fnptr`/`fnptr_nest` golden tests (calls through variables,
+    `&f`, callbacks, composition `f(g(x))`, dispatch tables) on all five
+    backends; all five fixpoints byte-identical.
   - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
-    (zero-extending loads), robust function pointers, proper varargs;
+    (zero-extending loads), proper varargs;
     struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
