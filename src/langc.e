@@ -3623,7 +3623,7 @@ func ct_ADDRDIR(node:*enode,lval:*elval)
     }
     else if(lval->idx->sort==S_FUNC)
     {
-      error("address of function: to be implemented");
+      zlda(lval->idx->name,0);   /* &f: the function's address, like a global's */
     }
     else error("error taking address");
   }
@@ -3672,7 +3672,7 @@ func ct_ADDR(node:*enode,lval:*elval)
     }
     else if(lval->idx->sort==S_FUNC)
     {
-      error("address of function: to be implemented");
+      zlda(lval->idx->name,0);   /* &f: the function's address, like a global's */
     }
     else error("error taking address");
   }
@@ -3891,10 +3891,60 @@ func ct_FUNC(node:*enode,lval:*elval)
   }
   else
   {
-    error("function by ptr needs to be implemented");
-    fprintf(stderr,
-        "l->op=%d,l->leaf.vid=%d\n",
-        l->op,l->leaf.vid);
+    /* indirect call: the callee is any expression yielding a function address
+       (a variable, a parameter, an array element...). Evaluate it FIRST and
+       push it as the deepest stack slot -- below the args, so the existing
+       marshal offsets are unchanged -- then CD_ICALL loads it from there into a
+       per-backend scratch register and calls through it. Result type is int
+       (a double-returning callee cannot be called through a pointer yet). */
+    var int:inargs;var int:isavezsp;var int:icnt;var *enode:irr;var int:ipad;
+    r=node->r;
+    if(target.arch!=ARCH_I386)
+    {
+      isavezsp=Zsp;
+      icnt=0;irr=r;while(irr){icnt++;irr=irr->r;}
+      if(icnt>target.nargreg)
+      error("this many arguments in an indirect call are not supported yet");
+      ipad=(((Zsp-(icnt+1)*target.stackslot)%16)+16)%16;
+      if(ipad)Zsp=modstk(Zsp-ipad);
+      if(treetocode(l,&lval2))rvalue(&lval2);   /* callee address */
+      zpush();
+      irr=r;
+      while(irr)
+      {
+        k=treetocode(irr->l,&lval2);
+        if(k)rvalue(&lval2);
+        if(isfp(lval2.typ))
+        error("floating-point arguments in an indirect call are not supported yet");
+        zpush();
+        irr=irr->r;
+      }
+      marshal(icnt);
+      icall(icnt*target.stackslot);
+      Zsp=modstk(isavezsp);
+    }
+    else
+    {
+      inargs=0;
+      if(treetocode(l,&lval2))rvalue(&lval2);   /* callee address, pushed deepest */
+      zpush();
+      while(r)
+      {
+        k=treetocode(r->l,&lval2);
+        if(k)rvalue(&lval2);
+        if(isfp(lval2.typ)){fpush();inargs=inargs+8;}
+        else if(ll32(lval2.typ)){zpush64();inargs=inargs+8;}
+        else{zpush();inargs=inargs+target.wordsize;}
+        r=r->r;
+      }
+      icall(inargs);
+      Zsp=modstk(Zsp+inargs+target.wordsize);   /* args + the callee slot */
+    }
+    lval->sort=L_ONREG;
+    lval->idx=0;
+    lval->offset=0;
+    lval->typ=T_INT;
+    return 0;
   }
   lval->sort=L_ONREG;
   lval->idx=0;
@@ -4020,6 +4070,8 @@ func rvalue(lval:*elval)
   cloadflit(lval->val);
   else if(lval->sort==L_WNUM)/*wide 64-bit literal (text)*/
   loadwnum(lval);
+  else if(lval->sort==L_ID&&lval->idx&&(lval->idx->sort==S_FUNC))
+  zlda(lval->idx->name,0);   /* a bare function name decays to its address */
   else if(lval->sort==L_ID&&lval->idx)/*variable...*/
   getmem(lval);
   else if(lval->sort==L_POI)

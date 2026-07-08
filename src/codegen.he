@@ -160,6 +160,7 @@
 #define CD_TESTJUMP64 149 /* i386: jump if %edx:%eax is zero */
 #define CD_TESTNEJUMP64 150 /* i386: jump if %edx:%eax is nonzero */
 #define CD_LDNW    151 /* wide 64-bit int literal: str=text, arg=.LF pool idx (i386 pair load) */
+#define CD_ICALL   152 /* indirect call: callee address in the stack slot at arg(sp) */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2
