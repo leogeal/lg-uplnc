@@ -517,7 +517,13 @@ What turns a teaching compiler into something you'd build a project with:
     FP args, more than `nargreg` args, and double returns through a pointer
     error cleanly. `fnptr`/`fnptr_nest` golden tests (calls through variables,
     `&f`, callbacks, composition `f(g(x))`, dispatch tables) on all five
-    backends; all five fixpoints byte-identical.
+    backends; all five fixpoints byte-identical. Follow-up (PR #79): the two
+    span-based optimizer passes only knew `CD_ZCALL` as a call boundary —
+    `promote_locals` kept a local in a caller-saved register across an indirect
+    call (clobbered by the callee), and `regspill` register-held the callee-
+    address PUSH (no matching POP), mispairing it with a later operand POP so
+    the indirect call jumped through garbage (SIGSEGV). Both passes now treat
+    `CD_ICALL` like `CD_ZCALL`; `fnptr_promote`/`fnptr_spill` regression tests.
   - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
     (zero-extending loads), proper varargs;
     struct-return follow-ups (`f().m`, struct-by-value args)
