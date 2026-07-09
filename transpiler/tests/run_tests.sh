@@ -213,6 +213,31 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
                                                     || bad "error located in the include"
     grep -q 'uplnc_loc.e:5:' "$TMPD/uplnc_loc.err"  && ok "error located after the include resync" \
                                                     || bad "error located after the include resync"
+
+    # On register targets, user-defined variadic functions expose only the
+    # register tail as a contiguous vastart() area. Calls that spill variadic
+    # args to the stack must error instead of silently reading the wrong slots.
+    printf 'func sum(n:int,...){var p:*int;var s:int;var i:int;p=vastart();s=0;i=0;while(i<n){s=s+p[i];i++;}return s;}\nfunc main(){return sum(7,1,2,3,4,5,6,7);}\n' > "$TMPD/uplnc_varargs_many.e"
+    if "$LPP" "$TMPD/uplnc_varargs_many.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_varargs_many.s" 2>"$TMPD/uplnc_varargs_many.err"; then
+        bad "variadic call with spilled args exits nonzero"
+    elif grep -q 'variadic call' "$TMPD/uplnc_varargs_many.s"; then
+        ok "variadic call with spilled args diagnosed"
+    else
+        bad "variadic call with spilled args diagnostic"
+    fi
+
+    # x86_64/arm64 pass FP varargs in FP registers, but this vastart() model
+    # exposes the integer register tail; reject the unsupported shape cleanly.
+    printf 'func first(...){var p:*int;p=vastart();return p[0];}\nfunc main(){return first(1.0);}\n' > "$TMPD/uplnc_varargs_fp.e"
+    if "$LPP" "$TMPD/uplnc_varargs_fp.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_varargs_fp.s" 2>"$TMPD/uplnc_varargs_fp.err"; then
+        bad "floating-point variadic arg exits nonzero"
+    elif grep -q 'floating-point variadic arguments' "$TMPD/uplnc_varargs_fp.s"; then
+        ok "floating-point variadic arg diagnosed"
+    else
+        bad "floating-point variadic arg diagnostic"
+    fi
 else
     bad "langc not built"
 fi
