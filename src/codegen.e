@@ -278,8 +278,13 @@ func regspill(this:*scodegen)
   while(i<n)
   {
     c=this->codes[i].code;
-    if(c==CD_ZCALL)              /* clobbers every register-held open save */
+    if((c==CD_ZCALL)||(c==CD_ICALL)) /* clobbers every register-held open save */
     {
+      /* CD_ICALL matters twice over: the callee may clobber the caller-saved
+         save registers (like any call), and the indirect callee-address PUSH
+         has no matching POP -- left register-held it would mispair with a later
+         operand POP, and the address slot CD_ICALL reads would never be written
+         (an indirect jump through garbage). */
       for(j=0;j<sp;j++)if(sreg[j]>=0)sreg[j]=0-1;
       openreg=0;
     }
@@ -347,7 +352,7 @@ func promote_locals(this:*scodegen)
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
     c=this->codes[i].code;
-    if(c==CD_ZCALL)leaf=0;
+    if((c==CD_ZCALL)||(c==CD_ICALL))leaf=0;
     else if(c==CD_LOCAL)
     {
       if(ncand<PROMLOC_MAX){cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;ncand=ncand+1;}
