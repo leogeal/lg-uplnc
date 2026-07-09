@@ -58,6 +58,8 @@ struct ssym{
   *snamelist nmlst;
   int cnst; /* M6 const: 1 if this variable may not be assigned to (added last so existing field offsets are unchanged) */
   int ginit; /* global initializer kind (GI_*); the value or pool index is in offset */
+  int isva;  /* variadic function: parameter list ended with ... */
+  int nfixed;/* number of named parameters before ... */
   func init;
   func done;
 };

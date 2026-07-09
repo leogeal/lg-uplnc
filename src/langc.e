@@ -1279,8 +1279,10 @@ func dofunc()
   var [8]int:paramtyp;   /* M4 slice 4b: type of each register param, by position */
   var int:nfpparam;      /* M4 slice 4b: how many params are doubles */
   var int:isva;          /* varargs: the parameter list ended with `...` */
+  var int:nfixed;        /* number of named parameters before `...` */
   nfpparam=0;
   isva=0;
+  nfixed=0;
   g_vaoff=0;
   comment();
   ol(".fnc");
@@ -1363,6 +1365,7 @@ func dofunc()
       argtype=gettypen();
     }
     k=gettsize(argtype);
+    nfixed=nfixed+1;
     /* round arg slot up to a target word (i386: 4, x86_64: 8) */
     if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
     if(target.arch!=ARCH_I386)
@@ -1409,8 +1412,6 @@ func dofunc()
     if(gp->type==T_FLOAT)   /* slice 5: float return is single-prec at the ABI */
     error("float return not supported yet -- use double");
   }
-  if(match(";"))return ;
-  nfunc++;
   if(isva)
   {
     /* varargs restrictions (all error cleanly rather than miscompile):
@@ -1424,6 +1425,14 @@ func dofunc()
     if((target.arch!=ARCH_I386)&&(argstk/target.wordsize>=target.nargreg))
     error("this many named parameters in a variadic function are not supported yet");
   }
+  if(gp->isva&&(!isva))
+  error("conflicting variadic function declaration");
+  if(gp->isva&&isva&&(gp->nfixed!=nfixed))
+  error("conflicting variadic function declaration");
+  gp->isva=isva;
+  gp->nfixed=nfixed;
+  if(match(";"))return ;
+  nfunc++;
   var *snamelist:savenmlst;
   savenmlst=cnmlst;
   cnmlst=gp->nmlst;
@@ -3808,6 +3817,32 @@ func ct_BNOT(node:*enode,lval:*elval)
   lval->offset=0;
   return 0;
 }
+func chkvarcall(fn:*ssym,args:*enode,cnt:int)
+{
+  var *enode:rr;
+  var int:pos;
+  if(!fn)return;
+  if(!fn->isva)return;
+  if(cnt<fn->nfixed)
+  error("too few arguments to a variadic function");
+  if((target.arch!=ARCH_I386)&&(cnt>target.nargreg))
+  error("this many arguments in a variadic call are not supported yet");
+  /* x86_64/arm64 pass FP varargs in FP registers, but vastart() exposes the
+     integer register tail only. RISC-V/MIPS pass FP bits through integer regs;
+     i386's cdecl stack is naturally addressable by vastart(). */
+  if((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64))
+  {
+    rr=args;
+    pos=cnt;
+    while(rr)
+    {
+      if((pos>fn->nfixed)&&isfp(cttype(rr->l)))
+      error("floating-point variadic arguments are not supported yet");
+      pos=pos-1;
+      rr=rr->r;
+    }
+  }
+}
 func ct_FUNC(node:*enode,lval:*elval)
 {
   var int:k;
@@ -3823,6 +3858,9 @@ func ct_FUNC(node:*enode,lval:*elval)
     var int:structret;var *elval:sretp;
     r=node->r;
     nargs=0;
+    var int:callcnt;var *enode:crr;
+    callcnt=0;crr=r;while(crr){callcnt++;crr=crr->r;}
+    chkvarcall(l->leaf.idx,r,callcnt);
     /* M6 2b: struct-returning call -- pass &dst (captured in g_sretp by the
        `s = f()` handler) as a hidden sret pointer, pushed first so it lands in
        the last argument slot, matching the callee's last (sret) parameter. */
@@ -3838,7 +3876,7 @@ func ct_FUNC(node:*enode,lval:*elval)
       var int:cfp;var int:cint;var int:ireg;var int:freg;var int:i;var int:j;
       var [32]int:atypes;
       savezsp=Zsp;
-      cnt=0;rr=r;while(rr){cnt++;rr=rr->r;}
+      cnt=callcnt;
       cfp=0;rr=r;while(rr){if(isfp(cttype(rr->l)))cfp=cfp+1;rr=rr->r;}
       if(structret&&(cfp>0))error("struct return with floating-point arguments not supported yet");
       if(structret)cnt=cnt+1;   /* the hidden sret pointer is an extra argument */

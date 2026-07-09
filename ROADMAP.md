@@ -539,8 +539,11 @@ What turns a teaching compiler into something you'd build a project with:
     forward declarations. Errors cleanly: `vastart()` outside a variadic
     function, params after `...`, FP named params, and ≥`nargreg` named params
     on the register targets (the tail must be all-register to be contiguous;
-    variadic *calls* are likewise capped there). `varargs` golden test on all
-    five backends; all five fixpoints byte-identical.
+    variadic *calls* are likewise capped there). Follow-up: function symbols now
+    remember `isva`/`nfixed`, so direct calls to known UPLNC variadic functions
+    reject spilled register-target varargs and FP varargs on x86_64/arm64
+    cleanly instead of reading the wrong frame/register area. `varargs` golden
+    test plus diagnostics on all five backends; all five fixpoints byte-identical.
   - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
     (zero-extending loads),
     struct-return follow-ups (`f().m`, struct-by-value args)
