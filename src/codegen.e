@@ -347,7 +347,7 @@ func promote_locals(this:*scodegen)
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
     c=this->codes[i].code;
-    if(c==CD_ZCALL)leaf=0;
+    if((c==CD_ZCALL)||(c==CD_ICALL))leaf=0;
     else if(c==CD_LOCAL)
     {
       if(ncand<PROMLOC_MAX){cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;ncand=ncand+1;}

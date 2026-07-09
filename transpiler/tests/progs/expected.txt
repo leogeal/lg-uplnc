@@ -102,3 +102,4 @@ globinit 42
 init_namefirst 42
 fnptr 42
 fnptr_nest 42
+fnptr_promote 42
