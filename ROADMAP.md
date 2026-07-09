@@ -403,8 +403,17 @@ wins first:
 
 What turns a teaching compiler into something you'd build a project with:
 
-- ⏳ **Diagnostics**: line/column in errors, error recovery (not stop-on-first),
-  warnings
+- 🟡 **Diagnostics**: line-numbered errors ✅ — every langc error now reports
+  `<file>:<line>:` (plus the offending line and a caret, which existed), correct
+  **across `#include` boundaries**: lpp1 emits classic `# <n> "<file>"` line
+  markers at the start of the input, on entering an include, and on returning
+  from one; langc's `insline` swallows the markers and resyncs `cline` and a new
+  `cfile` from them (input without markers falls back to plain `line N:`).
+  lpp1's own errors also carry `<file>:<line>`. The markers are invisible to
+  the emitted assembly (not echoed), so clean compiles are unchanged and all
+  five fixpoints reach; two harness checks pin the location accuracy inside an
+  include and after the resync. Still open: columns in the caret line are
+  byte-offsets (good enough), error recovery (not stop-on-first), warnings
 - ⏳ A small **standard library** (instead of calling libc via bare `extern`s)
 - ⏳ **Debug info** (DWARF) so `gdb` works
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd

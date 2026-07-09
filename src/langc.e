@@ -215,6 +215,7 @@ var litstkle:[litstknu]int;
 var litstkpt:[litstknu]int;
 var line:[linesize]char;
 var cline:int;
+var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
 var mline:[linesize]char;
 var lptr:int;
 var mptr:int;
@@ -1183,23 +1184,45 @@ func ch()
 func insline()
 {
   var int:k;
-  if(!isinp)iseof=1;
-  if(iseof)return ;
-  lptr=0;
-  line[0]=0;
-  while((k=getchar())>0){
-  if((k==10)||(lptr>=linemax))break;
-  line[lptr++]=k;
+  var int:n,i;
+  while(1)
+  {
+    if(!isinp)iseof=1;
+    if(iseof)return ;
+    lptr=0;
+    line[0]=0;
+    while((k=getchar())>0){
+    if((k==10)||(lptr>=linemax))break;
+    line[lptr++]=k;
+    }
+    line[lptr]=0;
+    if(k<0)isinp=0;
+    /* lpp1 line marker `# <n> "<file>"`: resync the error location (the next
+       counted line becomes n) and swallow the marker -- not code, not echoed. */
+    if((line[0]=='#')&&(line[1]==' ')&&numeric(line[2]))
+    {
+      n=0;i=2;
+      while(numeric(line[i]))n=n*10+(line[i++]-'0');
+      cline=n-1;
+      while(line[i]&&(line[i]!='"'))i++;
+      if(line[i]=='"')
+      {
+        i++;k=0;
+        while(line[i]&&(line[i]!='"')&&(k<79))cfile[k++]=line[i++];
+        cfile[k]=0;
+      }
+      lptr=0;
+      continue;
+    }
+    if(lptr){
+    comment();
+    outstr(line);
+    nl();
+    lptr=0;
+    }
+    cline++;
+    return ;
   }
-  line[lptr]=0;
-  if(k<0)isinp=0;
-  if(lptr){
-  comment();
-  outstr(line);
-  nl();
-  lptr=0;
-  }
-  cline++;
 }
 func preproce()
 {
@@ -5554,9 +5577,11 @@ func error(p:*char)
 {
   var int:k;
   comment();
+  if(cfile[0]){outstr(cfile);col();outdec(cline);col();}
   outstr("Error:");
   outstr(p);
-  fprintf(stderr,"---->Error:%s\n",p);
+  if(cfile[0])fprintf(stderr,"%s:%d: Error:%s\n",cfile,cline,p);
+  else fprintf(stderr,"---->line %d: Error:%s\n",cline,p);
   fprintf(stderr,"%s\n",line);
   for(k=lptr;k--;)fprintf(stderr," ");
   fprintf(stderr,"^\n");

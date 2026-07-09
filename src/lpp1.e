@@ -21,6 +21,10 @@
 var extern stderr,stdin,stdout:*int;
 var ifil,ofil:*int;
 var ifiles:[MAXINC]*int;
+/* per-open-file line numbers and names, for `# <line> "<file>"` markers in the
+   output -- langc resyncs its error locations from them across #include */
+var ilines:[MAXINC]int;
+var inamebuf:[640]char;   /* MAXINC names, 64 bytes each */
 var iptr:int;
 var line,rline:[160]char;
 var lptr,rlptr:int;
@@ -140,8 +144,23 @@ func amatch(lit:*char,len:int)
 }
 func error(p:*char)
 {
-  fprintf(stderr,"***** Error:%s\nline:%s\n",p,line);
+  fprintf(stderr,"%s:%d: ***** Error:%s\nline:%s\n",
+      inamebuf+iptr*64,ilines[iptr],p,line);
   ++errcnt;
+}
+func setiname(s:*char)   /* remember the (bounded) name of the file at iptr */
+{
+  var int:k;
+  k=0;
+  while(s[k]&&(k<63)){inamebuf[iptr*64+k]=s[k];k++;}
+  inamebuf[iptr*64+k]=0;
+}
+/* `# <n> "<name>"`: langc numbers the next output line n. Emitted with n one
+   below the true next source line, because the directive line that triggered
+   the switch still flushes as one blank output line after the marker. */
+func linemark(n:int,name:*char)
+{
+  fprintf(ofil,"# %d \"%s\"\n",n,name);
 }
 func an(c:int)
 {
@@ -176,6 +195,7 @@ func insline()
     line[lptr++]=k;
   }
   line[lptr]=0;
+  ilines[iptr]=ilines[iptr]+1;
   if(longline)error("input line too long");
   if(k<0)
   {
@@ -183,6 +203,9 @@ func insline()
     {
       fclose(ifil);
       ifil=ifiles[--iptr];
+      /* back to the outer file: resync langc (its next real line there is
+         ilines[iptr]+1; the include's trailing blank absorbs the first count) */
+      linemark(ilines[iptr],inamebuf+iptr*64);
     }
     else
     isinp=0;
@@ -390,6 +413,12 @@ func doinclude()
       error("error opening %s\n",newn);
       ifil=ifiles[--iptr];
     }
+    else
+    {
+      ilines[iptr]=0;
+      setiname(newn);
+      linemark(0,newn);   /* the #include line's blank flushes as "line 0" */
+    }
   }
 }
 func process()
@@ -436,6 +465,11 @@ func main(argc:int,argv:**char)
   else
   ofil=stdout;
   ifiles[0]=ifil;
+  ilines[0]=0;
+  if(inn)setiname(inn);
+  else setiname("<stdin>");
+  /* n=1 directly: nothing precedes the first source line (no blank to absorb) */
+  linemark(1,inamebuf);
   var int:c;
   process();
   
