@@ -216,6 +216,7 @@ var litstkpt:[litstknu]int;
 var line:[linesize]char;
 var cline:int;
 var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
+var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var mline:[linesize]char;
 var lptr:int;
 var mptr:int;
@@ -1277,7 +1278,10 @@ func dofunc()
   var int:k;
   var [8]int:paramtyp;   /* M4 slice 4b: type of each register param, by position */
   var int:nfpparam;      /* M4 slice 4b: how many params are doubles */
+  var int:isva;          /* varargs: the parameter list ended with `...` */
   nfpparam=0;
+  isva=0;
+  g_vaoff=0;
   comment();
   ol(".fnc");
   if(methodcls&&methodidx)
@@ -1324,6 +1328,18 @@ func dofunc()
   }
   while(!match(trarg/*")"*/))
   {
+    if(match("..."))
+    {
+      /* varargs: `...` must close the list; the loop condition eats the ')' */
+      isva=1;
+      continue;
+    }
+    if(isva)
+    {
+      error("')' expected after '...'");
+      junk();
+      break;
+    }
     if(cbtype())
     {
       argtype=gettypen();
@@ -1395,6 +1411,19 @@ func dofunc()
   }
   if(match(";"))return ;
   nfunc++;
+  if(isva)
+  {
+    /* varargs restrictions (all error cleanly rather than miscompile):
+       methods and struct returns use the last-parameter slot themselves; FP
+       named params would shift the integer register numbering under the flat
+       va-area model; and on the register targets every arg must arrive in a
+       register for the va area to be contiguous. */
+    if(methodcls&&methodidx)error("a variadic method is not supported yet");
+    if(typtab[gp->type].sort==V_STR)error("a variadic struct-returning function is not supported yet");
+    if(nfpparam)error("floating-point parameters in a variadic function are not supported yet");
+    if((target.arch!=ARCH_I386)&&(argstk/target.wordsize>=target.nargreg))
+    error("this many named parameters in a variadic function are not supported yet");
+  }
   var *snamelist:savenmlst;
   savenmlst=cnmlst;
   cnmlst=gp->nmlst;
@@ -1474,6 +1503,28 @@ func dofunc()
         }
       }
     }
+    if(isva)
+    {
+      /* varargs: spill the remaining arg registers just below the named params,
+         in REVERSE register order, so the variadic tail is contiguous and walks
+         upward -- vararg j (register nsp+j-1) lands at -(nsp+kv-j+1)*ws, and
+         vastart() = fp - nargreg*ws points at vararg 1. */
+      var int:kv;var int:jv;
+      kv=target.nargreg-nsp;
+      if(kv>0)
+      {
+        Zsp=modstk(Zsp-kv*target.wordsize);
+        for(jv=1;jv<=kv;jv++)
+        sargint(0-((nsp+kv-jv+1)*target.wordsize),nsp+jv-1);
+      }
+      g_vaoff=0-(target.nargreg*target.wordsize);
+    }
+  }
+  else if(isva)
+  {
+    /* i386 cdecl: the caller's stack is already the va area -- the first
+       variadic arg sits right above the named params. */
+    g_vaoff=argstk+2*target.wordsize;
   }
   if(target.csrsave)
   {
@@ -2536,6 +2587,8 @@ func pretree(node:*enode,ofil:*int)
     fprintf(ofil,"\"\"",litq+node->leaf.val);
     else if(node->leaf.vid==L_ID)
     fprintf(ofil,"%s",node->name);
+    else if(node->leaf.vid==L_VAST)
+    fprintf(ofil,"vastart()");
     else
     error("unknown leaf");
   }
@@ -2692,6 +2745,8 @@ func cttype(node:*enode)
     return T_DOUBLE;
     else if(node->leaf.vid==L_WNUM)
     {if(target.arch==ARCH_I386)return T_LLONG;return T_INT;}
+    else if(node->leaf.vid==L_VAST)
+    return T_INTP;
     else if(node->leaf.vid==L_ID)
     return node->leaf.idx->type;
     else if(node->leaf.vid==L_STR)
@@ -2800,6 +2855,17 @@ func treetocode(node:*enode,lval:*elval)
       if(target.arch==ARCH_I386)lval->typ=T_LLONG;else lval->typ=T_INT;
       lval->val=node->leaf.val;   /* pool index of the literal text */
       return 1;
+    }
+    else if(node->leaf.vid==L_VAST)
+    {
+      if(!g_vaoff)error("vastart() outside a variadic function");
+      zlea(g_vaoff);              /* address of the first variadic argument */
+      lval->sort=L_ONREG;
+      lval->idx=0;
+      lval->offset=0;
+      lval->typ=T_INTP;
+      lval->val=0;
+      return 0;
     }
     else if(node->leaf.vid==L_ID)
     {
@@ -4950,6 +5016,19 @@ func primary()
     node->op=OP_LEAF;
     node->leaf.vid=L_NUM;
     node->leaf.val=s;
+    return node;
+  }
+  if(amatch("vastart",7))
+  {
+    /* vastart(): a *int pointing at the first variadic argument; the varargs
+       are word-size values at +wordsize steps (p[0], p[1], ...). */
+    needbrac(tlarg);
+    needbrac(trarg);
+    node=getenode();
+    node->l=node->r=node->third=0;
+    node->op=OP_LEAF;
+    node->leaf.vid=L_VAST;
+    node->leaf.val=0;
     return node;
   }
   {

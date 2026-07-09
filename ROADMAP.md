@@ -524,8 +524,25 @@ What turns a teaching compiler into something you'd build a project with:
     address PUSH (no matching POP), mispairing it with a later operand POP so
     the indirect call jumped through garbage (SIGSEGV). Both passes now treat
     `CD_ICALL` like `CD_ZCALL`; `fnptr_promote`/`fnptr_spill` regression tests.
+  - ✅ **Variadic functions** — `func f(a:int,...)` can now be *defined*, not
+    just called: `vastart()` in the body yields a `*int` to the first variadic
+    argument, and the varargs are word-size values at `p[0]`, `p[1]`, ....
+    The caller needs no special convention — UPLNC's marshal is position-based
+    and already matches the variadic ABI everywhere (riscv/mips pass everything
+    variadic-style, x86_64 sets `%al`, i386 is cdecl) — so the whole feature is
+    callee-side: the prologue spills the *remaining* argument registers just
+    below the named params in reverse register order, making the tail
+    contiguous and upward-walkable (`CD_SARGINT`, newly lowered on riscv/mips
+    too); on i386 the caller's cdecl stack already *is* the va area
+    (`vastart() = fp+8+argstk`, no prologue cost). Works with zero named
+    params (`func f(...)`), non-leaf variadic functions, pointer varargs, and
+    forward declarations. Errors cleanly: `vastart()` outside a variadic
+    function, params after `...`, FP named params, and ≥`nargreg` named params
+    on the register targets (the tail must be all-register to be contiguous;
+    variadic *calls* are likewise capped there). `varargs` golden test on all
+    five backends; all five fixpoints byte-identical.
   - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
-    (zero-extending loads), proper varargs;
+    (zero-extending loads),
     struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support

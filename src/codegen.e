@@ -1464,6 +1464,8 @@ func cd_write_riscv(*scode:this)
     for(i=0;i<this->arg;i++)
     framemem_riscv("sd",riscvarg(i),-(i+1)*target.wordsize);
   }
+  else if(this->code==CD_SARGINT)   /* single arg-register spill (varargs va area) */
+  framemem_riscv("sd",riscvarg(this->reg),this->arg);
   else if(this->code==CD_MARSHAL)
   {
     var int:i;
@@ -1720,6 +1722,8 @@ func cd_write_mips(*scode:this)
     for(i=0;i<this->arg;i++)
     framemem_mips("sd",mipsarg(i),-(i+1)*target.wordsize);
   }
+  else if(this->code==CD_SARGINT)   /* single arg-register spill (varargs va area) */
+  framemem_mips("sd",mipsarg(this->reg),this->arg);
   else if(this->code==CD_MARSHAL)
   {
     var int:i;
