@@ -181,6 +181,7 @@ struct sfield{
 #define L_ONREG 5
 #define L_FNUM 6 /* M4: floating-point literal (index into the float pool) */
 #define L_WNUM 7 /* wide (64-bit) integer literal: kept as text (float-pool index), the assembler computes the value */
+#define L_VAST 8 /* vastart(): pointer to the first variadic argument of the current function */
 struct eleaf{
   int vid;
   int val;/* number or index in the symbol table*/
