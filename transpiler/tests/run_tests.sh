@@ -202,6 +202,17 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     else
         bad "duplicate case value diagnosed"
     fi
+
+    # line-numbered diagnostics: errors carry <file>:<line> from lpp1's markers,
+    # correct across an #include boundary and after returning from it
+    printf '#define OK 1\n\nvar bad bad:int;\n' > "$TMPD/uplnc_loc.he"
+    printf '#include "uplnc_loc.he"\nfunc main()\n{\n  var x:int = OK;\n  y = 2;\n  return x;\n}\n' > "$TMPD/uplnc_loc.e"
+    (cd "$TMPD" && "$TDIR/build/lpp1" uplnc_loc.e 2>/dev/null) \
+        | "$LANGC" -march=x86_64 > "$TMPD/uplnc_loc.s" 2>"$TMPD/uplnc_loc.err"
+    grep -q 'uplnc_loc.he:3:' "$TMPD/uplnc_loc.err" && ok "error located in the include (file:line)" \
+                                                    || bad "error located in the include"
+    grep -q 'uplnc_loc.e:5:' "$TMPD/uplnc_loc.err"  && ok "error located after the include resync" \
+                                                    || bad "error located after the include resync"
 else
     bad "langc not built"
 fi
