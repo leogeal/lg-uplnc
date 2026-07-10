@@ -846,6 +846,8 @@ func convto(dst:int,src:int)
   else if(!isfp(dst)&&isfp(src))
   {if(ll32(dst))zf2ll();else zf2i();}
   else if(ll32(dst)&&!is64(src))i2ll(issigned(src));
+  if(dst==T_CHAR)byteconv(1);
+  else if(dst==T_UCHAR)byteconv(0);
 }
 func condtype(t1:int,t2:int)
 {

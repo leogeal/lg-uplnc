@@ -561,6 +561,11 @@ func cd_write_x86_64(*scode:this)
     ol("sete %al");
     ol("movzbq %al, %rax");
   }
+  else if(this->code==CD_BYTECONV)
+  {
+    if(this->arg)ol("movsbq %al, %rax");
+    else ol("movzbq %al, %rax");
+  }
   else if(this->code==CD_BNOT)
   {
     ol("notq %rax");
@@ -1256,6 +1261,12 @@ func cd_write_arm64(*scode:this)
   ol("neg x0, x0");
   else if(this->code==CD_LNOT)
   {ol("cmp x0, #0");ol("cset x0, eq");}
+  else if(this->code==CD_BYTECONV)
+  {
+    ol("lsl x0, x0, #56");
+    if(this->arg)ol("asr x0, x0, #56");
+    else ol("lsr x0, x0, #56");
+  }
   else if(this->code==CD_BNOT)
   ol("mvn x0, x0");
   else if(this->code==CD_EQ)armcmpset(this,"eq");
@@ -1511,6 +1522,12 @@ func cd_write_riscv(*scode:this)
   {ot("bnez a0, ");printlab(this->arg);nl();}
   else if(this->code==CD_NEG)ol("neg a0, a0");
   else if(this->code==CD_LNOT)ol("seqz a0, a0");
+  else if(this->code==CD_BYTECONV)
+  {
+    ol("slli a0, a0, 56");
+    if(this->arg)ol("srai a0, a0, 56");
+    else ol("srli a0, a0, 56");
+  }
   else if(this->code==CD_BNOT)ol("not a0, a0");
   /* compares: 2nd operand (left) = r2nd, a0 = right; result 0/1 in a0 */
   else if(this->code==CD_EQ){op3("xor ","a0",r2nd(this),"a0");ol("seqz a0, a0");}
@@ -1773,6 +1790,12 @@ func cd_write_mips(*scode:this)
   {ot("bnez $2, ");printlab(this->arg);nl();}
   else if(this->code==CD_NEG)ol("dsubu $2, $0, $2");
   else if(this->code==CD_LNOT)ol("sltiu $2, $2, 1");
+  else if(this->code==CD_BYTECONV)
+  {
+    ol("dsll $2, $2, 56");
+    if(this->arg)ol("dsra $2, $2, 56");
+    else ol("dsrl $2, $2, 56");
+  }
   else if(this->code==CD_BNOT)ol("nor $2, $2, $0");
   /* compares: 2nd operand (left) = r2nd, $2 = right; result 0/1 in $2 */
   else if(this->code==CD_EQ){op3("xor ","$2",r2nd(this),"$2");ol("sltiu $2, $2, 1");}
@@ -1968,6 +1991,11 @@ func cd_write_i386(*scode:this)
     ol("testl %eax,%eax");
     ol("sete %al");
     ol("movzbl %al, %eax");
+  }
+  else if(this->code==CD_BYTECONV)
+  {
+    if(this->arg)ol("movsbl %al, %eax");
+    else ol("movzbl %al, %eax");
   }
   else if(this->code==CD_BNOT)
   {
@@ -2820,6 +2848,13 @@ func zand()
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_BAND2REGS;
+}
+func byteconv(sign:int)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_BYTECONV;
+  cd->arg=sign;
 }
 func asr()
 {
