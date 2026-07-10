@@ -107,3 +107,5 @@ fnptr_spill 42
 varargs 42
 uchar 42
 byte_ret 42
+struct_use 42
+struct_temp 42

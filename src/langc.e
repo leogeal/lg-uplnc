@@ -1662,6 +1662,50 @@ func copystructp(sretsym:*ssym,src:*elval)
     off=off+1;
   }
 }
+var g_tmpn:int;
+/* hidden frame temp for an UNCAPTURED struct-returning call: the call writes
+   its result here through the sret pointer, and the call expression then IS
+   this temp -- an ordinary named struct lvalue -- so f().m, s = f().sub,
+   return f() and a discarded f() all work with the existing struct machinery.
+   Allocated like a local (block exit / loop restore releases it); the name
+   starts with a digit, so user code can never collide with it. */
+func mkstemp(typ:int)
+{
+  var [NAMESIZE]char:nm;
+  var int:k,n;
+  var *ssym:sym;
+  strcp(nm,"0tmp");
+  n=++g_tmpn;
+  k=4;
+  if(n>=1000)nm[k++]='0'+((n/1000)%10);
+  if(n>=100)nm[k++]='0'+((n/100)%10);
+  if(n>=10)nm[k++]='0'+((n/10)%10);
+  nm[k++]='0'+(n%10);
+  nm[k]=0;
+  k=gettsize(typ);
+  k=roundup(k);k=slotup(k);
+  sym=addloc(nm,S_VARL,1,Zsp-k,typ);
+  Zsp=modstk(Zsp-k);
+  return sym;
+}
+/* pre-allocate the struct temps of a statement's expression tree BEFORE any
+   code is emitted: mkstemp moves sp, so allocating mid-expression (while an
+   operand sits pushed on the stack) would make the later pop grab the temp
+   instead of the operand. Walked after foldtree at every statement-level
+   entry; the temp is stashed on the OP_FUNC node (leaf.idx is unused there --
+   getenode callocs, so it is null unless set here). A captured s=f() wastes
+   its (unused) temp slot until block exit -- harmless. */
+func prestemps(node:*enode)
+{
+  if(!node)return;
+  prestemps(node->l);
+  prestemps(node->r);
+  prestemps(node->third);
+  if((node->op==OP_FUNC)&&node->l&&(node->l->op==OP_LEAF)
+   &&node->l->leaf.idx&&(node->l->leaf.idx->sort==S_FUNC)
+   &&(typtab[node->l->leaf.idx->type].sort==V_STR))
+  node->leaf.idx=mkstemp(node->l->leaf.idx->type);
+}
 /* M6 2b: compute the address of a (named local or global) lvalue into the
    accumulator and push it -- used to pass &dst as a struct-return sret pointer. */
 func pushaddr(lval:*elval)
@@ -1682,6 +1726,7 @@ func doreturn()
       var *enode:rn;var elval:rlv;
       rn=bexptree();
       foldtree(rn);
+      prestemps(rn);   /* return f(): the chained call needs its temp */
       treetocode(rn,&rlv);
       if(typtab[rlv.typ].sort!=V_STR)
       error("a struct-returning function must return a struct");
@@ -1856,6 +1901,7 @@ func dolocvar()
        here and rejected on any later assignment. idx is that last variable. */
     inode=hier1();
     foldtree(inode);
+    prestemps(inode);
     if(treetocode(inode,&ilv))rvalue(&ilv);
     irt=ilv.typ;
     convto(typ,irt);
@@ -3868,6 +3914,7 @@ func ct_FUNC(node:*enode,lval:*elval)
   {
     var int:nargs;
     var int:structret;var *elval:sretp;
+    var int:usetmp;var *ssym:tmpsym;var elval:tmplv;
     r=node->r;
     nargs=0;
     var int:callcnt;var *enode:crr;
@@ -3876,11 +3923,26 @@ func ct_FUNC(node:*enode,lval:*elval)
     /* M6 2b: struct-returning call -- pass &dst (captured in g_sretp by the
        `s = f()` handler) as a hidden sret pointer, pushed first so it lands in
        the last argument slot, matching the callee's last (sret) parameter. */
-    structret=0;sretp=0;
+    structret=0;sretp=0;usetmp=0;
     if(l->leaf.idx&&(typtab[l->leaf.idx->type].sort==V_STR))
     {
-      if(!g_sretp)error("a struct-returning call's result must be captured by a struct assignment (s = f(...)); it cannot be used directly here");
-      else{structret=1;sretp=g_sretp;g_sretp=0;}
+      structret=1;
+      if(g_sretp){sretp=g_sretp;g_sretp=0;}   /* s = f(): write straight into s */
+      else
+      {
+        /* uncaptured use (f().m, return f(), an argument, a bare call):
+           materialize the result into the hidden frame temp that prestemps
+           allocated at statement level (mid-expression allocation would move
+           sp under pushed operands). Fallback: allocate here -- only correct
+           when no operand is pushed, i.e. an unscanned entry point. */
+        tmpsym=node->leaf.idx;
+        if(!tmpsym)tmpsym=mkstemp(l->leaf.idx->type);
+        usetmp=1;
+        tmplv.sort=L_ID;tmplv.idx=tmpsym;tmplv.offset=0;
+        tmplv.typ=l->leaf.idx->type;
+        strcp(tmplv.name,tmpsym->name);
+        sretp=&tmplv;
+      }
     }
     if(target.arch!=ARCH_I386)   /* x86_64 / arm64 / riscv: register convention */
     {
@@ -3964,6 +4026,17 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     zcall(l->leaf.idx->name,0);
     Zsp=modstk(Zsp+nargs);
+    }
+    if(usetmp)
+    {
+      /* the callee wrote its result into the hidden temp: the call expression
+         is that temp, an ordinary named struct lvalue (not on register). */
+      lval->sort=L_ID;
+      lval->idx=tmpsym;
+      lval->offset=0;
+      lval->typ=tmpsym->type;
+      strcp(lval->name,tmpsym->name);
+      return 1;
     }
   }
   else if(l&&l->op==OP_DOT)
@@ -4334,8 +4407,11 @@ func getmem(lval:*elval)
     }
     else error("getmem ?");
   }
-  else if(typtab[lval->typ].sort==V_ARR)
+  else if((typtab[lval->typ].sort==V_ARR)||(typtab[lval->typ].sort==V_STR))
   {
+    /* arrays -- and struct VALUES in expression position (e.g. a discarded
+       struct-returning call, or a struct passed as an argument) -- decay to
+       their address, like C arrays. */
     if(lval->idx->sort==S_VARG)
     {
       zlda(lval->name,lval->offset);
@@ -4439,6 +4515,7 @@ func expressi()
   var int:rt;
   node=bexptree();
   foldtree(node);   /* M5: fold constant integer subexpressions */
+  prestemps(node);  /* struct temps allocated before any operand is pushed */
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
   rt=T_INT;
   if(treetocode(node,&lval))rvalue(&lval);
