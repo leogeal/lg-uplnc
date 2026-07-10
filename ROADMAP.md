@@ -567,7 +567,23 @@ What turns a teaching compiler into something you'd build a project with:
     byte-typed destinations, lowered on all five backends; it layers after the
     fp/ll conversions, so `double → char` returns narrow correctly too.
     `byte_ret` golden test.
-  - ⏳ struct-return follow-ups (`f().m`, struct-by-value args)
+  - ✅ **Struct-return follow-ups** — an *uncaptured* struct-returning call now
+    materializes its result into a hidden frame temporary and the call
+    expression becomes that temp: an ordinary named struct lvalue. So `f().m`
+    (and nested `f().sub.m`), `s = f().sub`, **`return f()`** (chained struct
+    returns), a struct call as an *argument*, and a discarded `f();` all work
+    through the existing struct machinery; `s = f()` keeps its direct-sret fast
+    path (no temp, no copy). Key subtlety: the temps are **pre-allocated at
+    statement level** (`prestemps` walks the expression tree after `foldtree`,
+    stashing each temp on its `OP_FUNC` node) — allocating mid-expression would
+    move `sp` under a pushed operand and the later pop would grab the temp
+    (found by a two-calls-in-one-expression stress test). Temps release at
+    block exit, so loops reuse the slot (million-iteration test, no frame
+    leak). Struct *values* in argument position decay to a pointer to the
+    temp — like C arrays — so callees take `*Struct` params (`p->m`); true
+    struct-by-value *parameters* remain unsupported (the callee-side copy
+    convention is a separate piece). `struct_use`/`struct_temp` golden tests
+    on all five backends; all five fixpoints byte-identical.
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
