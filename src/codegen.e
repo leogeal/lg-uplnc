@@ -778,6 +778,12 @@ func cd_write_x86_64(*scode:this)
     outdec(this->arg);
     outstr("(%rax), %rax");nl();
   }
+  else if(this->code==CD_LBRBU)
+  {
+    ot("movzbq ");
+    outdec(this->arg);
+    outstr("(%rax), %rax");nl();
+  }
   else if(this->code==CD_LBRW)
   {
     ot("movq ");
@@ -824,6 +830,24 @@ func cd_write_x86_64(*scode:this)
     ot("movsbq ");
     outdec(this->arg);
     outasm("(%rbp), ");outstr(regnames[this->reg]);
+    nl();
+  }
+  else if(this->code==CD_LDBU)   /* unsigned char: zero-extend */
+  {
+    ot("movzbq ");
+    outname(this->str);
+    if(this->arg)
+    {
+      outasm("+");
+      outdec(this->arg);
+    }
+    outasm(", %rax");nl();
+  }
+  else if(this->code==CD_LDLBU)
+  {
+    ot("movzbq ");
+    outdec(this->arg);
+    outasm("(%rbp), %rax");
     nl();
   }
   else if(this->code==CD_FLDLIT)
@@ -1306,6 +1330,11 @@ func cd_write_arm64(*scode:this)
   {gaddr_arm64("x9",this->str,this->arg);ot("ldrsb ");outstr(regnames[this->reg]);outstr(", [x9]");nl();}
   else if(this->code==CD_LDLW)framemem_arm64("ldr",regnames[this->reg],this->arg);
   else if(this->code==CD_LDLB)framemem_arm64("ldrsb",regnames[this->reg],this->arg);
+  /* unsigned char: ldrb writes w0, zeroing the upper 32 bits of x0 too */
+  else if(this->code==CD_LDBU)
+  {gaddr_arm64("x9",this->str,this->arg);ol("ldrb w0, [x9]");}
+  else if(this->code==CD_LDLBU)framemem_arm64("ldrb","w0",this->arg);
+  else if(this->code==CD_LBRBU)ptrmem_arm64("ldrb","w0","x0",this->arg);
   /* ---- AArch64 floating point: d0 = FP accumulator, d1 = 2nd operand ------ */
   else if(this->code==CD_FLDLIT)
   {
@@ -1563,6 +1592,10 @@ func cd_write_riscv(*scode:this)
   {gaddr_riscv("t0",this->str,this->arg);ot("lb ");outstr(regnames[this->reg]);outstr(", 0(t0)");nl();}
   else if(this->code==CD_LDLW)framemem_riscv("ld",regnames[this->reg],this->arg);
   else if(this->code==CD_LDLB)framemem_riscv("lb",regnames[this->reg],this->arg);
+  else if(this->code==CD_LDBU)   /* unsigned char: zero-extend */
+  {gaddr_riscv("t0",this->str,this->arg);ol("lbu a0, 0(t0)");}
+  else if(this->code==CD_LDLBU)framemem_riscv("lbu","a0",this->arg);
+  else if(this->code==CD_LBRBU)ptrmem_riscv("lbu","a0","a0",this->arg);
   /* ---- RV64 floating point (D ext): fa0 = accumulator, fa1 = 2nd operand --- */
   else if(this->code==CD_FLDLIT)
   {ot("la t0, .LF");outdec(this->arg);nl();ol("fld fa0, 0(t0)");}
@@ -1821,6 +1854,10 @@ func cd_write_mips(*scode:this)
   {gaddr_mips("$12",this->str,this->arg);ot("lb ");outstr(regnames[this->reg]);outstr(", 0($12)");nl();}
   else if(this->code==CD_LDLW)framemem_mips("ld",regnames[this->reg],this->arg);
   else if(this->code==CD_LDLB)framemem_mips("lb",regnames[this->reg],this->arg);
+  else if(this->code==CD_LDBU)   /* unsigned char: zero-extend */
+  {gaddr_mips("$12",this->str,this->arg);ol("lbu $2, 0($12)");}
+  else if(this->code==CD_LDLBU)framemem_mips("lbu","$2",this->arg);
+  else if(this->code==CD_LBRBU)ptrmem_mips("lbu","$2","$2",this->arg);
   /* ---- MIPS64 floating point (N64, hard-float): $f0 = accumulator (also the
      N64 double return reg, so `return d` needs no move), $f2 = 2nd operand,
      $f4 = scratch for the 4-byte-float widen/narrow. FP args are passed as raw
@@ -2275,6 +2312,12 @@ func cd_write_i386(*scode:this)
     outdec(this->arg);
     outstr("(%eax), %eax");nl();
   }
+  else if(this->code==CD_LBRBU)
+  {
+    ot("movzbl ");
+    outdec(this->arg);
+    outstr("(%eax), %eax");nl();
+  }
   else if(this->code==CD_LBRW)
   {
     ot("movl ");
@@ -2309,6 +2352,17 @@ func cd_write_i386(*scode:this)
     }
     outasm(", ");outstr(regnames[this->reg]);nl();
   }
+  else if(this->code==CD_LDBU)   /* unsigned char: zero-extend */
+  {
+    ot("movzbl ");
+    outname(this->str);
+    if(this->arg)
+    {
+      outasm("+");
+      outdec(this->arg);
+    }
+    outasm(", %eax");nl();
+  }
   else if(this->code==CD_LDLW)
   {
     ot("movl ");
@@ -2321,6 +2375,13 @@ func cd_write_i386(*scode:this)
     ot("movsbl ");
     outdec(this->arg);
     outasm("(%ebp), ");outstr(regnames[this->reg]);
+    nl();
+  }
+  else if(this->code==CD_LDLBU)
+  {
+    ot("movzbl ");
+    outdec(this->arg);
+    outasm("(%ebp), %eax");
     nl();
   }
   /* ---- i386 x87 floating point (M4 slice 6) -----------------------------
@@ -3249,6 +3310,31 @@ func zldlb(int offset)
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LDLB;
+  cd->arg=offset;
+}
+/* unsigned char loads: zero-extended twins of zldb/zldlb/zlbrb. Deliberately
+   NOT in ispureload -- they always target the accumulator, so the arm64
+   lowering can use the w-register form of ldrb without a rename helper. */
+func zldbu(*char:name,int offset)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LDBU;
+  cd->str=strdyn(name);
+  cd->arg=offset;
+}
+func zldlbu(int offset)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LDLBU;
+  cd->arg=offset;
+}
+func zlbrbu(offset:int)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LBRBU;
   cd->arg=offset;
 }
 func zlocal(int offset)   /* M5: mark a word-size scalar body local for promote_locals */
