@@ -558,7 +558,15 @@ What turns a teaching compiler into something you'd build a project with:
     value would land at the wrong end of the symbol (little-endian targets
     passed by luck). `uchar` golden test + const-param harness checks on all
     five backends; all five fixpoints reach (the `F_TYPE` bump only shifts
-    debug-comment type numbers, per precedent).
+    debug-comment type numbers, per precedent). Follow-up (PR #83): byte
+    conversions previously happened only at store+reload, but function
+    *returns* and assignment-*expression* values hand the value over in the
+    accumulator — `return 300` from a `:unsigned char` function yielded 300,
+    and `(u=300)==44` was false. `convto` now emits a `CD_BYTECONV`
+    (sign/zero-extend the low byte, per the destination's signedness) for
+    byte-typed destinations, lowered on all five backends; it layers after the
+    fp/ll conversions, so `double → char` returns narrow correctly too.
+    `byte_ret` golden test.
   - ⏳ struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
