@@ -106,3 +106,4 @@ fnptr_promote 42
 fnptr_spill 42
 varargs 42
 uchar 42
+byte_ret 42
