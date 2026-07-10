@@ -544,9 +544,22 @@ What turns a teaching compiler into something you'd build a project with:
     reject spilled register-target varargs and FP varargs on x86_64/arm64
     cleanly instead of reading the wrong frame/register area. `varargs` golden
     test plus diagnostics on all five backends; all five fixpoints byte-identical.
-  - ⏳ `const` follow-ups: `const` parameters. Then `unsigned char`
-    (zero-extending loads),
-    struct-return follow-ups (`f().m`, struct-by-value args)
+  - ✅ **`const` parameters + `unsigned char`** — the last two small gaps.
+    `func f(const a:int)` marks the parameter's symbol `cnst`, so the existing
+    enforcement rejects assignment and `++`/`--` in the body (both declaration
+    forms). `unsigned char` (`T_UCHAR`) is byte storage **zero-extended on
+    load** — new `CD_LDBU`/`CD_LDLBU`/`CD_LBRBU` opcodes lowered on all five
+    backends (`movzbq`/`movzbl`, `ldrb`, `lbu`) beside the sign-extending
+    char forms; stores share the byte-store path. Like C, it *promotes to a
+    signed word* (values 0..255), so `issigned()` includes it and compares/
+    shifts/division use the signed forms — `u > s` with `s:char = 200` is
+    200 > −56, not an unsigned surprise. One genuine big-endian catch: a
+    byte-typed initialized global must emit `.byte`, not `.quad` — on mips the
+    value would land at the wrong end of the symbol (little-endian targets
+    passed by luck). `uchar` golden test + const-param harness checks on all
+    five backends; all five fixpoints reach (the `F_TYPE` bump only shifts
+    debug-comment type numbers, per precedent).
+  - ⏳ struct-return follow-ups (`f().m`, struct-by-value args)
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout

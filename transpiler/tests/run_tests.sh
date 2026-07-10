@@ -194,6 +194,22 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "const array element write rejected"
     fi
 
+    # const parameters: assignment and ++/-- on a const param are rejected
+    printf 'func f(const a:int){a=5;return a;}\nfunc main(){return f(1);}\n' > "$TMPD/uplnc_constpar.e"
+    "$LPP" "$TMPD/uplnc_constpar.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_constpar.s" 2>/dev/null
+    if grep -q 'assignment to a const variable' "$TMPD/uplnc_constpar.s"; then
+        ok "const parameter write rejected"
+    else
+        bad "const parameter write rejected"
+    fi
+    printf 'func f(const a:int){a++;return a;}\nfunc main(){return f(1);}\n' > "$TMPD/uplnc_constpar2.e"
+    "$LPP" "$TMPD/uplnc_constpar2.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_constpar2.s" 2>/dev/null
+    if grep -q 'modifying a const variable' "$TMPD/uplnc_constpar2.s"; then
+        ok "const parameter ++ rejected"
+    else
+        bad "const parameter ++ rejected"
+    fi
+
     # duplicate case labels must be diagnosed
     printf 'func main(){var int:x;x=1;switch(x){case 1:return 7;case 1:return 8;}return 0;}\n' > "$TMPD/uplnc_dupcase.e"
     "$LPP" "$TMPD/uplnc_dupcase.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_dupcase.s" 2>/dev/null

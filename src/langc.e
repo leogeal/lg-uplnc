@@ -797,6 +797,11 @@ func inittypes()
   strcp(typtab[T_ULLONG].name,"ullong");
   typtab[T_ULLONG].sort=V_FND;
   typtab[T_ULLONG].size=8;
+  /* "uchar" is never matched from source (gettypen decides `unsigned char`
+     explicitly); the entry just needs a unique name for findtyp */
+  strcp(typtab[T_UCHAR].name,"uchar");
+  typtab[T_UCHAR].sort=V_FND;
+  typtab[T_UCHAR].size=BYTESIZE;
 }
 /* M4: a value of floating-point class (held in %xmm as a double once loaded). */
 func isfp(t:int){return (t==T_DOUBLE)||(t==T_FLOAT);}
@@ -1280,6 +1285,8 @@ func dofunc()
   var int:nfpparam;      /* M4 slice 4b: how many params are doubles */
   var int:isva;          /* varargs: the parameter list ended with `...` */
   var int:nfixed;        /* number of named parameters before `...` */
+  var int:pcnst;         /* current parameter is const */
+  var *ssym:pidxsym;     /* its symbol (to set the cnst flag) */
   nfpparam=0;
   isva=0;
   nfixed=0;
@@ -1342,6 +1349,8 @@ func dofunc()
       junk();
       break;
     }
+    pcnst=0;
+    while(amatch("const",5))pcnst=1;   /* const parameter: read-only in the body */
     if(cbtype())
     {
       argtype=gettypen();
@@ -1385,18 +1394,19 @@ func dofunc()
       if(target.bigendian&&(gettsize(argtype)<target.wordsize))
       boff=target.wordsize-gettsize(argtype);
       if(pidx<target.nargreg)
-      addloc(argn,S_VARL,1,-(argstk+target.wordsize)+boff,argtype);
+      pidxsym=addloc(argn,S_VARL,1,-(argstk+target.wordsize)+boff,argtype);
       else
       /* stack params sit above the 16-byte frame record at a per-slot stride
          (==wordsize, but 16 on arm64 where each pushed arg is a 16-byte slot) */
-      addloc(argn,S_VARL,1,2*target.wordsize+(pidx-target.nargreg)*target.stackslot+boff,argtype);
+      pidxsym=addloc(argn,S_VARL,1,2*target.wordsize+(pidx-target.nargreg)*target.stackslot+boff,argtype);
       argstk=argstk+target.wordsize;
     }
     else
     {
-      addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
+      pidxsym=addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
       argstk=argstk+k;
     }
+    if(pcnst)pidxsym->cnst=1;   /* const: rejected in ct_ASSIGN and ++/-- */
     if(!match(","))if(ch()!=')')
     {
       error("comma or ')' expected");
@@ -4127,7 +4137,7 @@ func store(lval:*elval)
       else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
       zstow(lval->idx->name,lval->offset);
-      else if(lval->typ==T_CHAR)
+      else if((lval->typ==T_CHAR)||(lval->typ==T_UCHAR))
       /*ot("movb %al, ");*/
       zstob(lval->idx->name,lval->offset);
       else if(lval->typ==T_DOUBLE)
@@ -4147,7 +4157,7 @@ func store(lval:*elval)
       else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
       zstlw(lval->idx->offset+lval->offset);
-      else if(lval->typ==T_CHAR)
+      else if((lval->typ==T_CHAR)||(lval->typ==T_UCHAR))
       /*ot("movb %al, ");*/
       zstlb(lval->idx->offset+lval->offset);
       else if(lval->typ==T_DOUBLE)
@@ -4223,6 +4233,8 @@ func loadbyre(lval:*elval)
   {cfldbres(lval->offset);lval->typ=T_DOUBLE;}
   else if(ll32(lval->typ))
   zlbrw64(lval->offset);
+  else if(lval->typ==T_UCHAR)   /* unsigned char: zero-extend */
+  zlbrbu(lval->offset);
   else if(typtab[lval->typ].size==BYTESIZE)/*ot("movsbl ");*/
   zlbrb(lval->offset);
   else if(typtab[lval->typ].size==target.wordsize)/*ot("movl ");*/
@@ -4259,6 +4271,15 @@ func getmem(lval:*elval)
       nl();*/
     }
     else error("error loading 'char' object");
+  }
+  else if(lval->typ==T_UCHAR)
+  {
+    /* unsigned char: same byte, zero-extended on load */
+    if(lval->idx->sort==S_VARG)
+    zldbu(lval->name,lval->offset);
+    else if(lval->idx->sort==S_VARL)
+    zldlbu(lval->idx->offset+lval->offset);
+    else error("error loading 'unsigned char' object");
   }
   else if(lval->typ==T_DOUBLE)
   {
@@ -5409,7 +5430,10 @@ func ns()
 }
 func issigned(t:int)
 {
-  return (t==T_INT)||(t==T_CHAR)||(t==T_LLONG);
+  /* T_UCHAR is here deliberately: like C, unsigned char PROMOTES to a signed
+     word (its zero-extended value is 0..255), so compares/shifts/division on it
+     use the signed word forms -- only word-size unsigned types route unsigned. */
+  return (t==T_INT)||(t==T_CHAR)||(t==T_LLONG)||(t==T_UCHAR);
 }
 /* M6: result type of an integer binary op -- unsigned if either operand is, so
    unsignedness propagates through arithmetic and a later compare / >> on the
@@ -5428,6 +5452,7 @@ func gettsize(t:int)
   else if(t==T_LLONG)return 8;
   else if(t==T_ULLONG)return 8;
   else if(t==T_CHAR)return BYTESIZE;
+  else if(t==T_UCHAR)return BYTESIZE;
   else if(t==T_DOUBLE)return 8;
   else if(t==T_FLOAT)return 4;
   else if(t==T_INTP)return target.wordsize;
@@ -5523,8 +5548,10 @@ func gettypen()
   if(amatch("int",3))return T_INT;
   if(amatch("unsigned",8))
   {
-    /* unsigned long long -> T_ULLONG; unsigned / unsigned long -> word unsigned */
+    /* unsigned long long -> T_ULLONG; unsigned char -> byte, zero-extended;
+       unsigned / unsigned long -> word unsigned */
     if(amatch("long",4)){if(amatch("long",4))return llongtype(1);return T_UINT;}
+    if(amatch("char",4))return T_UCHAR;
     return T_UINT;
   }
   if(amatch("long",4))
@@ -5798,14 +5825,16 @@ func dumpginit(sym:*ssym)
   t=sym->type;
   if(sym->cnst){ot(target.dir_section);ot(target.dir_rodata);nl();}
   else ol(".data");
-  if(t!=T_CHAR){ot(target.dir_align);nl();}
+  if((t!=T_CHAR)&&(t!=T_UCHAR)){ot(target.dir_align);nl();}
   outasm(target.dir_globl);
   outname(sym->name);
   nl();
   outname(sym->name);
   col();
   nl();
-  if(t==T_CHAR)ot(".byte ");
+  /* byte types MUST emit one byte: a .quad would put the value at the wrong
+     end of the symbol on a big-endian target (mips) */
+  if((t==T_CHAR)||(t==T_UCHAR))ot(".byte ");
   else if(t==T_DOUBLE)ot(".double ");
   else if(t==T_FLOAT)ot(".float ");
   else if(is64(t)||(target.wordsize==8))ot(".quad ");
