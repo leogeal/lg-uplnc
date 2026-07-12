@@ -584,6 +584,29 @@ What turns a teaching compiler into something you'd build a project with:
     struct-by-value *parameters* remain unsupported (the callee-side copy
     convention is a separate piece). `struct_use`/`struct_temp` golden tests
     on all five backends; all five fixpoints byte-identical.
+  - 💭 **True struct-by-value parameters** — assessed 2026-07; *deliberately
+    deferred*. Not needed for expressiveness: `var t:S; t = s; g(&t);` already
+    expresses a copy, the compiler's own source never wants it, and no libc
+    call takes a struct by value. It would buy aliasing safety (today a named
+    struct passed as an argument gives the callee a live reference — `p->`
+    writes mutate the caller's struct, which surprises C-trained readers, while
+    a call-result argument mutates only its discarded temp). If/when real
+    programs keep wanting it (the M7 dogfooding is the forcing function), build
+    the **callee-side-copy design**: keep the wire format a pointer exactly as
+    today, and have a struct-typed (or `byval`-marked, avoiding any silent
+    semantics change) parameter allocate a frame-local copy filled by a
+    `copystructp`-style prologue copy, its symbol bound to the copy — zero ABI
+    change, zero caller-side knowledge (so it composes with indirect calls and
+    declaration-order freedom automatically), blast radius confined to
+    `dofunc`'s prologue, same cost as C. Do **not** build the C-style
+    caller-side SysV classification ABI (per-eightbyte register classing):
+    it breaks the one-word-per-position marshal, needs per-target work,
+    collides with single-pass compilation (a call before the declaration
+    would silently miscompile — the varargs PR #81 hazard class with worse
+    failure modes), is unsolvable for indirect calls (function pointers carry
+    no signature), and multiplies against varargs/sret/FP-args/methods — all
+    for interop UPLNC does not need. Revisit only if C-ABI struct interop with
+    external libraries becomes a goal, as its own milestone.
 - ⏳ A written **language specification** (the paper is the only spec today)
 - ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
 - 💭 Module/namespace system; package layout
