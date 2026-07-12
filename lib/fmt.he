@@ -1,0 +1,10 @@
+/* UPLNC formatted-output declarations. Compile lib/fmt.e once and link it
+   with each program that includes this header. */
+func putstr(s:*char);
+func putupad(u:unsigned,w:int,pc:int);
+func putxpad(u:unsigned,w:int,pc:int);
+func putdpad(n:int,w:int,pc:int);
+func putd(n:int);
+func putu(u:unsigned);
+func putx(u:unsigned);
+func putf(fmt:*char,...);

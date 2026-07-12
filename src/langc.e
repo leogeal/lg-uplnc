@@ -219,6 +219,7 @@ var cline:int;
 var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
+var g_stmtclosed:int; /* the current statement consumed its ; or closing } */
 var mline:[linesize]char;
 var lptr:int;
 var mptr:int;
@@ -1579,10 +1580,11 @@ func dofunc()
   statemen();
   /* unused-variable warnings: body locals never referenced after declaration.
      Parameters and 'this' are pre-marked used; hidden temps/sret start with a
-     digit. The warning is located at the declaration line. */
+     digit. The warning is located at the declaration file and line. */
   {
     var *ssymlist:wl;
     var [64]char:wmsg;
+    var [80]char:savecf;
     var int:wk,wj,savecl;
     for(wl=locsymtab.lst;wl;wl=wl->next)
     if((wl->sym.sort==S_VARL)&&(!wl->sym.wused)
@@ -1595,9 +1597,12 @@ func dofunc()
       wmsg[wk++]=39;
       wmsg[wk]=0;
       savecl=cline;
+      strcp(savecf,cfile);
       cline=wl->sym.line;
+      strcp(cfile,wl->sym.wfile);
       warning(wmsg);
       cline=savecl;
+      strcp(cfile,savecf);
     }
   }
   /*ol("movl %ebp, %esp");
@@ -1619,6 +1624,7 @@ func _zret()
 func statemen()
 {
   /*fprintf(stderr,"statemen():ccg=%d\n",ccg);*/
+  g_stmtclosed=0;
   blanks();
   if((!ch())&&iseof)return 0;
   else
@@ -1667,7 +1673,7 @@ func statemen()
     ns();
     lastst=stcont;
     }
-  else if(match(";"));
+  else if(match(";"))g_stmtclosed=1;
   else
     {
     g_stmtexp=1;   /* expressi warns if the whole statement is a comparison */
@@ -1807,8 +1813,8 @@ func syncstmt()
   {
     blanks();
     if(iseof)return 0;
-    if(ch()==';'){gch();return 0;}
-    if(ch()=='}')return 0;
+    if(ch()==';'){gch();g_stmtclosed=1;return 0;}
+    if(ch()=='}'){g_stmtclosed=1;return 0;}
     gch();
   }
 }
@@ -1820,7 +1826,7 @@ func compound()
   {
     pe=errcnt;
     statemen();
-    if(errcnt>pe)syncstmt();
+    if((errcnt>pe)&&(!g_stmtclosed))syncstmt();
     if(iseof)
     {
       error("missing '}'");
@@ -1829,6 +1835,7 @@ func compound()
     }
   }
   --ncmp;
+  g_stmtclosed=1;
 }
 func modstk(newsp:int)
 {
@@ -1895,7 +1902,7 @@ func dolocvar()
     lpom=&(*lpom)->next;
     (*lpom)=0;
     if(istyp)
-    {if(match(";"))break;
+    {if(match(";")){g_stmtclosed=1;break;}
      if(match("=")){hasinit=1;break;}}   /* M6: var TYPE:name = expr; (initializer) */
     else
     {if(match(":"))break;}
@@ -1935,6 +1942,7 @@ func dolocvar()
     }
     idx=addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
     idx->line=cline;        /* the unused-variable warning cites this line */
+    strcp(idx->wfile,cfile);
     if(wcnst)idx->cnst=1;   /* M6 const */
     /* mark int/pointer scalars for leaf-function register promotion; the marker
        (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
@@ -2195,7 +2203,7 @@ func doswitch()
   var int:thesp;
   var int:voff;var int:k;var int:rt;
   var int:endlab;var int:disp;var int:deflab;
-  var int:i;var int:cont;
+  var int:i;var int:cont;var int:pe;
   var [SWMAX]int:cval;
   var [SWMAX]int:clb;
   var int:ncase;
@@ -2240,7 +2248,12 @@ func doswitch()
       if(deflab)error("duplicate default");
       else{deflab=getlabel();clab(deflab);}
     }
-    else statemen();
+    else
+    {
+      pe=errcnt;
+      statemen();
+      if((errcnt>pe)&&(!g_stmtclosed))syncstmt();
+    }
   }
   Zsp=modstk(thesp);        /* end of body: restore sp, fall through to the end */
   jump(endlab);
@@ -2262,6 +2275,7 @@ func doswitch()
   Zsp=thesp;                /* every path reaches here with sp restored to thesp */
   ssymtabcut(&locsymtab,thesym);
   delwhile();
+  g_stmtclosed=1;
 }
 func addwhile(sym:int,sp:int,loop:int,lab:int)
 {
@@ -3943,27 +3957,30 @@ func ct_BNOT(node:*enode,lval:*elval)
 func chkvarcall(fn:*ssym,args:*enode,cnt:int)
 {
   var *enode:rr;
-  var int:pos;
+  var int:pos,at;
   if(!fn)return;
   if(!fn->isva)return;
   if(cnt<fn->nfixed)
   error("too few arguments to a variadic function");
   if((target.arch!=ARCH_I386)&&(cnt>target.nargreg))
   error("this many arguments in a variadic call are not supported yet");
-  /* x86_64/arm64 pass FP varargs in FP registers, but vastart() exposes the
-     integer register tail only. RISC-V/MIPS pass FP bits through integer regs;
-     i386's cdecl stack is naturally addressable by vastart(). */
-  if((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64))
+  /* Unsupported variadic slot shapes: x86_64/arm64 put FP varargs outside the
+     integer va area; on i386 a long long occupies two 4-byte slots while
+     vastart() exposes a word cursor, so it would misalign every following arg. */
+  rr=args;
+  pos=cnt;
+  while(rr)
   {
-    rr=args;
-    pos=cnt;
-    while(rr)
+    if(pos>fn->nfixed)
     {
-      if((pos>fn->nfixed)&&isfp(cttype(rr->l)))
+      at=cttype(rr->l);
+      if(((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64))&&isfp(at))
       error("floating-point variadic arguments are not supported yet");
-      pos=pos-1;
-      rr=rr->r;
+      if((target.arch==ARCH_I386)&&ll32(at))
+      error("64-bit variadic arguments are not supported on i386");
     }
+    pos=pos-1;
+    rr=rr->r;
   }
 }
 func ct_FUNC(node:*enode,lval:*elval)
@@ -5580,7 +5597,8 @@ func needlval()
 }
 func ns()
 {
-  if(!match(";"))error("missing ';'");
+  if(match(";"))g_stmtclosed=1;
+  else error("missing ';'");
 }
 func issigned(t:int)
 {
@@ -5874,6 +5892,7 @@ func outint(n:int)
 func error(p:*char)
 {
   var int:k;
+  g_stmtclosed=0;
   comment();
   if(cfile[0]){outstr(cfile);col();outdec(cline);col();}
   outstr("Error:");

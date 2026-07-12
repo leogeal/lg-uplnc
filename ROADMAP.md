@@ -422,15 +422,18 @@ What turns a teaching compiler into something you'd build a project with:
     resyncs at the next `;`/`}` (`syncstmt`), so one mistake yields one
     message — and the parser always makes progress: an unrecognized token or a
     broken local declaration used to **hang** langc (two live loops fixed); a
-    broken declarator list now reports exactly one error and bails.
+    broken declarator list now reports exactly one error and bails. Follow-up:
+    recovery tracks whether the failed statement already consumed its boundary,
+    so it does not discard the next statement; `switch`'s separate statement
+    loop uses the same recovery instead of relying on the 30-error cap.
   - *Error flood cap*: 30 errors → "too many errors, giving up", exit 1 — a
     backstop against pathological input and any future recovery loop.
   - *Warnings*: `warning()` mirrors error locations but never fails the
     compile (exit stays 0; the `N warning(s)` summary appears only when
     nonzero, so warning-free compiles stay byte-identical). Two v1 warnings:
     **unused variable** (body locals never referenced; parameters and hidden
-    temps exempt; located at the declaration line) and **no-effect comparison
-    statement** (`x == 5;` — the `==`-vs-`=` typo). Dogfooding them found and
+    temps exempt; located at the declaration file and line) and **no-effect
+    comparison statement** (`x == 5;` — the `==`-vs-`=` typo). Dogfooding them found and
     removed nine dead variables in the compiler's own source; self-compile is
     warning-free. Six harness checks pin recovery, the cap, and both warnings.
   Still open: columns in the caret line are byte-offsets (good enough)
@@ -438,12 +441,14 @@ What turns a teaching compiler into something you'd build a project with:
   needs: `lib/fmt.e` provides `putf(fmt,...)`, a mini printf (`%d %u %x %c %s
   %%`, space/zero width padding) built on the new varargs (`vastart()`) with
   only libc `putchar` underneath, plus the `putd`/`putu`/`putx`/`putstr`
-  building blocks. Consumed via lpp1 `#include "../lib/fmt.e"` (paths resolve
-  from the lpp1 cwd; line-numbered diagnostics attribute errors to the lib
-  file). v0 limits documented in the header: no `%f` (FP varargs are rejected
-  on x86_64/arm64), word-size args, `nargreg`-capped calls on the register
-  targets. The output contract is pinned byte-for-byte by `examples/fmtdemo.e`
-  in `run_tests.sh` `[11]`, and verified byte-identical on all five backends
+  building blocks. Callers include declarations from `fmt.he`; `fmt.e` is
+  compiled and linked once, so multi-file programs do not get duplicate
+  definitions. Quoted lpp1 includes now resolve relative to the including file
+  rather than its working directory. v0 limits documented in the header: no
+  `%f` (FP varargs are rejected on x86_64/arm64), word-size args (64-bit
+  varargs are rejected on i386), and `nargreg`-capped calls on register targets.
+  The output contract is pinned byte-for-byte by `examples/fmtdemo.e` in
+  `run_tests.sh` `[11]`, and verified byte-identical on all five backends
 - ⏳ **Debug info** (DWARF) so `gdb` works
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
