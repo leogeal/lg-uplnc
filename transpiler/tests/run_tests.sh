@@ -522,6 +522,23 @@ else
         "$CAT" "$TMPD/uplnc_nope" 2>/dev/null; [ "$?" = 1 ] \
             && ok "cat.e exits 1 on a missing file" || bad "cat.e (error exit)"
     fi
+    # lib/fmt.e (stdlib v0): fmtdemo prints the library's fixed output contract
+    if FD=$(buildutil fmtdemo); then
+        "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1
+        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\n' > "$TMPD/uplnc_fmtdemo.want"
+        cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want" \
+            && ok "fmtdemo.e matches the lib/fmt.e output contract" || bad "fmtdemo.e output"
+    fi
+    if HD=$(buildutil hexdump); then
+        printf 'hello world\n' | "$HD" > "$TMPD/uplnc_hex1.out"
+        printf '00000000  68 65 6c 6c 6f 20 77 6f 72 6c 64 0a              |hello world.|\n' > "$TMPD/uplnc_hex1.want"
+        cmp -s "$TMPD/uplnc_hex1.out" "$TMPD/uplnc_hex1.want" \
+            && ok "hexdump.e partial line" || bad "hexdump.e partial line"
+        printf 'ABCDEFGHIJKLMNO\377' | "$HD" > "$TMPD/uplnc_hex2.out"
+        printf '00000000  41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f ff  |ABCDEFGHIJKLMNO.|\n' > "$TMPD/uplnc_hex2.want"
+        cmp -s "$TMPD/uplnc_hex2.out" "$TMPD/uplnc_hex2.want" \
+            && ok "hexdump.e full line + high byte" || bad "hexdump.e full line"
+    fi
 fi
 
 echo
