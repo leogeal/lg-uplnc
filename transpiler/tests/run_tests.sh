@@ -210,6 +210,23 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "const parameter ++ rejected"
     fi
 
+    # aggregate params must be rejected: the callee would lay them out by value
+    # while the caller passes a pointer -- silent garbage pre-fix (PR #86 review)
+    printf 'struct pr{int a;int b;};\nfunc f(p:pr){return p.a;}\nfunc main(){var s:pr;s.a=1;return f(s);}\n' > "$TMPD/uplnc_structpar.e"
+    "$LPP" "$TMPD/uplnc_structpar.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_structpar.s" 2>/dev/null
+    if grep -q 'struct parameters are not supported' "$TMPD/uplnc_structpar.s"; then
+        ok "struct parameter rejected"
+    else
+        bad "struct parameter rejected"
+    fi
+    printf 'func f(a:[2]int){return a[0];}\nfunc main(){var [2]int:v;v[0]=1;return f(v);}\n' > "$TMPD/uplnc_arrpar.e"
+    "$LPP" "$TMPD/uplnc_arrpar.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_arrpar.s" 2>/dev/null
+    if grep -q 'array parameters are not supported' "$TMPD/uplnc_arrpar.s"; then
+        ok "array parameter rejected"
+    else
+        bad "array parameter rejected"
+    fi
+
     # duplicate case labels must be diagnosed
     printf 'func main(){var int:x;x=1;switch(x){case 1:return 7;case 1:return 8;}return 0;}\n' > "$TMPD/uplnc_dupcase.e"
     "$LPP" "$TMPD/uplnc_dupcase.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_dupcase.s" 2>/dev/null

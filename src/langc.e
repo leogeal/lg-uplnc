@@ -1375,6 +1375,14 @@ func dofunc()
       if(!match(":"))error("':' expected");
       argtype=gettypen();
     }
+    /* aggregate parameters would be laid out by value here while the caller
+       passes a pointer (the argument decay) -- an accepted-but-miscompiled
+       mismatch (a struct param read garbage: found in review of PR #86).
+       Reject both until a callee-copy convention exists (see ROADMAP). */
+    if(typtab[argtype].sort==V_STR)
+    error("struct parameters are not supported yet: declare *TYPE and pass a pointer");
+    if(typtab[argtype].sort==V_ARR)
+    error("array parameters are not supported yet: declare *TYPE (arrays decay to pointers)");
     k=gettsize(argtype);
     nfixed=nfixed+1;
     /* round arg slot up to a target word (i386: 4, x86_64: 8) */
