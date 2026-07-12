@@ -231,6 +231,47 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "array parameter rejection diagnostic"
     fi
 
+    # error recovery (diagnostics part 2): one broken declaration = ONE error
+    # (used to cascade, and inside a function it used to hang the parser)
+    printf 'func main()\n{\n  var broken banana:int;\n  return 0;\n}\n' > "$TMPD/uplnc_rcv1.e"
+    "$LPP" "$TMPD/uplnc_rcv1.e" 2>/dev/null | timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_rcv1.s" 2>/dev/null
+    rc=$?
+    n=$(grep -c 'Error:' "$TMPD/uplnc_rcv1.s")
+    if [ "$rc" = 124 ]; then bad "broken declaration does not hang"
+    elif [ "$rc" = 0 ]; then bad "broken declaration exits nonzero"
+    elif [ "$n" = 1 ]; then ok "broken declaration: exactly one error"
+    else bad "broken declaration: one error (got $n)"; fi
+
+    # unrecognized tokens: recover at the statement boundary, never loop
+    printf 'func main()\n{\n  var x:int = 1;\n  @@@;\n  x = 2;\n  return x;\n}\n' > "$TMPD/uplnc_rcv2.e"
+    "$LPP" "$TMPD/uplnc_rcv2.e" 2>/dev/null | timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_rcv2.s" 2>/dev/null
+    rc=$?
+    if [ "$rc" = 124 ]; then bad "garbage statement does not hang"
+    elif [ "$rc" = 0 ]; then bad "garbage statement exits nonzero"
+    else ok "garbage statement recovered without hanging"; fi
+
+    # error flood cap: pathological input stops at 30 with a clear message
+    { printf 'func main()\n{\n'; for _ in $(seq 1 50); do printf '  var broken banana:int;\n'; done; printf '  return 0;\n}\n'; } > "$TMPD/uplnc_flood.e"
+    "$LPP" "$TMPD/uplnc_flood.e" 2>/dev/null | timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_flood.s" 2>/dev/null
+    rc=$?
+    if [ "$rc" = 124 ]; then bad "error flood does not hang"
+    elif grep -q 'too many errors, giving up' "$TMPD/uplnc_flood.s"; then
+        ok "error flood capped with a clear message"
+    else bad "error flood cap"; fi
+
+    # warnings: located, never fail the compile, and the output still runs
+    printf 'func main()\n{\n  var dead:int;\n  var x:int = 41;\n  x == 42;\n  return x+1;\n}\n' > "$TMPD/uplnc_warn.e"
+    if "$LPP" "$TMPD/uplnc_warn.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_warn.s" 2>"$TMPD/uplnc_warn.err"; then
+        grep -q ":3: Warning:unused variable 'dead'" "$TMPD/uplnc_warn.err" \
+            && ok "unused-variable warning located at the declaration" || bad "unused-variable warning"
+        grep -q ':5: Warning:comparison result is not used' "$TMPD/uplnc_warn.err" \
+            && ok "no-effect comparison statement warned" || bad "no-effect comparison warning"
+        grep -q '2 warning(s)' "$TMPD/uplnc_warn.s" \
+            && ok "warning count summarized" || bad "warning summary"
+    else
+        bad "warnings alone must not fail the compile"
+    fi
+
     # duplicate case labels must be diagnosed
     printf 'func main(){var int:x;x=1;switch(x){case 1:return 7;case 1:return 8;}return 0;}\n' > "$TMPD/uplnc_dupcase.e"
     "$LPP" "$TMPD/uplnc_dupcase.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_dupcase.s" 2>/dev/null

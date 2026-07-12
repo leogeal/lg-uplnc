@@ -117,7 +117,7 @@ func findmac(s:*char)
 }
 func symname(sname:*char)
 {
-  var int:k,l,too_long;var char: c;
+  var int:k,l,too_long;
   sb();
   if(!alpha(line[lptr]))return 0;
   for(k=l=too_long=0;an(line[lptr]);)
@@ -423,11 +423,20 @@ func doinclude()
 }
 func process()
 {
+  var int:startl,startf;
   while(!iseof)
   {
     insline();
+    startl=ilines[iptr];
+    startf=iptr;
     prep();
     fputs(rline,ofil);fputc(10,ofil);
+    /* prep consumed continuation lines (a multi-line comment, or an escaped
+       newline in a literal): K input lines collapsed into one output line, so
+       resync langc's location counter to the next real line. Include pushes/
+       pops (iptr changed) already emitted their own markers. */
+    if((iptr==startf)&&(ilines[iptr]!=startl))
+    linemark(ilines[iptr]+1,inamebuf+iptr*64);
   }
 }
 func main(argc:int,argv:**char)
@@ -470,7 +479,6 @@ func main(argc:int,argv:**char)
   else setiname("<stdin>");
   /* n=1 directly: nothing precedes the first source line (no blank to absorb) */
   linemark(1,inamebuf);
-  var int:c;
   process();
   
   if(inn)fclose(ifil);

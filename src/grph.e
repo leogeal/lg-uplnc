@@ -33,7 +33,6 @@ var grsqx,grsqy,grsqstepx,grsqstepy:int;
 func grsqadd(*char:name,*snamelist:nmlst)
 {
   if(grsqptr>=SQNUM){error("graphing table full");return;}
-  var int:i;
   strcp(grsq[grsqptr].name,name);
   grsq[grsqptr].nmlst=nmlst;
   grsq[grsqptr].x=grsqx;
