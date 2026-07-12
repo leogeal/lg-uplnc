@@ -1,6 +1,19 @@
 # Local Claude Code tooling/config
 .claude/
 
+# OpenClaw agent workspace files (per-machine agent state, not project source;
+# committing them is opt-in only -- see the repo owner)
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+openclaw-workspace-state.json
+# local scan-report scratch
+report.md
+
 # Transpiler build artifacts (generated C + binaries)
 transpiler/build/
 __pycache__/
