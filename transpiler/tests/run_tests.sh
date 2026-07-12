@@ -213,18 +213,22 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     # aggregate params must be rejected: the callee would lay them out by value
     # while the caller passes a pointer -- silent garbage pre-fix (PR #86 review)
     printf 'struct pr{int a;int b;};\nfunc f(p:pr){return p.a;}\nfunc main(){var s:pr;s.a=1;return f(s);}\n' > "$TMPD/uplnc_structpar.e"
-    "$LPP" "$TMPD/uplnc_structpar.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_structpar.s" 2>/dev/null
-    if grep -q 'struct parameters are not supported' "$TMPD/uplnc_structpar.s"; then
+    if "$LPP" "$TMPD/uplnc_structpar.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_structpar.s" 2>"$TMPD/uplnc_structpar.err"; then
+        bad "struct parameter rejection exits nonzero"
+    elif grep -q 'struct parameters are not supported' "$TMPD/uplnc_structpar.err"; then
         ok "struct parameter rejected"
     else
-        bad "struct parameter rejected"
+        bad "struct parameter rejection diagnostic"
     fi
     printf 'func f(a:[2]int){return a[0];}\nfunc main(){var [2]int:v;v[0]=1;return f(v);}\n' > "$TMPD/uplnc_arrpar.e"
-    "$LPP" "$TMPD/uplnc_arrpar.e" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_arrpar.s" 2>/dev/null
-    if grep -q 'array parameters are not supported' "$TMPD/uplnc_arrpar.s"; then
+    if "$LPP" "$TMPD/uplnc_arrpar.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_arrpar.s" 2>"$TMPD/uplnc_arrpar.err"; then
+        bad "array parameter rejection exits nonzero"
+    elif grep -q 'array parameters are not supported' "$TMPD/uplnc_arrpar.err"; then
         ok "array parameter rejected"
     else
-        bad "array parameter rejected"
+        bad "array parameter rejection diagnostic"
     fi
 
     # duplicate case labels must be diagnosed
