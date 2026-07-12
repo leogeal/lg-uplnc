@@ -32,6 +32,7 @@ var fpoolkind:[200]int;
 var fpoolptr:int;
 var fpoolbp:int;
 var errcnt:int;
+var wcnt:int;   /* warnings: reported, but never fail the compile */
 var ncmp:int;
 var nfunc:int;
 var nvars:int;
@@ -217,6 +218,7 @@ var line:[linesize]char;
 var cline:int;
 var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
+var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
 var mline:[linesize]char;
 var lptr:int;
 var mptr:int;
@@ -433,7 +435,7 @@ func main(argc:int,argv:**char)
 {
   tolitstk=litstkpt[0]=litstkle[0]=ncmp=lastst=nextlab=
   lptr=iseof=strptr=stptr=errcnt=argstk=wqptr=line[0]=quote[1]=0;
-  nfunc=0;nvars=0;cline=0;
+  nfunc=0;nvars=0;cline=0;wcnt=0;
   typptr=F_TYPE;
   strptr++;
   isinp=1;
@@ -496,6 +498,15 @@ func chkmem(p:*int)
 func errorsum()
 {
   if(ncmp)error("missing '}'");
+  if(wcnt)
+  {
+    /* only when nonzero, so warning-free compiles stay byte-identical */
+    comment();
+    outstr(" ");
+    outdec(wcnt);
+    outstr(" warning(s)");
+    nl();
+  }
   comment();
   outstr(" ");
   outdec(errcnt);
@@ -1331,9 +1342,9 @@ func dofunc()
   if(methodcls&&methodidx)
   {
     if(target.arch!=ARCH_I386)
-    addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));
+    {pidxsym=addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));pidxsym->wused=1;}
     else
-    addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));
+    {pidxsym=addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));pidxsym->wused=1;}
     paramtyp[0]=T_INTP;   /* 'this' is a pointer (integer class), never a double */
     argstk=argstk+target.wordsize;
   }
@@ -1417,6 +1428,7 @@ func dofunc()
       argstk=argstk+k;
     }
     if(pcnst)pidxsym->cnst=1;   /* const: rejected in ct_ASSIGN and ++/-- */
+    pidxsym->wused=1;           /* parameters are exempt from the unused warning */
     if(!match(","))if(ch()!=')')
     {
       error("comma or ')' expected");
@@ -1565,6 +1577,29 @@ func dofunc()
     savecsr(csrslot);
   }
   statemen();
+  /* unused-variable warnings: body locals never referenced after declaration.
+     Parameters and 'this' are pre-marked used; hidden temps/sret start with a
+     digit. The warning is located at the declaration line. */
+  {
+    var *ssymlist:wl;
+    var [64]char:wmsg;
+    var int:wk,wj,savecl;
+    for(wl=locsymtab.lst;wl;wl=wl->next)
+    if((wl->sym.sort==S_VARL)&&(!wl->sym.wused)
+     &&((wl->sym.name[0]<'0')||(wl->sym.name[0]>'9')))
+    {
+      strcp(wmsg,"unused variable '");
+      wk=strlen1(wmsg);
+      wj=0;
+      while(wl->sym.name[wj]&&(wk<60))wmsg[wk++]=wl->sym.name[wj++];
+      wmsg[wk++]=39;
+      wmsg[wk]=0;
+      savecl=cline;
+      cline=wl->sym.line;
+      warning(wmsg);
+      cline=savecl;
+    }
+  }
   /*ol("movl %ebp, %esp");
   ol("popl %ebp");*/
   if(target.csrsave)restcsr(csrslot);
@@ -1635,6 +1670,7 @@ func statemen()
   else if(match(";"));
   else
     {
+    g_stmtexp=1;   /* expressi warns if the whole statement is a comparison */
     expressi();
     ns();
     lastst=stexp;
@@ -1761,12 +1797,30 @@ func doreturn()
   ol("popl %ebp");*/
   zret();
 }
+/* panic-mode recovery: after an error inside a statement, skip to the next
+   statement boundary (`;` consumed, `}` left for the block logic), so one
+   mistake yields one message -- and the parser always makes progress, where an
+   unrecognized token used to re-enter statemen forever. */
+func syncstmt()
+{
+  while(1)
+  {
+    blanks();
+    if(iseof)return 0;
+    if(ch()==';'){gch();return 0;}
+    if(ch()=='}')return 0;
+    gch();
+  }
+}
 func compound()
 {
+  var int:pe;
   ++ncmp;
   while(!match(trcomp/*"}"*/))
   {
+    pe=errcnt;
     statemen();
+    if(errcnt>pe)syncstmt();
     if(iseof)
     {
       error("missing '}'");
@@ -1802,7 +1856,6 @@ func modstk(newsp:int)
 func dolocvar()
 {
   var [NAMESIZE]char:sname;
-  var int:p1;
   var int:typ,istyp,wcnst,hasinit,irt;
   var *ssym:idx;
   var int:k;
@@ -1849,9 +1902,12 @@ func dolocvar()
     if(endst())break;
     if(!match(","))
     {
+      /* broken declarator list: report once and bail out -- the statement-
+         level panic recovery (syncstmt) skips the rest, where misparsing the
+         wreck here produced a cascade of follow-on errors. */
       error("',' or ':'|';' expected");
-      junk();
-      break;
+      delsymlist(lst);
+      return 0;
     }
   }
   if(!istyp)
@@ -1878,6 +1934,7 @@ func dolocvar()
       error("local multidef");
     }
     idx=addloc(lptr->sym.name,S_VARL,1,Zsp-k,typ);
+    idx->line=cline;        /* the unused-variable warning cites this line */
     if(wcnst)idx->cnst=1;   /* M6 const */
     /* mark int/pointer scalars for leaf-function register promotion; the marker
        (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
@@ -3912,7 +3969,7 @@ func chkvarcall(fn:*ssym,args:*enode,cnt:int)
 func ct_FUNC(node:*enode,lval:*elval)
 {
   var int:k;
-  var elval:lval1,lval2;
+  var elval:lval2;
   var *enode:l,r;
   l=node->l;
   if(l&&((l->op==OP_LEAF&&l->leaf.vid==L_ID
@@ -4524,6 +4581,15 @@ func expressi()
   node=bexptree();
   foldtree(node);   /* M5: fold constant integer subexpressions */
   prestemps(node);  /* struct temps allocated before any operand is pushed */
+  if(g_stmtexp)
+  {
+    /* a whole statement that is just a comparison discards its result --
+       almost always the '==' vs '=' typo */
+    g_stmtexp=0;
+    if(node&&((node->op==OP_EQ)||(node->op==OP_NEQ)||(node->op==OP_LT)
+     ||(node->op==OP_GT)||(node->op==OP_LE)||(node->op==OP_GE)))
+    warning("comparison result is not used ('==' where '=' was meant?)");
+  }
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
   rt=T_INT;
   if(treetocode(node,&lval))rvalue(&lval);
@@ -5233,6 +5299,7 @@ func primary()
     else if(k=findloc(nm))
     {
       node->leaf.idx=k;
+      k->wused=1;   /* referenced (unused-variable warning) */
       if(cnmlst)cnmlst->addm(nm);
     }
     else if(k=findglb(nm))
@@ -5242,6 +5309,7 @@ func primary()
       else
       {
         node->leaf.idx=k;
+        k->wused=1;
         if(cnmlst)cnmlst->addm(nm);
       }
     }
@@ -5411,7 +5479,6 @@ func dumpfloats()       /* emit .LF<i>: .double <text> for each float literal */
 func number(val:*int)
 {
   var int:k;
-  var int:d;
   var int:minus;
   var char:c;
   var [48]char:buf;
@@ -5818,6 +5885,34 @@ func error(p:*char)
   fprintf(stderr,"^\n");
   nl();
   ++errcnt;
+  if(errcnt>=30)
+  {
+    /* error flood: the input is beyond salvage (or a recovery path is
+       spinning); summarize and stop instead of drowning the user. */
+    comment();
+    outstr("too many errors, giving up");
+    nl();
+    comment();
+    outstr(" ");
+    outdec(errcnt);
+    outstr(" error(s)");
+    nl();
+    fprintf(stderr,"too many errors, giving up\n");
+    exit(1);
+  }
+}
+/* a warning: located like an error, but never fails the compile (and no
+   caret line -- warnings stay one-liners) */
+func warning(p:*char)
+{
+  comment();
+  if(cfile[0]){outstr(cfile);col();outdec(cline);col();}
+  outstr("Warning:");
+  outstr(p);
+  if(cfile[0])fprintf(stderr,"%s:%d: Warning:%s\n",cfile,cline,p);
+  else fprintf(stderr,"---->line %d: Warning:%s\n",cline,p);
+  nl();
+  ++wcnt;
 }
 func reset()
 {
@@ -5870,7 +5965,6 @@ func printmap()
     fprintf(stderr,"can't open map file %s\n",mapname);
     return;
   }
-  var int:s;
   var *ssymlist:lst;
   for(lst=glbsymtab.lst;lst;lst=lst->next)
   {
@@ -5995,7 +6089,6 @@ func symname(sname:*char)
   var int:k;
   var int:l;
   var int:too_long;
-  var char:c;
   blanks();
   if(!alpha(ch()))return 0;
   k=l=too_long=0;
@@ -6022,7 +6115,6 @@ func fsymname(sname:*char)
   var int:k;
   var int:l;
   var int:too_long;
-  var char:c;
   var int:qptr;
   blanks();
   if(!alpha(ch()))return 0;

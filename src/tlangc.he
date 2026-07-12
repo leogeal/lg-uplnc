@@ -60,6 +60,7 @@ struct ssym{
   int ginit; /* global initializer kind (GI_*); the value or pool index is in offset */
   int isva;  /* variadic function: parameter list ended with ... */
   int nfixed;/* number of named parameters before ... */
+  int wused; /* referenced at least once (unused-variable warning); params start 1 */
   func init;
   func done;
 };

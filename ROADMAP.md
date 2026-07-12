@@ -412,8 +412,28 @@ What turns a teaching compiler into something you'd build a project with:
   lpp1's own errors also carry `<file>:<line>`. The markers are invisible to
   the emitted assembly (not echoed), so clean compiles are unchanged and all
   five fixpoints reach; two harness checks pin the location accuracy inside an
-  include and after the resync. Still open: columns in the caret line are
-  byte-offsets (good enough), error recovery (not stop-on-first), warnings
+  include and after the resync. **Part 2 — error recovery + warnings ✅**:
+  - *Location fidelity fix*: lpp1 collapses a K-line `/* comment */` (or an
+    escaped-newline literal) into one output line, drifting every later
+    location by K−1 — 312 lines across langc.e. `process()` now emits a resync
+    marker whenever `prep()` consumed continuation lines. Found by the new
+    unused-variable warnings pointing 97 lines off inside the compiler itself.
+  - *Panic-mode recovery*: after any error inside a statement, `compound`
+    resyncs at the next `;`/`}` (`syncstmt`), so one mistake yields one
+    message — and the parser always makes progress: an unrecognized token or a
+    broken local declaration used to **hang** langc (two live loops fixed); a
+    broken declarator list now reports exactly one error and bails.
+  - *Error flood cap*: 30 errors → "too many errors, giving up", exit 1 — a
+    backstop against pathological input and any future recovery loop.
+  - *Warnings*: `warning()` mirrors error locations but never fails the
+    compile (exit stays 0; the `N warning(s)` summary appears only when
+    nonzero, so warning-free compiles stay byte-identical). Two v1 warnings:
+    **unused variable** (body locals never referenced; parameters and hidden
+    temps exempt; located at the declaration line) and **no-effect comparison
+    statement** (`x == 5;` — the `==`-vs-`=` typo). Dogfooding them found and
+    removed nine dead variables in the compiler's own source; self-compile is
+    warning-free. Six harness checks pin recovery, the cap, and both warnings.
+  Still open: columns in the caret line are byte-offsets (good enough)
 - 🟡 A small **standard library** — v0 started, grown from the M7 dogfooding
   needs: `lib/fmt.e` provides `putf(fmt,...)`, a mini printf (`%d %u %x %c %s
   %%`, space/zero width padding) built on the new varargs (`vastart()`) with
@@ -632,8 +652,11 @@ What turns a teaching compiler into something you'd build a project with:
   dimensions route through `constexpr()` instead of spinning; overlong numeric
   literals, method names, identifiers, string literal pools, and float literal
   pools now diagnose instead of overflowing or silently truncating; `lpp1` now
-  returns nonzero on preprocessing errors and guards overlong source lines. Other
-  malformed-input loops and parser recovery gaps remain
+  returns nonzero on preprocessing errors and guards overlong source lines; the
+  statement parser recovers at `;`/`}` instead of looping on unrecognized
+  tokens or broken declarations (two hangs fixed), and an error-flood cap (30)
+  backstops anything that still spins while emitting errors. Remaining: a
+  deliberate fuzzing pass would harden the claim further
 
 ## M7 — Proof it's real 🟡
 
