@@ -414,7 +414,16 @@ What turns a teaching compiler into something you'd build a project with:
   five fixpoints reach; two harness checks pin the location accuracy inside an
   include and after the resync. Still open: columns in the caret line are
   byte-offsets (good enough), error recovery (not stop-on-first), warnings
-- ⏳ A small **standard library** (instead of calling libc via bare `extern`s)
+- 🟡 A small **standard library** — v0 started, grown from the M7 dogfooding
+  needs: `lib/fmt.e` provides `putf(fmt,...)`, a mini printf (`%d %u %x %c %s
+  %%`, space/zero width padding) built on the new varargs (`vastart()`) with
+  only libc `putchar` underneath, plus the `putd`/`putu`/`putx`/`putstr`
+  building blocks. Consumed via lpp1 `#include "../lib/fmt.e"` (paths resolve
+  from the lpp1 cwd; line-numbered diagnostics attribute errors to the lib
+  file). v0 limits documented in the header: no `%f` (FP varargs are rejected
+  on x86_64/arm64), word-size args, `nargreg`-capped calls on the register
+  targets. The output contract is pinned byte-for-byte by `examples/fmtdemo.e`
+  in `run_tests.sh` `[11]`, and verified byte-identical on all five backends
 - ⏳ **Debug info** (DWARF) so `gdb` works
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
@@ -633,8 +642,15 @@ What turns a teaching compiler into something you'd build a project with:
     in UPLNC. Exercises `getchar`/EOF, a whitespace state machine, and `printf`
   - ✅ `examples/cat.e` — `cat` taking file arguments (`main(argc,argv)`,
     `fopen`/`fgetc`/`fclose`, `stderr`, exit status; `-`/no-args read stdin)
-  - Both build with the stage-0 tools and run on all **five** backends matching
-    the system tools; gated by `run_tests.sh` section `[11]`
+  - ✅ `examples/fmtdemo.e` — exercises every `lib/fmt.e` format feature and
+    prints the library's fixed output contract (diffed byte-for-byte in `[11]`)
+  - ✅ `examples/hexdump.e` — an `od`-lite (offset + 16 hex bytes + ASCII
+    column) built on `lib/fmt.e`: dogfoods **varargs** (`putf`), `%08x`/`%02x`
+    padding, byte handling and array-decay argument passing, in one real
+    utility
+  - All build with the stage-0 tools; wc/cat run on all **five** backends
+    matching the system tools, and fmtdemo/hexdump print byte-identical output
+    on all five (verified); gated by `run_tests.sh` section `[11]`
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
 - 💭 A test/benchmark suite of UPLNC programs with expected output
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
