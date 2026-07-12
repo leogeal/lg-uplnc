@@ -24,7 +24,7 @@ var ifiles:[MAXINC]*int;
 /* per-open-file line numbers and names, for `# <line> "<file>"` markers in the
    output -- langc resyncs its error locations from them across #include */
 var ilines:[MAXINC]int;
-var inamebuf:[640]char;   /* MAXINC names, 64 bytes each */
+var inamebuf:[1600]char;  /* MAXINC paths, 160 bytes each (matches include path) */
 var iptr:int;
 var line,rline:[160]char;
 var lptr,rlptr:int;
@@ -145,15 +145,15 @@ func amatch(lit:*char,len:int)
 func error(p:*char)
 {
   fprintf(stderr,"%s:%d: ***** Error:%s\nline:%s\n",
-      inamebuf+iptr*64,ilines[iptr],p,line);
+      inamebuf+iptr*160,ilines[iptr],p,line);
   ++errcnt;
 }
 func setiname(s:*char)   /* remember the (bounded) name of the file at iptr */
 {
   var int:k;
   k=0;
-  while(s[k]&&(k<63)){inamebuf[iptr*64+k]=s[k];k++;}
-  inamebuf[iptr*64+k]=0;
+  while(s[k]&&(k<159)){inamebuf[iptr*160+k]=s[k];k++;}
+  inamebuf[iptr*160+k]=0;
 }
 /* `# <n> "<name>"`: langc numbers the next output line n. Emitted with n one
    below the true next source line, because the directive line that triggered
@@ -205,7 +205,7 @@ func insline()
       ifil=ifiles[--iptr];
       /* back to the outer file: resync langc (its next real line there is
          ilines[iptr]+1; the include's trailing blank absorbs the first count) */
-      linemark(ilines[iptr],inamebuf+iptr*64);
+      linemark(ilines[iptr],inamebuf+iptr*160);
     }
     else
     isinp=0;
@@ -368,7 +368,10 @@ func prep()
 func doinclude()
 {
   var [160]char:newn;
-  var int:k,c,too_long;
+  var [160]char:fulln;
+  var *char:cur;
+  var *int:newf;
+  var int:k,c,too_long,base,j;
   var int:delim;
   too_long=0;
   sb();
@@ -402,22 +405,31 @@ func doinclude()
     while(ch()&&!isblank(ch())&&ch()!=delim)gch();
   }
   if(too_long)return;
-  /*fprintf(stderr,"new name:%s\n",newn);*/
+  /* Quoted includes are relative to the including file, not lpp1's cwd.
+     Angle includes keep the historical cwd lookup (there is no -I path yet). */
+  cur=inamebuf+iptr*160;
+  base=0;
+  if((delim=='"')&&(newn[0]!='/'))
+  for(k=0;cur[k];k++)if(cur[k]=='/')base=k+1;
+  k=0;
+  while(k<base){fulln[k]=cur[k];k++;}
+  j=0;
+  while(newn[j]&&(k<159))fulln[k++]=newn[j++];
+  fulln[k]=0;
+  if(newn[j]){error("resolved include path too long");return;}
+  /*fprintf(stderr,"new name:%s\n",fulln);*/
   if(iptr>=MAXINC-2)
   error("too many nested #include");
   else
   {
-    ++iptr;
-    if(!(ifiles[iptr]=ifil=fopen(newn,"r")))
-    {
-      error("error opening %s\n",newn);
-      ifil=ifiles[--iptr];
-    }
+    if(!(newf=fopen(fulln,"r")))error("error opening include");
     else
     {
+      ++iptr;
+      ifiles[iptr]=ifil=newf;
       ilines[iptr]=0;
-      setiname(newn);
-      linemark(0,newn);   /* the #include line's blank flushes as "line 0" */
+      setiname(fulln);
+      linemark(0,fulln);   /* the #include line's blank flushes as "line 0" */
     }
   }
 }
@@ -436,7 +448,7 @@ func process()
        resync langc's location counter to the next real line. Include pushes/
        pops (iptr changed) already emitted their own markers. */
     if((iptr==startf)&&(ilines[iptr]!=startl))
-    linemark(ilines[iptr]+1,inamebuf+iptr*64);
+    linemark(ilines[iptr]+1,inamebuf+iptr*160);
   }
 }
 func main(argc:int,argv:**char)

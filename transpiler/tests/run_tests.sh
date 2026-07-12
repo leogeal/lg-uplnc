@@ -57,6 +57,26 @@ if [ -x "$LPP" ]; then
     else
         bad "lpp1 long line diagnostic"
     fi
+
+    # Quoted includes resolve relative to the including file, independently of cwd.
+    RELINC="$TMPD/uplnc_relinc/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"
+    mkdir -p "$RELINC"
+    printf '#define RELVALUE 42\n' > "$RELINC/value.he"
+    printf '#include "value.he"\nfunc main(){return RELVALUE;}\n' > "$RELINC/main.e"
+    if "$LPP" "$RELINC/main.e" > "$TMPD/uplnc_relinc.out" 2>"$TMPD/uplnc_relinc.err" \
+            && grep -q 'return 42' "$TMPD/uplnc_relinc.out"; then
+        ok "lpp1 quoted include is relative to the including file"
+    else
+        bad "lpp1 relative quoted include"
+    fi
+    printf '#include "missing.he"\n' > "$RELINC/missing_main.e"
+    if "$LPP" "$RELINC/missing_main.e" > /dev/null 2>"$TMPD/uplnc_relmissing.err"; then
+        bad "lpp1 missing relative include exits nonzero"
+    elif grep -Fq "$RELINC/missing_main.e:1:" "$TMPD/uplnc_relmissing.err"; then
+        ok "lpp1 missing include is attributed to the including file"
+    else
+        bad "lpp1 missing include location"
+    fi
 else
     bad "lpp1 not built"
 fi
@@ -250,11 +270,32 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     elif [ "$rc" = 0 ]; then bad "garbage statement exits nonzero"
     else ok "garbage statement recovered without hanging"; fi
 
+    # If an erroneous statement already consumed its semicolon, recovery must
+    # not skip the following statement. Both const writes must be diagnosed.
+    printf 'func main(){var const int:x=1;var const int:y=1;x=2;y=3;return 0;}\n' > "$TMPD/uplnc_rcv3.e"
+    "$LPP" "$TMPD/uplnc_rcv3.e" 2>/dev/null \
+        | "$LANGC" -march=x86_64 > "$TMPD/uplnc_rcv3.s" 2>"$TMPD/uplnc_rcv3.err"
+    n=$(grep -c 'assignment to a const variable' "$TMPD/uplnc_rcv3.err")
+    [ "$n" = 2 ] && ok "recovery preserves the statement after a completed error" \
+                   || bad "recovery skipped a following statement (got $n errors)"
+
+    # switch has its own statement loop, so it needs the same recovery hook.
+    printf 'func main(){switch(1){case 1:@@@;break;}return 0;}\n' > "$TMPD/uplnc_rcvsw.e"
+    "$LPP" "$TMPD/uplnc_rcvsw.e" 2>/dev/null \
+        | timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_rcvsw.s" 2>/dev/null
+    rc=$?
+    n=$(grep -c 'Error:' "$TMPD/uplnc_rcvsw.s")
+    if [ "$rc" = 124 ]; then bad "switch garbage does not hang"
+    elif [ "$n" -lt 30 ] && ! grep -q 'too many errors' "$TMPD/uplnc_rcvsw.s"; then
+        ok "switch statement recovery avoids the error flood cap"
+    else bad "switch statement recovery (got $n errors)"; fi
+
     # error flood cap: pathological input stops at 30 with a clear message
     { printf 'func main()\n{\n'; for _ in $(seq 1 50); do printf '  var broken banana:int;\n'; done; printf '  return 0;\n}\n'; } > "$TMPD/uplnc_flood.e"
     "$LPP" "$TMPD/uplnc_flood.e" 2>/dev/null | timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_flood.s" 2>/dev/null
     rc=$?
     if [ "$rc" = 124 ]; then bad "error flood does not hang"
+    elif [ "$rc" = 0 ]; then bad "error flood exits nonzero"
     elif grep -q 'too many errors, giving up' "$TMPD/uplnc_flood.s"; then
         ok "error flood capped with a clear message"
     else bad "error flood cap"; fi
@@ -270,6 +311,18 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
             && ok "warning count summarized" || bad "warning summary"
     else
         bad "warnings alone must not fail the compile"
+    fi
+
+    # Deferred unused-variable warnings retain both the declaration file and line.
+    printf '  var incdead:int;\n' > "$TMPD/uplnc_warn_inc.he"
+    printf 'func main()\n{\n#include "uplnc_warn_inc.he"\n  return 0;\n}\n' > "$TMPD/uplnc_warn_outer.e"
+    if "$LPP" "$TMPD/uplnc_warn_outer.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_warn_inc.s" 2>"$TMPD/uplnc_warn_inc.err"; then
+        grep -Fq "$TMPD/uplnc_warn_inc.he:1: Warning:unused variable 'incdead'" "$TMPD/uplnc_warn_inc.err" \
+            && ok "unused-variable warning retains the declaration file" \
+            || bad "unused-variable warning declaration file"
+    else
+        bad "include-local warning must not fail the compile"
     fi
 
     # duplicate case labels must be diagnosed
@@ -315,6 +368,17 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         ok "floating-point variadic arg diagnosed"
     else
         bad "floating-point variadic arg diagnostic"
+    fi
+    # i386 vastart() walks 4-byte slots; an 8-byte variadic integer would
+    # misalign every following argument, so reject it at the known call site.
+    printf 'func first(...){var p:*int;p=vastart();return p[0]+p[1];}\nfunc main(){return first(4294967295,42);}\n' > "$TMPD/uplnc_varargs_wide.e"
+    if "$LPP" "$TMPD/uplnc_varargs_wide.e" 2>/dev/null \
+            | "$LANGC" -march=i386 > "$TMPD/uplnc_varargs_wide.s" 2>"$TMPD/uplnc_varargs_wide.err"; then
+        bad "64-bit i386 variadic arg exits nonzero"
+    elif grep -q '64-bit variadic arguments' "$TMPD/uplnc_varargs_wide.err"; then
+        ok "64-bit i386 variadic arg rejected"
+    else
+        bad "64-bit i386 variadic arg diagnostic"
     fi
 else
     bad "langc not built"
@@ -533,11 +597,16 @@ if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then UM="-march=x86_64"
 elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then UM="-march=arm64"; UCC="gcc -no-pie -w"
 else UM=""; UCC=""; fi
 # build an example utility for the host arch; echoes the binary path or "" on fail
-buildutil() {  # $1 = name (without .e)
-    local s="$TMPD/uplnc_$1.s" bin="$TMPD/uplnc_$1"
+buildutil() {  # $1 = name (without .e); $2 = "fmt" to link lib/fmt.e
+    local s="$TMPD/uplnc_$1.s" bin="$TMPD/uplnc_$1" extra=""
     "$TDIR/build/lpp1" "../examples/$1.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$s" 2>/dev/null
     grep -qE '[1-9][0-9]* error' "$s" && { bad "$1.e (compile)"; return 1; }
-    $UCC "$s" -o "$bin" 2>/dev/null || { bad "$1.e (assemble/link)"; return 1; }
+    if [ "${2:-}" = fmt ]; then
+        extra="$TMPD/uplnc_fmt.s"
+        "$TDIR/build/lpp1" "../lib/fmt.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$extra" 2>/dev/null
+        grep -qE '[1-9][0-9]* error' "$extra" && { bad "lib/fmt.e (compile)"; return 1; }
+    fi
+    $UCC "$s" $extra -o "$bin" 2>/dev/null || { bad "$1.e (assemble/link)"; return 1; }
     echo "$bin"
 }
 if [ ! -x "$LANGC" ]; then
@@ -553,7 +622,7 @@ else
         want=$(wc < "$0" | awk '{print $1, $2, $3}'); got=$("$WC" < "$0")
         [ "$got" = "$want" ] && ok "wc.e matches system wc on a real file" \
                              || bad "wc.e vs system wc (got '$got', want '$want')"
-    fi
+    else bad "wc.e build"; fi
     if CAT=$(buildutil cat); then
         printf 'line1\nline2\n' > "$TMPD/uplnc_catf1"; printf 'AAA\n' > "$TMPD/uplnc_catf2"
         cmp -s <("$CAT" "$TMPD/uplnc_catf1" "$TMPD/uplnc_catf2") <(cat "$TMPD/uplnc_catf1" "$TMPD/uplnc_catf2") \
@@ -562,15 +631,15 @@ else
             && ok "cat.e reads stdin with no args" || bad "cat.e (stdin)"
         "$CAT" "$TMPD/uplnc_nope" 2>/dev/null; [ "$?" = 1 ] \
             && ok "cat.e exits 1 on a missing file" || bad "cat.e (error exit)"
-    fi
+    else bad "cat.e build"; fi
     # lib/fmt.e (stdlib v0): fmtdemo prints the library's fixed output contract
-    if FD=$(buildutil fmtdemo); then
+    if FD=$(buildutil fmtdemo fmt); then
         "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1
         printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\n' > "$TMPD/uplnc_fmtdemo.want"
         cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want" \
             && ok "fmtdemo.e matches the lib/fmt.e output contract" || bad "fmtdemo.e output"
-    fi
-    if HD=$(buildutil hexdump); then
+    else bad "fmtdemo.e + lib/fmt.e build"; fi
+    if HD=$(buildutil hexdump fmt); then
         printf 'hello world\n' | "$HD" > "$TMPD/uplnc_hex1.out"
         printf '00000000  68 65 6c 6c 6f 20 77 6f 72 6c 64 0a              |hello world.|\n' > "$TMPD/uplnc_hex1.want"
         cmp -s "$TMPD/uplnc_hex1.out" "$TMPD/uplnc_hex1.want" \
@@ -579,7 +648,7 @@ else
         printf '00000000  41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f ff  |ABCDEFGHIJKLMNO.|\n' > "$TMPD/uplnc_hex2.want"
         cmp -s "$TMPD/uplnc_hex2.out" "$TMPD/uplnc_hex2.want" \
             && ok "hexdump.e full line + high byte" || bad "hexdump.e full line"
-    fi
+    else bad "hexdump.e + lib/fmt.e build"; fi
 fi
 
 echo

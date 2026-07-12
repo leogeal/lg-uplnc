@@ -1,7 +1,7 @@
 /* hexdump: offset + 16 hex bytes + ASCII column ("od"-lite), reading stdin.
    A real utility dogfooding lib/fmt.e (putf %08x/%02x padding), byte handling
    (getchar values 0..255) and array-decay argument passing. */
-#include "../lib/fmt.e"
+#include "../lib/fmt.he"
 
 func dumpline(b:*int,n:int,off:int)
 {

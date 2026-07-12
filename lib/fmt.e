@@ -1,9 +1,7 @@
 /* ---------------------------------------------------------------------------
    UPLNC standard library v0: formatted output.                     lib/fmt.e
-   Grown from the M7 dogfooding needs. Include it with lpp1:
-       #include "../lib/fmt.e"
-   (lpp1 resolves include paths from its working directory; the test harness
-   and fixpoint scripts run from transpiler/.)
+   Grown from the M7 dogfooding needs. Programs include "fmt.he" (using a
+   path relative to their source) and link this implementation once.
 
    putf(fmt, ...) -- a mini printf:
      %d  signed word decimal          %u  unsigned word decimal
@@ -15,11 +13,14 @@
 
    v0 limits, by design:
      - no %f: FP varargs are rejected at compile time on x86_64/arm64
-     - arguments are word-size values (no long long varargs on i386)
+     - arguments are word-size values (the compiler rejects 64-bit varargs on
+       i386, where they would occupy two slots)
      - a call passes at most nargreg args on the register targets
        (fmt + 5 varargs on x86_64/arm64, fmt + 7 on riscv64/mips64)
    Only libc putchar is used underneath.
    ------------------------------------------------------------------------- */
+
+#include "fmt.he"
 
 func putstr(s:*char)
 {
