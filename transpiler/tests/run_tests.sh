@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 TDIR=$(pwd)              # absolute transpiler dir (for tools)
 SRC=../src
 SRCDIR=$(cd "$SRC" && pwd)
+DRIVER="$SRCDIR/langdrv.pl"
 fail=0
 pass=0
 ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
@@ -28,6 +29,89 @@ if ./build.sh >"$TMPD/uplnc_build.log" 2>&1; then
     ok "build.sh"
 else
     bad "build.sh (see $TMPD/uplnc_build.log)"
+fi
+
+echo "[2b] compiler driver handles build modes and multi-file programs"
+DRVSPACE="$TMPD/uplnc driver space"
+mkdir -p "$DRVSPACE"
+printf 'func main(){return 42;}\n' > "$DRVSPACE/hello world.e"
+if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -o "hello world" "hello world.e" \
+        >driver.out 2>driver.err); then
+    "$DRVSPACE/hello world"; rc=$?
+    [ "$rc" = 42 ] && ok "driver links a source whose path contains spaces" \
+                       || bad "driver linked program exits $rc, want 42"
+    if [ ! -s "$DRVSPACE/driver.out" ] && ! grep -q '^+ ' "$DRVSPACE/driver.err"; then
+        ok "driver is quiet by default"
+    else
+        bad "driver is quiet by default"
+    fi
+else
+    bad "driver links a source whose path contains spaces"
+fi
+
+if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -S -o "hello world.s" "hello world.e" \
+        >driver_S.out 2>driver_S.err) && grep -q '^main:' "$DRVSPACE/hello world.s"; then
+    ok "driver -S emits assembly"
+else
+    bad "driver -S emits assembly"
+fi
+if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -c -o "hello world.o" "hello world.s" \
+        >driver_c.out 2>driver_c.err) && [ -s "$DRVSPACE/hello world.o" ]; then
+    ok "driver -c assembles to an object"
+else
+    bad "driver -c assembles to an object"
+fi
+if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -o relink "hello world.o" \
+        >driver_obj.out 2>driver_obj.err); then
+    "$DRVSPACE/relink"; rc=$?
+    [ "$rc" = 42 ] && ok "driver links an existing object" \
+                       || bad "driver object link exits $rc, want 42"
+else
+    bad "driver links an existing object"
+fi
+
+if perl "$DRIVER" -march=x86_64 -o "$DRVSPACE/fmtdemo" \
+        ../examples/fmtdemo.e ../lib/fmt.e >"$DRVSPACE/multi.out" 2>"$DRVSPACE/multi.err" \
+        && "$DRVSPACE/fmtdemo" >"$DRVSPACE/fmtdemo.out" \
+        && grep -q '^int: 42 -7 0$' "$DRVSPACE/fmtdemo.out"; then
+    ok "driver compiles and links multiple UPLNC sources"
+else
+    bad "driver compiles and links multiple UPLNC sources"
+fi
+
+printf 'func main(){return (1 + ;}\n' > "$DRVSPACE/bad.e"
+printf 'preserve-existing-output\n' > "$DRVSPACE/bad.s"
+if perl "$DRIVER" -march=x86_64 -S -o "$DRVSPACE/bad.s" "$DRVSPACE/bad.e" \
+        >"$DRVSPACE/bad.out" 2>"$DRVSPACE/bad.err"; then
+    bad "driver propagates compiler failure"
+elif grep -q "compiling .*bad.e.* failed" "$DRVSPACE/bad.err"; then
+    ok "driver propagates compiler failure"
+else
+    bad "driver compiler failure diagnostic"
+fi
+if grep -qx 'preserve-existing-output' "$DRVSPACE/bad.s"; then
+    ok "driver preserves an existing output after failure"
+else
+    bad "driver preserves an existing output after failure"
+fi
+
+if perl "$DRIVER" -march=x86_64 -c -o "$DRVSPACE/both.o" \
+        "$DRVSPACE/hello world.e" "$DRVSPACE/bad.e" \
+        >"$DRVSPACE/invalid.out" 2>"$DRVSPACE/invalid.err"; then
+    bad "driver rejects one -o output for multiple -c inputs"
+elif grep -q 'requires exactly one input' "$DRVSPACE/invalid.err"; then
+    ok "driver rejects one -o output for multiple -c inputs"
+else
+    bad "driver multiple-input -o diagnostic"
+fi
+
+if (cd "$DRVSPACE" && perl "$DRIVER" -v -march=x86_64 -S -o verbose.s "hello world.e" \
+        >verbose.out 2>verbose.err) \
+        && grep -q '^+ .*lpp1' "$DRVSPACE/verbose.err" \
+        && grep -q '^+ .*langc.*-march=x86_64' "$DRVSPACE/verbose.err"; then
+    ok "driver -v reports the frontend commands"
+else
+    bad "driver -v reports the frontend commands"
 fi
 
 echo "[3] lpp1 preprocessor behaves correctly"
@@ -486,6 +570,15 @@ else
                                  || bad "i386 $name.e (got $got, want $want)"
         fi
     done < tests/progs/expected.txt
+    drvbin="$TMPD/uplnc_i386_driver"
+    if perl "$DRIVER" -march=i386 -o "$drvbin" tests/progs/ret_const.e \
+            2>"$TMPD/uplnc_i386_driver.err"; then
+        "$drvbin"; got=$?
+        [ "$got" = 42 ] && ok "driver selects a working i386 toolchain" \
+                            || bad "i386 driver binary exits $got, want 42"
+    else
+        bad "driver selects a working i386 toolchain"
+    fi
 fi
 
 echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
@@ -517,6 +610,15 @@ else
                                  || bad "arm64 $name.e (got $got, want $want)"
         fi
     done < tests/progs/expected.txt
+    drvbin="$TMPD/uplnc_arm64_driver"
+    if perl "$DRIVER" -march=arm64 -o "$drvbin" tests/progs/ret_const.e \
+            2>"$TMPD/uplnc_arm64_driver.err"; then
+        "$drvbin"; got=$?
+        [ "$got" = 42 ] && ok "driver selects the arm64 toolchain and flags" \
+                            || bad "arm64 driver binary exits $got, want 42"
+    else
+        bad "driver selects the arm64 toolchain and flags"
+    fi
 fi
 
 echo "[9] riscv64 backend: programs compile (-march=riscv64), assemble + run"
@@ -549,6 +651,15 @@ else
                                  || bad "riscv64 $name.e (got $got, want $want)"
         fi
     done < tests/progs/expected.txt
+    drvbin="$TMPD/uplnc_riscv_driver"
+    if perl "$DRIVER" -march=riscv64 -o "$drvbin" tests/progs/ret_const.e \
+            2>"$TMPD/uplnc_riscv_driver.err"; then
+        "$drvbin"; got=$?
+        [ "$got" = 42 ] && ok "driver selects the riscv64 toolchain and flags" \
+                            || bad "riscv64 driver binary exits $got, want 42"
+    else
+        bad "driver selects the riscv64 toolchain and flags"
+    fi
 fi
 
 echo "[10] mips64 backend: programs compile (-march=mips64), assemble + run"
@@ -587,31 +698,38 @@ else
                                  || bad "mips64 $name.e (got $got, want $want)"
         fi
     done < tests/progs/expected.txt
+    drvbin="$TMPD/uplnc_mips_driver"
+    if perl "$DRIVER" -march=mips64 -o "$drvbin" tests/progs/ret_const.e \
+            2>"$TMPD/uplnc_mips_driver.err"; then
+        $MIPSRUN "$drvbin"; got=$?
+        [ "$got" = 42 ] && ok "driver selects the mips64 toolchain and flags" \
+                            || bad "mips64 driver binary exits $got, want 42"
+    else
+        bad "driver selects the mips64 toolchain and flags"
+    fi
 fi
 
 echo "[11] example utilities: examples/*.e build and run (M7 'proof it's real')"
 # Real self-contained utilities written in UPLNC. Build + run them for the host's
 # native arch (x86_64 or arm64 CI runner) and check behaviour against the system.
 HOSTM=$(uname -m)
-if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then UM="-march=x86_64"; UCC="gcc -no-pie -w"
-elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then UM="-march=arm64"; UCC="gcc -no-pie -w"
-else UM=""; UCC=""; fi
+if [ "$HOSTM" = "x86_64" ] && command -v gcc >/dev/null; then UM="-march=x86_64"
+elif [ "$HOSTM" = "aarch64" ] && command -v gcc >/dev/null; then UM="-march=arm64"
+else UM=""; fi
 # build an example utility for the host arch; echoes the binary path or "" on fail
 buildutil() {  # $1 = name (without .e); $2 = "fmt" to link lib/fmt.e
-    local s="$TMPD/uplnc_$1.s" bin="$TMPD/uplnc_$1" extra=""
-    "$TDIR/build/lpp1" "../examples/$1.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$s" 2>/dev/null
-    grep -qE '[1-9][0-9]* error' "$s" && { bad "$1.e (compile)"; return 1; }
+    local bin="$TMPD/uplnc_$1"
+    local args=("$DRIVER" "$UM" -o "$bin" "../examples/$1.e")
     if [ "${2:-}" = fmt ]; then
-        extra="$TMPD/uplnc_fmt.s"
-        "$TDIR/build/lpp1" "../lib/fmt.e" 2>/dev/null | "$TDIR/build/langc" $UM > "$extra" 2>/dev/null
-        grep -qE '[1-9][0-9]* error' "$extra" && { bad "lib/fmt.e (compile)"; return 1; }
+        args+=("../lib/fmt.e")
     fi
-    $UCC "$s" $extra -o "$bin" 2>/dev/null || { bad "$1.e (assemble/link)"; return 1; }
+    perl "${args[@]}" \
+        2>"$TMPD/uplnc_$1.driver.err" || { bad "$1.e (driver build)"; return 1; }
     echo "$bin"
 }
 if [ ! -x "$LANGC" ]; then
     bad "langc not built"
-elif [ -z "$UCC" ]; then
+elif [ -z "$UM" ]; then
     echo "  skip - no native toolchain to build the examples on $HOSTM"
 else
     if WC=$(buildutil wc); then

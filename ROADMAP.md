@@ -650,7 +650,15 @@ What turns a teaching compiler into something you'd build a project with:
     for interop UPLNC does not need. Revisit only if C-ABI struct interop with
     external libraries becomes a goal, as its own milestone.
 - ⏳ A written **language specification** (the paper is the only spec today)
-- ⏳ Tooling: a real driver (replacing `langdrv.pl`), a formatter, editor support
+- 🟡 Tooling: **real compiler driver ✅** — `langdrv.pl` now provides a quiet,
+  target-aware CLI with `-march`, `-o`, `-S`, `-c`, and `-v`; accepts multiple
+  `.e`/`.s`/`.o` inputs; uses collision-free temporary intermediates; preserves
+  frontend and linker failures; handles paths with spaces without a shell; and
+  selects the established assembler/linker and ABI flags for all five targets.
+  Tool paths are discoverable relative to the repository and overridable by
+  flags or environment. The test suite builds examples through the driver and
+  pins separate compilation, multi-file linking, quiet/verbose behavior, error
+  propagation, and path safety. Still open: a formatter and editor support
 - 💭 Module/namespace system; package layout
 - 🟡 Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array

@@ -15,10 +15,9 @@ Exercises char-by-char I/O (`getchar`), EOF handling (sign-extended `-1`), a
 whitespace state machine for word counting, and `printf`.
 
 ```sh
-cd transpiler
-build/lpp1 ../examples/wc.e | build/langc -march=x86_64 | gcc -no-pie -x assembler - -o /tmp/wc
+perl src/langdrv.pl -march=x86_64 examples/wc.e -o /tmp/wc
 echo "hello world" | /tmp/wc          #  ->  1 2 12
-/tmp/wc < ../examples/wc.e            #  matches system wc
+/tmp/wc < examples/wc.e               #  matches system wc
 ```
 
 ## `cat.e` — concatenate files
@@ -29,9 +28,8 @@ Exercises `main(argc, argv)`, `fopen`/`fgetc`/`fclose`, the `stderr` extern, and
 `fprintf`.
 
 ```sh
-cd transpiler
-build/lpp1 ../examples/cat.e | build/langc -march=x86_64 | gcc -no-pie -x assembler - -o /tmp/cat
-/tmp/cat ../examples/wc.e            # print a file
+perl src/langdrv.pl -march=x86_64 examples/cat.e -o /tmp/cat
+/tmp/cat examples/wc.e               # print a file
 /tmp/cat a.txt - b.txt < piped       # files with stdin spliced in via "-"
 ```
 
@@ -42,21 +40,17 @@ link it with the program. Quoted includes resolve relative to the including
 source file, so preprocessing is independent of the current working directory.
 
 ```sh
-cd transpiler
-build/lpp1 ../lib/fmt.e | build/langc -march=x86_64 > /tmp/fmt.s
-build/lpp1 ../examples/fmtdemo.e | build/langc -march=x86_64 > /tmp/fmtdemo.s
-gcc -no-pie /tmp/fmtdemo.s /tmp/fmt.s -o /tmp/fmtdemo
-
-build/lpp1 ../examples/hexdump.e | build/langc -march=x86_64 > /tmp/hexdump.s
-gcc -no-pie /tmp/hexdump.s /tmp/fmt.s -o /tmp/hexdump
+perl src/langdrv.pl -march=x86_64 examples/fmtdemo.e lib/fmt.e -o /tmp/fmtdemo
+perl src/langdrv.pl -march=x86_64 examples/hexdump.e lib/fmt.e -o /tmp/hexdump
 printf 'hello\n' | /tmp/hexdump
 ```
 
 ## Building for other targets
 
-Swap `-march=x86_64` for `-march=arm64` / `-march=riscv64` / `-march=mips64`
-(assemble + run with the matching cross-toolchain under qemu), or drop `-march`
-for i386 (`gcc -m32`). All four utilities behave identically on all five backends.
+Swap `-march=x86_64` for `-march=arm64`, `-march=riscv64`, or
+`-march=mips64`; the driver selects the matching cross-toolchain and static-link
+flags. Drop `-march` for the default i386 target. All four utilities behave
+identically on all five backends.
 
 The `[11]` section of `transpiler/tests/run_tests.sh` builds and runs all four
 utilities for the host's native arch on every CI run.

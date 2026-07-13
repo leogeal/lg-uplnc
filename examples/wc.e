@@ -1,6 +1,6 @@
 /* wc -- count lines, words and characters on standard input.
    A small self-contained utility written in UPLNC (M7 "proof it's real").
-   Build:  lpp1 wc.e | langc -march=x86_64 | gcc -no-pie -x assembler - -o wc
+   Build:  perl src/langdrv.pl -march=x86_64 examples/wc.e -o wc
    Run:    ./wc < somefile   ->   "<lines> <words> <chars>"            */
 
 func iswhite(c:int)

@@ -2,7 +2,7 @@
    With no file arguments, or for an argument of "-", it reads standard input.
    A small self-contained utility in UPLNC exercising main(argc,argv), fopen/
    fgetc/fclose, and fprintf(stderr,...). Exit status 1 if any file won't open.
-   Build:  lpp1 cat.e | langc -march=x86_64 | gcc -no-pie -x assembler - -o cat */
+   Build:  perl src/langdrv.pl -march=x86_64 examples/cat.e -o cat */
 
 var extern stderr,stdin,stdout:*int;
 
