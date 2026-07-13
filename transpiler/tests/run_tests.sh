@@ -32,10 +32,18 @@ else
 fi
 
 echo "[2b] compiler driver handles build modes and multi-file programs"
+case "$(uname -m)" in
+    x86_64)  DRVARCH=x86_64 ;;
+    i?86)    DRVARCH=i386 ;;
+    aarch64) DRVARCH=arm64 ;;
+    riscv64) DRVARCH=riscv64 ;;
+    mips64)  DRVARCH=mips64 ;;
+    *)       DRVARCH=x86_64 ;;
+esac
 DRVSPACE="$TMPD/uplnc driver space"
 mkdir -p "$DRVSPACE"
 printf 'func main(){return 42;}\n' > "$DRVSPACE/hello world.e"
-if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -o "hello world" "hello world.e" \
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -o "hello world" "hello world.e" \
         >driver.out 2>driver.err); then
     "$DRVSPACE/hello world"; rc=$?
     [ "$rc" = 42 ] && ok "driver links a source whose path contains spaces" \
@@ -49,19 +57,19 @@ else
     bad "driver links a source whose path contains spaces"
 fi
 
-if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -S -o "hello world.s" "hello world.e" \
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -S -o "hello world.s" "hello world.e" \
         >driver_S.out 2>driver_S.err) && grep -q '^main:' "$DRVSPACE/hello world.s"; then
     ok "driver -S emits assembly"
 else
     bad "driver -S emits assembly"
 fi
-if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -c -o "hello world.o" "hello world.s" \
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -c -o "hello world.o" "hello world.s" \
         >driver_c.out 2>driver_c.err) && [ -s "$DRVSPACE/hello world.o" ]; then
     ok "driver -c assembles to an object"
 else
     bad "driver -c assembles to an object"
 fi
-if (cd "$DRVSPACE" && perl "$DRIVER" -march=x86_64 -o relink "hello world.o" \
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -o relink "hello world.o" \
         >driver_obj.out 2>driver_obj.err); then
     "$DRVSPACE/relink"; rc=$?
     [ "$rc" = 42 ] && ok "driver links an existing object" \
@@ -70,7 +78,7 @@ else
     bad "driver links an existing object"
 fi
 
-if perl "$DRIVER" -march=x86_64 -o "$DRVSPACE/fmtdemo" \
+if perl "$DRIVER" "-march=$DRVARCH" -o "$DRVSPACE/fmtdemo" \
         ../examples/fmtdemo.e ../lib/fmt.e >"$DRVSPACE/multi.out" 2>"$DRVSPACE/multi.err" \
         && "$DRVSPACE/fmtdemo" >"$DRVSPACE/fmtdemo.out" \
         && grep -q '^int: 42 -7 0$' "$DRVSPACE/fmtdemo.out"; then
@@ -81,7 +89,7 @@ fi
 
 printf 'func main(){return (1 + ;}\n' > "$DRVSPACE/bad.e"
 printf 'preserve-existing-output\n' > "$DRVSPACE/bad.s"
-if perl "$DRIVER" -march=x86_64 -S -o "$DRVSPACE/bad.s" "$DRVSPACE/bad.e" \
+if perl "$DRIVER" "-march=$DRVARCH" -S -o "$DRVSPACE/bad.s" "$DRVSPACE/bad.e" \
         >"$DRVSPACE/bad.out" 2>"$DRVSPACE/bad.err"; then
     bad "driver propagates compiler failure"
 elif grep -q "compiling .*bad.e.* failed" "$DRVSPACE/bad.err"; then
@@ -95,7 +103,7 @@ else
     bad "driver preserves an existing output after failure"
 fi
 
-if perl "$DRIVER" -march=x86_64 -c -o "$DRVSPACE/both.o" \
+if perl "$DRIVER" "-march=$DRVARCH" -c -o "$DRVSPACE/both.o" \
         "$DRVSPACE/hello world.e" "$DRVSPACE/bad.e" \
         >"$DRVSPACE/invalid.out" 2>"$DRVSPACE/invalid.err"; then
     bad "driver rejects one -o output for multiple -c inputs"
@@ -105,10 +113,10 @@ else
     bad "driver multiple-input -o diagnostic"
 fi
 
-if (cd "$DRVSPACE" && perl "$DRIVER" -v -march=x86_64 -S -o verbose.s "hello world.e" \
+if (cd "$DRVSPACE" && perl "$DRIVER" -v "-march=$DRVARCH" -S -o verbose.s "hello world.e" \
         >verbose.out 2>verbose.err) \
         && grep -q '^+ .*lpp1' "$DRVSPACE/verbose.err" \
-        && grep -q '^+ .*langc.*-march=x86_64' "$DRVSPACE/verbose.err"; then
+        && grep -q "^+ .*langc.*-march=$DRVARCH" "$DRVSPACE/verbose.err"; then
     ok "driver -v reports the frontend commands"
 else
     bad "driver -v reports the frontend commands"
