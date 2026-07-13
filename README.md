@@ -61,7 +61,7 @@ commit. The original paper and raw archive are kept alongside for reference.
 | `autodyn.e` | Automatic allocation / deallocation |
 | `lpp1.e` | Preprocessor |
 | `grph.e` | Graph utilities |
-| `langdrv.pl` | Perl build/driver script |
+| `langdrv.pl` | Compiler driver: preprocess, compile, assemble, and link |
 
 ## Building
 
@@ -99,6 +99,23 @@ The compiler is **provably self-hosting from this transpiler**: CI builds it via
 `uplnc2c`, has it recompile its own source twice more, and confirms stage-2 and
 stage-3 assembly are byte-identical. See [`transpiler/README.md`](transpiler/README.md)
 for the design and full status writeup.
+
+## Compiling programs
+
+After building the stage-0 tools, use the compiler driver from the repository
+root. It finds `transpiler/build/lpp1` and `transpiler/build/langc`
+automatically:
+
+```sh
+perl src/langdrv.pl -march=x86_64 examples/wc.e -o wc
+perl src/langdrv.pl -march=x86_64 examples/fmtdemo.e lib/fmt.e -o fmtdemo
+```
+
+The driver accepts `.e`, `.s`, and `.o` inputs, supports separate compilation
+with `-S` and `-c`, and selects the appropriate assembler/linker for `i386`,
+`x86_64`, `arm64`, `riscv64`, and `mips64`. The default target remains `i386`;
+use `-march=x86_64` for a native build on a typical x86_64 host. Run
+`perl src/langdrv.pl --help` for the complete interface.
 
 Where it goes from here — retargetable backend, other host CPUs, floating point,
 optimization, and real-world usability — is laid out in [`ROADMAP.md`](ROADMAP.md)
