@@ -1,0 +1,14 @@
+/* Small text-pattern matcher used by examples/grep.e.
+
+   Syntax: ordinary bytes, . (any byte), ^ (start), $ (end), and * (zero or
+   more of the preceding atom). A backslash quotes the next byte. Matching is
+   line-oriented: NUL and newline both end the searchable text.
+
+   The pattern limit bounds recursive matcher depth; the step limit prevents
+   pathological backtracking from consuming unbounded time. grep_match returns
+   -1 when that work limit is exhausted. */
+#define GREP_PATMAX 120
+#define GREP_STEPMAX 100000
+
+func grep_patvalid(pattern:*char);
+func grep_match(pattern:*char,text:*char,icase:int);
