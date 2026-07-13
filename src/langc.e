@@ -2628,6 +2628,7 @@ func inittarget_elf()
   target.csrsave=0;     /* default: save regs are caller-saved (arm64/riscv/mips) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
   target.nlocalreg=0;   /* register-rich targets override; i386/mips have none */
+  target.nnonleafreg=0; /* 64-bit targets override with free callee-saved regs */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment
    targets (mips faults on an unaligned ld/sd), else 4 as the i386 heritage. */
@@ -2669,6 +2670,7 @@ func inittgt_x86_64()
   target.nargreg=6;    /* SysV: %rdi..%r9 */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* %r10/%r11: free caller-saved (leaf local promotion) */
+  target.nnonleafreg=2;/* %r14/%r15: free callee-saved (non-leaf promotion) */
   target.csrsave=1;    /* %rbx/%r12/%r13 are callee-saved -> save/restore them */
 }
 func inittgt_arm64()
@@ -2680,6 +2682,7 @@ func inittgt_arm64()
   target.nargreg=6;    /* AAPCS64 has x0..x7, but we use 6 (as on x86_64) */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* x11/x12: free caller-saved (leaf local promotion) */
+  target.nnonleafreg=2;/* x19/x20: free callee-saved (non-leaf promotion) */
 }
 func inittgt_riscv()
 {
@@ -2692,6 +2695,7 @@ func inittgt_riscv()
   target.nsavereg=3;   /* RG_B/RG_C/RG_E are t1/t2/t3, distinct from t0 scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
   target.nlocalreg=2;  /* t4/t5: free caller-saved (leaf local promotion) */
+  target.nnonleafreg=2;/* s1/s2: free callee-saved (non-leaf promotion) */
 }
 func inittarget_mips()
 {
@@ -2705,6 +2709,7 @@ func inittarget_mips()
   target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
   target.nsavereg=3;   /* RG_B/RG_C/RG_E are $14/$15/$24, distinct from scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
+  target.nnonleafreg=2;/* $16/$17: free callee-saved (non-leaf promotion) */
 }
 func printlab(label:int)
 {

@@ -201,6 +201,8 @@ func cg_print(this:*scodegen);
 #define RG_E 4   /* M5 regspill: 3rd save register (depth-2 spills) */
 #define RG_L0 5  /* M5 promote-locals: caller-saved regs holding promoted */
 #define RG_L1 6  /* locals in leaf functions (no save/restore needed) */
+#define RG_N0 7  /* M5 non-leaf promotion: callee-saved regs, preserved in */
+#define RG_N1 8  /* pass-reserved frame slots at function entry/exit */
 
 func icodegen();
 func dcodegen();
@@ -245,6 +247,9 @@ struct starget{
   int nlocalreg;        /* M5 promote-locals: # of free caller-saved registers
                            (RG_L0,RG_L1) for holding non-address-taken scalar
                            locals in leaf functions. 0 where none are free.      */
+  int nnonleafreg;      /* M5 non-leaf promotion: # of free callee-saved regs
+                           (RG_N0,RG_N1). The late pass reserves their save area
+                           and shifts negative frame references around it.       */
   int csrsave;          /* 1 if RG_B/RG_C/RG_E are callee-saved (x86: rbx/r12/r13,
                            ebx/esi/edi) and must be saved to frame slots at entry
                            and restored before every return (SysV ABI). 0 where

@@ -498,6 +498,44 @@ else
     bad "langc not built"
 fi
 
+echo "[5b] non-leaf locals use callee-saved registers with frame save/restore"
+if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
+    src=tests/progs/nonleaf_promote.e
+    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_nonleaf_x64.s" 2>/dev/null
+    if grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64.s" \
+            && grep -Fq 'movq -16(%rbp), %r14' "$TMPD/uplnc_nonleaf_x64.s"; then
+        ok "x86_64 non-leaf local saved, promoted, and restored"
+    else
+        bad "x86_64 non-leaf register promotion"
+    fi
+
+    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=arm64 > "$TMPD/uplnc_nonleaf_arm64.s" 2>/dev/null
+    if grep -Fq 'str x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64.s" \
+            && grep -Fq 'ldr x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64.s"; then
+        ok "arm64 non-leaf local saved, promoted, and restored"
+    else
+        bad "arm64 non-leaf register promotion"
+    fi
+
+    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=riscv64 > "$TMPD/uplnc_nonleaf_riscv.s" 2>/dev/null
+    if grep -Fq 'sd s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv.s" \
+            && grep -Fq 'ld s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv.s"; then
+        ok "riscv64 non-leaf local saved, promoted, and restored"
+    else
+        bad "riscv64 non-leaf register promotion"
+    fi
+
+    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=mips64 > "$TMPD/uplnc_nonleaf_mips.s" 2>/dev/null
+    if grep -Fq 'sd $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips.s" \
+            && grep -Fq 'ld $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips.s"; then
+        ok "mips64 non-leaf local saved, promoted, and restored"
+    else
+        bad "mips64 non-leaf register promotion"
+    fi
+else
+    bad "langc not built"
+fi
+
 echo "[6] x86_64 backend: programs compile (-march=x86_64), assemble + run correctly"
 if [ ! -x "$LANGC" ]; then
     bad "langc not built"
