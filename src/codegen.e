@@ -331,23 +331,34 @@ func regspill(this:*scodegen)
     i=i+1;
   }
 }
-/* M5 promote-locals (leaf functions): a non-address-taken word-size scalar local
-   in a function that makes no call can live in a free caller-saved register for
-   its whole lifetime instead of the frame -- no save/restore needed, since there
-   is no call to clobber it and the caller does not expect a caller-saved register
-   preserved. The front-end marks candidate locals with CD_LOCAL(offset); here we
-   keep the ones never address-taken (no CD_LEA at that offset), assign each a
-   register (RG_L0,RG_L1; reused frame slots share one), and rewrite their
-   CD_LDLW/CD_STLW to register moves. Markers are always stripped. */
+/* M5 promote-locals: leaf functions use free caller-saved RG_L0/RG_L1 with no
+   save cost. Non-leaf functions use callee-saved RG_N0/RG_N1. The late pass
+   reserves their save area by shifting every negative frame-relative reference;
+   CD_STKENTER/LEAVE use the metadata below to allocate, save, and restore it.
+   The front end marks candidates with CD_LOCAL(offset); address-taken locals
+   (matching CD_LEA) stay in memory. Reused frame slots share one register. */
 #define PROMLOC_MAX 512
+var prom_nreg:int;
+var prom_shift:int;
+func promframeop(c:int)
+{
+  return (c==CD_LEA)||(c==CD_STLW)||(c==CD_STLB)
+      ||(c==CD_LDLW)||(c==CD_LDLB)||(c==CD_LDLBU)
+      ||(c==CD_FLDLOC)||(c==CD_FSTLOC)
+      ||(c==CD_FLDLOCS)||(c==CD_FSTLOCS)
+      ||(c==CD_SARGINT)||(c==CD_SARGFP)
+      ||(c==CD_SAVECSR)||(c==CD_RESTCSR)
+      ||(c==CD_LDLW64)||(c==CD_STLW64);
+}
 func promote_locals(this:*scodegen)
 {
   var int:i;var int:n;var int:c;var int:o;var int:leaf;
   var int:ncand;var int:nlea;var int:nused;var int:r;var int:j;var int:taken;
+  var int:nreg;var int:rbase;var int:reserve;var int:align;
   var [PROMLOC_MAX]int:cand;   /* candidate local offsets (from CD_LOCAL)     */
-  var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or 0-1       */
+  var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or -1        */
   var [PROMLOC_MAX]int:lea;    /* address-taken offsets (from CD_LEA)         */
-  n=this->codeptr;
+  n=this->codeptr;prom_nreg=0;prom_shift=0;
   leaf=1;ncand=0;nlea=0;
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
@@ -361,9 +372,11 @@ func promote_locals(this:*scodegen)
     else if(c==CD_LEA)
     {if(nlea<PROMLOC_MAX){lea[nlea]=this->codes[i].arg;nlea=nlea+1;}}
   }
-  /* bail (leave everything in the frame) if not a leaf, no free reg, or the
-     address-taken set overflowed -- markers are already safely stripped. */
-  if((target.nlocalreg==0)||(!leaf)||(nlea>=PROMLOC_MAX)||(ncand>=PROMLOC_MAX))return;
+  if(leaf){nreg=target.nlocalreg;rbase=RG_L0;}
+  else{nreg=target.nnonleafreg;rbase=RG_N0;}
+  /* On overflow, or where this target has no register in the needed ABI class,
+     leave every local in memory. Markers are already safely stripped. */
+  if((nreg==0)||(nlea>=PROMLOC_MAX)||(ncand>=PROMLOC_MAX))return;
   nused=0;
   for(i=0;i<ncand;i++)        /* pass 2: assign registers to safe candidates */
   {
@@ -374,7 +387,7 @@ func promote_locals(this:*scodegen)
     r=0-1;                     /* a reused frame slot keeps its register      */
     for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
     if(r>=0){creg[i]=r;continue;}
-    if(nused<target.nlocalreg){creg[i]=RG_L0+nused;nused=nused+1;}
+    if(nused<nreg){creg[i]=rbase+nused;nused=nused+1;}
   }
   for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
   {
@@ -390,6 +403,20 @@ func promote_locals(this:*scodegen)
         else{this->codes[i].code=CD_MOVR;this->codes[i].reg=r;this->codes[i].arg=RG_A;} /* mov acc->R */
       }
     }
+  }
+  if((!leaf)&&nused)
+  {
+    /* Keep the ABI's call alignment unchanged. The saved registers occupy the
+       negative slots nearest the frame pointer; all prior negative frame slots
+       move below them. Positive incoming stack-argument offsets do not move. */
+    align=2*target.wordsize;
+    reserve=nused*target.wordsize;
+    if(reserve&(align-1))reserve=reserve+align-(reserve&(align-1));
+    prom_nreg=nused;
+    prom_shift=0-reserve;
+    for(i=0;i<n;i++)
+    if(promframeop(this->codes[i].code)&&(this->codes[i].arg<0))
+    this->codes[i].arg=this->codes[i].arg+prom_shift;
   }
 }
 func cg_print(*scodegen this)
@@ -504,7 +531,7 @@ func cd_write_x86_64(*scode:this)
       ot("movq ");
       outstr(sysvargreg(i));
       outstr(", ");
-      outdec(-(i+1)*target.wordsize);
+      outdec(prom_shift-(i+1)*target.wordsize);
       outstr("(%rbp)");
       nl();
     }
@@ -601,11 +628,25 @@ func cd_write_x86_64(*scode:this)
    ol("xorq %rdx, %rdx");ol("divq %rcx");ol("movq %rdx, %rax");}
   else if(this->code==CD_STKENTER)
   {
+    var int:i;
     ol("pushq %rbp");
     ol("movq %rsp, %rbp");
+    if(prom_shift)
+    {ot("subq $");outdec(0-prom_shift);outstr(", %rsp");nl();}
+    for(i=0;i<prom_nreg;i++)
+    {
+      ot("movq ");outstr(regnames[RG_N0+i]);outstr(", ");
+      outdec(prom_shift+i*target.wordsize);outstr("(%rbp)");nl();
+    }
   }
   else if(this->code==CD_STKLEAVE)
   {
+    var int:i;
+    for(i=0;i<prom_nreg;i++)
+    {
+      ot("movq ");outdec(prom_shift+i*target.wordsize);outstr("(%rbp), ");
+      outstr(regnames[RG_N0+i]);nl();
+    }
     ol("movq %rbp, %rsp");
     ol("popq %rbp");
   }
@@ -1240,7 +1281,7 @@ func cd_write_arm64(*scode:this)
   {
     var int:i;
     for(i=0;i<this->arg;i++)
-    framemem_arm64("str",argreg_arm64(i),-(i+1)*target.wordsize);
+    framemem_arm64("str",argreg_arm64(i),prom_shift-(i+1)*target.wordsize);
   }
   else if(this->code==CD_MARSHAL)
   {
@@ -1292,9 +1333,20 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_UMOD2REGS)                                   /* unsigned left%right */
   {op3("udiv ","x9",r2nd(this),"x0");ot("msub x0, x9, x0, ");outstr(r2nd(this));nl();}
   else if(this->code==CD_STKENTER)
-  {ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");}
+  {
+    var int:i;
+    ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");
+    if(prom_shift)addimm_arm64("sp","sp",prom_shift);
+    for(i=0;i<prom_nreg;i++)
+    framemem_arm64("str",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+  }
   else if(this->code==CD_STKLEAVE)
-  {ol("mov sp, x29");ol("ldp x29, x30, [sp], #16");}
+  {
+    var int:i;
+    for(i=0;i<prom_nreg;i++)
+    framemem_arm64("ldr",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+    ol("mov sp, x29");ol("ldp x29, x30, [sp], #16");
+  }
   else if(this->code==CD_INCREG)
   {if(this->arg>0)addimm_arm64("x0","x0",this->arg);}
   else if(this->code==CD_DECREG)
@@ -1502,7 +1554,7 @@ func cd_write_riscv(*scode:this)
   {
     var int:i;
     for(i=0;i<this->arg;i++)
-    framemem_riscv("sd",riscvarg(i),-(i+1)*target.wordsize);
+    framemem_riscv("sd",riscvarg(i),prom_shift-(i+1)*target.wordsize);
   }
   else if(this->code==CD_SARGINT)   /* single arg-register spill (varargs va area) */
   framemem_riscv("sd",riscvarg(this->reg),this->arg);
@@ -1552,15 +1604,22 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_UMOD2REGS)op3("remu ","a0",r2nd(this),"a0"); /* unsigned left%right */
   else if(this->code==CD_STKENTER)
   {
+    var int:i;
     /* save ra+fp, set s0 to point at the saved fp (like %rbp): saved fp at
        0(s0), saved ra at 8(s0), incoming stack args at 16(s0). */
     ol("addi sp, sp, -16");
     ol("sd s0, 0(sp)");
     ol("sd ra, 8(sp)");
     ol("mv s0, sp");
+    if(prom_shift)addimm_riscv("sp","sp",prom_shift);
+    for(i=0;i<prom_nreg;i++)
+    framemem_riscv("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
   }
   else if(this->code==CD_STKLEAVE)
   {
+    var int:i;
+    for(i=0;i<prom_nreg;i++)
+    framemem_riscv("ld",regnames[RG_N0+i],prom_shift+i*target.wordsize);
     ol("mv sp, s0");
     ol("ld s0, 0(sp)");
     ol("ld ra, 8(sp)");
@@ -1770,7 +1829,7 @@ func cd_write_mips(*scode:this)
   {
     var int:i;
     for(i=0;i<this->arg;i++)
-    framemem_mips("sd",mipsarg(i),-(i+1)*target.wordsize);
+    framemem_mips("sd",mipsarg(i),prom_shift-(i+1)*target.wordsize);
   }
   else if(this->code==CD_SARGINT)   /* single arg-register spill (varargs va area) */
   framemem_mips("sd",mipsarg(this->reg),this->arg);
@@ -1820,15 +1879,22 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_UMOD2REGS)op3("dremu ","$2",r2nd(this),"$2");  /* unsigned left%right */
   else if(this->code==CD_STKENTER)
   {
+    var int:i;
     /* save ra+fp, point $fp at the saved fp (like %rbp): saved fp at 0($fp),
        saved ra at 8($fp), incoming stack args at 16($fp). */
     ol("daddiu $sp, $sp, -16");
     ol("sd $fp, 0($sp)");
     ol("sd $ra, 8($sp)");
     ol("move $fp, $sp");
+    if(prom_shift)addimm_mips("$sp","$sp",prom_shift);
+    for(i=0;i<prom_nreg;i++)
+    framemem_mips("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
   }
   else if(this->code==CD_STKLEAVE)
   {
+    var int:i;
+    for(i=0;i<prom_nreg;i++)
+    framemem_mips("ld",regnames[RG_N0+i],prom_shift+i*target.wordsize);
     ol("move $sp, $fp");
     ol("ld $fp, 0($sp)");
     ol("ld $ra, 8($sp)");
@@ -3420,7 +3486,7 @@ var scodegen:cgglb;
 func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
-  chkmem(regnames=calloc(7,sizeof(*char)));
+  chkmem(regnames=calloc(9,sizeof(*char)));
   if(target.arch==ARCH_ARM64)
   {
     /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D); x2/x3/x4 = the regspill
@@ -3432,6 +3498,8 @@ func icodegen()
     regnames[RG_E]="x4";
     regnames[RG_L0]="x11";   /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="x12";
+    regnames[RG_N0]="x19";   /* promoted locals (non-leaf): callee-saved */
+    regnames[RG_N1]="x20";
   }
   else if(target.arch==ARCH_RISCV)
   {
@@ -3445,6 +3513,8 @@ func icodegen()
     regnames[RG_E]="t3";
     regnames[RG_L0]="t4";    /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="t5";
+    regnames[RG_N0]="s1";    /* promoted locals (non-leaf): callee-saved */
+    regnames[RG_N1]="s2";
   }
   else if(target.arch==ARCH_MIPS)
   {
@@ -3456,6 +3526,8 @@ func icodegen()
     regnames[RG_C]="$15";
     regnames[RG_D]="$3";
     regnames[RG_E]="$24";
+    regnames[RG_N0]="$16";   /* promoted locals (non-leaf): callee-saved */
+    regnames[RG_N1]="$17";
   }
   else if(target.arch==ARCH_X86_64)
   {
@@ -3470,6 +3542,8 @@ func icodegen()
     regnames[RG_E]="%r13";
     regnames[RG_L0]="%r10";  /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="%r11";
+    regnames[RG_N0]="%r14";  /* promoted locals (non-leaf): callee-saved */
+    regnames[RG_N1]="%r15";
   }
   else
   {

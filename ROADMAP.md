@@ -392,11 +392,18 @@ wins first:
     (`RG_L0`/`RG_L1`): `%r10`/`%r11` (x86_64), `x11`/`x12` (arm64), `t4`/`t5`
     (riscv); i386/mips have none free (`nlocalreg=0`, a no-op there). −48 of the
     compiler's own frame loads/stores on x86_64.
-  - Result so far: ~12% of operand-stack spills avoid memory and leaf-local
-    promotion trims frame traffic; all five self-host fixpoints stay byte-identical.
-  - ⏳ Still open: non-leaf functions need callee-saved registers + prologue/
-    epilogue save/restore (and frame-slot reservation) to promote locals — the
-    bigger structural piece, deferred for its frame-layout risk
+  - ✅ **Promote locals in non-leaf functions.** The same safety analysis now
+    assigns up to two locals to free callee-saved registers: `%r14`/`%r15`
+    (x86_64), `x19`/`x20` (arm64), `s1`/`s2` (riscv), and `$16`/`$17` (mips).
+    The late pass reserves one ABI-aligned save area, shifts every negative
+    frame-relative IR reference below it, and emits save/restore code around
+    every return. i386 remains a no-op because regspill already occupies its
+    available callee-saved registers. Recursive and address-taken-local tests
+    run on all five targets, and assembly checks pin each promoted register
+    class.
+  - Result so far: ~12% of operand-stack spills avoid memory, and both leaf and
+    non-leaf scalar locals can avoid frame traffic; all five self-host fixpoints
+    stay byte-identical.
 - 💭 A cleaner optimizer IR (basic blocks; later SSA) if warranted
 
 ## M6 — Toward real-world usability ⏳
