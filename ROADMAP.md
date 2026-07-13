@@ -684,9 +684,16 @@ What turns a teaching compiler into something you'd build a project with:
     column) built on `lib/fmt.e`: dogfoods **varargs** (`putf`), `%08x`/`%02x`
     padding, byte handling and array-decay argument passing, in one real
     utility
-  - All build with the stage-0 tools; wc/cat run on all **five** backends
-    matching the system tools, and fmtdemo/hexdump print byte-identical output
-    on all five (verified); gated by `run_tests.sh` section `[11]`
+  - ✅ `examples/grep.e` + `grep_match.e/.he` — the first substantial
+    **multi-file utility** built by the real driver. Supports multiple files,
+    stdin, `-n`/`-i`/`-v`, conventional 0/1/2 statuses, and a documented regex
+    subset (literal/`.`/`^`/`$`/`*`/escaping). Pattern/line limits diagnose
+    instead of truncating, and a work budget bounds pathological backtracking.
+  - All build with the stage-0 tools; wc/cat/grep run on all **five** backends
+    (grep's separately linked matcher is exercised per target), while
+    fmtdemo/hexdump print byte-identical output on all five. Native grep tests
+    compare supported expressions with system grep and pin options, file/error
+    statuses, escaping, and resource limits; gated by `run_tests.sh` `[11]`
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
 - 💭 A test/benchmark suite of UPLNC programs with expected output
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,

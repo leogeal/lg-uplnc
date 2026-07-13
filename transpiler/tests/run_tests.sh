@@ -14,6 +14,11 @@ bad()  { echo "  FAIL - $1"; fail=$((fail+1)); }
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/uplnc-tests.XXXXXX")
 trap 'rm -rf "$TMPD"' EXIT
 
+buildgrep() { # $1 = target, $2 = output binary
+    perl "$DRIVER" "-march=$1" -o "$2" \
+        ../examples/grep.e ../examples/grep_match.e ../lib/fmt.e
+}
+
 echo "[1] transpile every UPLNC source without error"
 for f in tlangc.he codegen.he lpp1.e codegen.e langc.e autodyn.e grph.e; do
     if python3 uplnc2c.py "$SRC/$f" -I "$SRC/tlangc.he" -I "$SRC/codegen.he" \
@@ -587,6 +592,15 @@ else
     else
         bad "driver selects a working i386 toolchain"
     fi
+    grepbin="$TMPD/uplnc_i386_grep"
+    if buildgrep i386 "$grepbin" 2>"$TMPD/uplnc_i386_grep.err"; then
+        got=$(printf 'abz\nno\naxyz\n' | "$grepbin" '^a.*z$')
+        want=$(printf 'abz\naxyz\n')
+        [ "$got" = "$want" ] && ok "i386 multi-file grep matcher" \
+                                 || bad "i386 multi-file grep matcher"
+    else
+        bad "i386 multi-file grep build"
+    fi
 fi
 
 echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
@@ -626,6 +640,15 @@ else
                             || bad "arm64 driver binary exits $got, want 42"
     else
         bad "driver selects the arm64 toolchain and flags"
+    fi
+    grepbin="$TMPD/uplnc_arm64_grep"
+    if buildgrep arm64 "$grepbin" 2>"$TMPD/uplnc_arm64_grep.err"; then
+        got=$(printf 'abz\nno\naxyz\n' | "$grepbin" '^a.*z$')
+        want=$(printf 'abz\naxyz\n')
+        [ "$got" = "$want" ] && ok "arm64 multi-file grep matcher" \
+                                 || bad "arm64 multi-file grep matcher"
+    else
+        bad "arm64 multi-file grep build"
     fi
 fi
 
@@ -667,6 +690,15 @@ else
                             || bad "riscv64 driver binary exits $got, want 42"
     else
         bad "driver selects the riscv64 toolchain and flags"
+    fi
+    grepbin="$TMPD/uplnc_riscv_grep"
+    if buildgrep riscv64 "$grepbin" 2>"$TMPD/uplnc_riscv_grep.err"; then
+        got=$(printf 'abz\nno\naxyz\n' | "$grepbin" '^a.*z$')
+        want=$(printf 'abz\naxyz\n')
+        [ "$got" = "$want" ] && ok "riscv64 multi-file grep matcher" \
+                                 || bad "riscv64 multi-file grep matcher"
+    else
+        bad "riscv64 multi-file grep build"
     fi
 fi
 
@@ -714,6 +746,15 @@ else
                             || bad "mips64 driver binary exits $got, want 42"
     else
         bad "driver selects the mips64 toolchain and flags"
+    fi
+    grepbin="$TMPD/uplnc_mips_grep"
+    if buildgrep mips64 "$grepbin" 2>"$TMPD/uplnc_mips_grep.err"; then
+        got=$(printf 'abz\nno\naxyz\n' | $MIPSRUN "$grepbin" '^a.*z$')
+        want=$(printf 'abz\naxyz\n')
+        [ "$got" = "$want" ] && ok "mips64 multi-file grep matcher" \
+                                 || bad "mips64 multi-file grep matcher"
+    else
+        bad "mips64 multi-file grep build"
     fi
 fi
 
@@ -775,6 +816,63 @@ else
         cmp -s "$TMPD/uplnc_hex2.out" "$TMPD/uplnc_hex2.want" \
             && ok "hexdump.e full line + high byte" || bad "hexdump.e full line"
     else bad "hexdump.e + lib/fmt.e build"; fi
+
+    GREP="$TMPD/uplnc_grep"
+    if buildgrep "${UM#-march=}" "$GREP" 2>"$TMPD/uplnc_grep.driver.err"; then
+        printf 'Alpha\naxb\nacccb\nomega\n' > "$TMPD/uplnc_grep_f1"
+        printf 'alpha\nzzz\nab\n' > "$TMPD/uplnc_grep_f2"
+        if cmp -s <("$GREP" '^a.*b$' "$TMPD/uplnc_grep_f1" "$TMPD/uplnc_grep_f2") \
+                  <(grep '^a.*b$' "$TMPD/uplnc_grep_f1" "$TMPD/uplnc_grep_f2"); then
+            ok "grep.e regex subset matches system grep across files"
+        else
+            bad "grep.e regex subset vs system grep"
+        fi
+
+        got=$(printf 'Alpha\nHELLO!\nalpha\n' | "$GREP" -ni '^alpha$')
+        want=$(printf '1:Alpha\n3:alpha\n')
+        [ "$got" = "$want" ] && ok "grep.e combined -n/-i options" \
+                                 || bad "grep.e -n/-i (got '$got')"
+        got=$(printf 'keep\ndrop\n' | "$GREP" -v '^drop$')
+        [ "$got" = keep ] && ok "grep.e -v inversion" || bad "grep.e -v inversion"
+        got=$(printf 'a.c\nabc\n' | "$GREP" 'a\.c')
+        [ "$got" = 'a.c' ] && ok "grep.e backslash escaping" || bad "grep.e escaping"
+        got=$(printf '%s\n' '-x' 'x' | "$GREP" -- '-x')
+        [ "$got" = '-x' ] && ok "grep.e -- permits a dash pattern" \
+                               || bad "grep.e -- handling"
+
+        "$GREP" absent "$TMPD/uplnc_grep_f1" >/dev/null 2>&1
+        [ "$?" = 1 ] && ok "grep.e exits 1 when no line is selected" \
+                         || bad "grep.e no-match exit status"
+        "$GREP" x "$TMPD/uplnc_grep_missing" >/dev/null 2>"$TMPD/uplnc_grep_missing.err"
+        [ "$?" = 2 ] && grep -q 'cannot open' "$TMPD/uplnc_grep_missing.err" \
+            && ok "grep.e exits 2 on an input error" || bad "grep.e input-error status"
+        "$GREP" "abc\\" </dev/null >/dev/null 2>"$TMPD/uplnc_grep_pattern.err"
+        [ "$?" = 2 ] && grep -q 'invalid or too long pattern' "$TMPD/uplnc_grep_pattern.err" \
+            && ok "grep.e rejects an invalid pattern" || bad "grep.e invalid pattern"
+
+        longline=$(printf '%01024d' 0 | tr 0 x)
+        printf '%s\nok\n' "$longline" > "$TMPD/uplnc_grep_long"
+        "$GREP" ok "$TMPD/uplnc_grep_long" >"$TMPD/uplnc_grep_long.out" \
+            2>"$TMPD/uplnc_grep_long.err"
+        rc=$?
+        [ "$rc" = 2 ] && grep -q 'line too long' "$TMPD/uplnc_grep_long.err" \
+            && grep -qx ok "$TMPD/uplnc_grep_long.out" \
+            && ok "grep.e diagnoses and discards an overlong line" \
+            || bad "grep.e overlong-line handling"
+
+        hardpat=""
+        for _ in $(seq 1 40); do hardpat="${hardpat}a*"; done
+        hardpat="${hardpat}b"
+        hardline="$(printf '%0500d' 0 | tr 0 a)c"
+        printf '%s\n' "$hardline" | "$GREP" "$hardpat" >/dev/null \
+            2>"$TMPD/uplnc_grep_steps.err"
+        rc=$?
+        [ "$rc" = 2 ] && grep -q 'match limit exceeded' "$TMPD/uplnc_grep_steps.err" \
+            && ok "grep.e bounds pathological backtracking" \
+            || bad "grep.e backtracking limit"
+    else
+        bad "grep.e multi-file build"
+    fi
 fi
 
 echo
