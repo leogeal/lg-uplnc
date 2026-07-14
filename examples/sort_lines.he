@@ -1,0 +1,20 @@
+/* Dynamic line storage and input support for the multi-unit sort example. */
+#define SORT_OK       0
+#define SORT_NOMEM    1
+#define SORT_TOOLONG  2
+#define SORT_TOOMANY  3
+#define SORT_READERR  4
+#define SORT_NULBYTE  5
+
+#define SORT_LINEMAX   1048576
+#define SORT_COUNTMAX   262144
+
+struct sortset{
+  **char line;
+  int count;
+  int cap;
+};
+
+func sortset_init(s:*sortset);
+func sortset_read(s:*sortset,fp:*int,badline:*int);
+func sortset_done(s:*sortset);

@@ -19,6 +19,11 @@ buildgrep() { # $1 = target, $2 = output binary
         ../examples/grep.e ../examples/grep_match.e ../lib/fmt.e
 }
 
+buildsort() { # $1 = target, $2 = output binary
+    perl "$DRIVER" "-march=$1" -o "$2" \
+        ../examples/sort.e ../examples/sort_lines.e ../examples/sort_order.e
+}
+
 echo "[1] transpile every UPLNC source without error"
 for f in tlangc.he codegen.he lpp1.e codegen.e langc.e autodyn.e grph.e; do
     if python3 uplnc2c.py "$SRC/$f" -I "$SRC/tlangc.he" -I "$SRC/codegen.he" \
@@ -583,6 +588,15 @@ else
                                  || bad "x86_64 $name.e (got $got, want $want)"
         fi
     done < tests/progs/expected.txt
+    sortbin="$TMPD/uplnc_x64_sort"
+    if buildsort x86_64 "$sortbin" 2>"$TMPD/uplnc_x64_sort.err"; then
+        got=$(printf 'pear\napple\nBanana\nbanana\napple\n' | "$sortbin" -f)
+        want=$(printf 'apple\napple\nBanana\nbanana\npear\n')
+        [ "$got" = "$want" ] && ok "x86_64 multi-unit stable sort" \
+                                 || bad "x86_64 multi-unit stable sort"
+    else
+        bad "x86_64 multi-unit sort build"
+    fi
 fi
 
 echo "[6b] x86_64 ABI: a UPLNC function preserves callee-saved regs for a C caller"
@@ -664,6 +678,15 @@ else
     else
         bad "i386 multi-file grep build"
     fi
+    sortbin="$TMPD/uplnc_i386_sort"
+    if buildsort i386 "$sortbin" 2>"$TMPD/uplnc_i386_sort.err"; then
+        got=$(printf 'pear\napple\nBanana\nbanana\napple\n' | "$sortbin" -f)
+        want=$(printf 'apple\napple\nBanana\nbanana\npear\n')
+        [ "$got" = "$want" ] && ok "i386 multi-unit stable sort" \
+                                 || bad "i386 multi-unit stable sort"
+    else
+        bad "i386 multi-unit sort build"
+    fi
 fi
 
 echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
@@ -712,6 +735,15 @@ else
                                  || bad "arm64 multi-file grep matcher"
     else
         bad "arm64 multi-file grep build"
+    fi
+    sortbin="$TMPD/uplnc_arm64_sort"
+    if buildsort arm64 "$sortbin" 2>"$TMPD/uplnc_arm64_sort.err"; then
+        got=$(printf 'pear\napple\nBanana\nbanana\napple\n' | "$sortbin" -f)
+        want=$(printf 'apple\napple\nBanana\nbanana\npear\n')
+        [ "$got" = "$want" ] && ok "arm64 multi-unit stable sort" \
+                                 || bad "arm64 multi-unit stable sort"
+    else
+        bad "arm64 multi-unit sort build"
     fi
 fi
 
@@ -762,6 +794,15 @@ else
                                  || bad "riscv64 multi-file grep matcher"
     else
         bad "riscv64 multi-file grep build"
+    fi
+    sortbin="$TMPD/uplnc_riscv_sort"
+    if buildsort riscv64 "$sortbin" 2>"$TMPD/uplnc_riscv_sort.err"; then
+        got=$(printf 'pear\napple\nBanana\nbanana\napple\n' | "$sortbin" -f)
+        want=$(printf 'apple\napple\nBanana\nbanana\npear\n')
+        [ "$got" = "$want" ] && ok "riscv64 multi-unit stable sort" \
+                                 || bad "riscv64 multi-unit stable sort"
+    else
+        bad "riscv64 multi-unit sort build"
     fi
 fi
 
@@ -818,6 +859,15 @@ else
                                  || bad "mips64 multi-file grep matcher"
     else
         bad "mips64 multi-file grep build"
+    fi
+    sortbin="$TMPD/uplnc_mips_sort"
+    if buildsort mips64 "$sortbin" 2>"$TMPD/uplnc_mips_sort.err"; then
+        got=$(printf 'pear\napple\nBanana\nbanana\napple\n' | $MIPSRUN "$sortbin" -f)
+        want=$(printf 'apple\napple\nBanana\nbanana\npear\n')
+        [ "$got" = "$want" ] && ok "mips64 multi-unit stable sort" \
+                                 || bad "mips64 multi-unit stable sort"
+    else
+        bad "mips64 multi-unit sort build"
     fi
 fi
 
@@ -935,6 +985,84 @@ else
             || bad "grep.e backtracking limit"
     else
         bad "grep.e multi-file build"
+    fi
+
+    SORT="$TMPD/uplnc_sort"
+    if buildsort "${UM#-march=}" "$SORT" 2>"$TMPD/uplnc_sort.driver.err"; then
+        printf 'pear\napple\n\nkiwi\n' > "$TMPD/uplnc_sort_f1"
+        printf 'banana\napple\norange\n' > "$TMPD/uplnc_sort_f2"
+        if cmp -s <("$SORT" "$TMPD/uplnc_sort_f1" "$TMPD/uplnc_sort_f2") \
+                  <(LC_ALL=C sort "$TMPD/uplnc_sort_f1" "$TMPD/uplnc_sort_f2"); then
+            ok "sort.e matches system sort across files"
+        else
+            bad "sort.e default ordering vs system sort"
+        fi
+
+        printf 'b\nA\na\nB\na\n' > "$TMPD/uplnc_sort_case"
+        if cmp -s <("$SORT" -fr "$TMPD/uplnc_sort_case") \
+                  <(LC_ALL=C sort -f -r -s "$TMPD/uplnc_sort_case"); then
+            ok "sort.e combined -f/-r is stable"
+        else
+            bad "sort.e combined -f/-r"
+        fi
+        if cmp -s <("$SORT" -fu "$TMPD/uplnc_sort_case") \
+                  <(LC_ALL=C sort -f -s -u "$TMPD/uplnc_sort_case"); then
+            ok "sort.e -u uses the selected comparator"
+        else
+            bad "sort.e folded unique ordering"
+        fi
+
+        : > "$TMPD/uplnc_sort_grow"
+        for n in $(seq 300 -1 1); do
+            printf '%03d-%0200d\n' "$n" 0 >> "$TMPD/uplnc_sort_grow"
+        done
+        if cmp -s <("$SORT" "$TMPD/uplnc_sort_grow") \
+                  <(LC_ALL=C sort "$TMPD/uplnc_sort_grow"); then
+            ok "sort.e grows its line and pointer buffers"
+        else
+            bad "sort.e dynamic storage growth"
+        fi
+
+        printf 'z\n\ny' > "$TMPD/uplnc_sort_nonl"
+        if cmp -s <("$SORT" "$TMPD/uplnc_sort_nonl") \
+                  <(LC_ALL=C sort "$TMPD/uplnc_sort_nonl"); then
+            ok "sort.e handles blank and unterminated final lines"
+        else
+            bad "sort.e final-line handling"
+        fi
+        if cmp -s <(printf '\377\n\200\nA\n' | "$SORT") \
+                  <(printf '\377\n\200\nA\n' | LC_ALL=C sort); then
+            ok "sort.e compares non-ASCII bytes as unsigned"
+        else
+            bad "sort.e unsigned-byte ordering"
+        fi
+
+        printf 'dash file\nalpha\n' > "$TMPD/-sort-data"
+        if (cd "$TMPD" && "$SORT" -- -sort-data > uplnc_sort_dash.out) \
+                && (cd "$TMPD" && LC_ALL=C sort -- -sort-data > uplnc_sort_dash.want) \
+                && cmp -s "$TMPD/uplnc_sort_dash.out" "$TMPD/uplnc_sort_dash.want"; then
+            ok "sort.e -- permits a dash-prefixed file"
+        else
+            bad "sort.e -- handling"
+        fi
+
+        "$SORT" "$TMPD/uplnc_sort_missing" "$TMPD/uplnc_sort_f2" \
+            > "$TMPD/uplnc_sort_missing.out" 2> "$TMPD/uplnc_sort_missing.err"
+        rc=$?
+        [ "$rc" = 2 ] && grep -q 'cannot open' "$TMPD/uplnc_sort_missing.err" \
+            && cmp -s "$TMPD/uplnc_sort_missing.out" <(LC_ALL=C sort "$TMPD/uplnc_sort_f2") \
+            && ok "sort.e reports an input error after sorting valid files" \
+            || bad "sort.e input-error handling"
+
+        printf 'a\0b\n' | "$SORT" > "$TMPD/uplnc_sort_nul.out" \
+            2> "$TMPD/uplnc_sort_nul.err"
+        rc=$?
+        [ "$rc" = 2 ] && grep -q 'embedded NUL' "$TMPD/uplnc_sort_nul.err" \
+            && [ ! -s "$TMPD/uplnc_sort_nul.out" ] \
+            && ok "sort.e rejects embedded NUL without truncating" \
+            || bad "sort.e embedded-NUL handling"
+    else
+        bad "sort.e multi-unit build"
     fi
 fi
 

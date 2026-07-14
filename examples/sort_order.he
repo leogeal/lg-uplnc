@@ -1,0 +1,4 @@
+/* Comparators and stable ordering for the multi-unit sort example. */
+func sort_compare(a:*char,b:*char);
+func sort_foldcmp(a:*char,b:*char);
+func sort_order(line:**char,n:int,cmp:int,reverse:int);
