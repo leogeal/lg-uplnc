@@ -332,9 +332,9 @@ func regspill(this:*scodegen)
   }
 }
 /* M5 promote-locals: leaf functions use free caller-saved RG_L0/RG_L1 with no
-   save cost. Non-leaf functions use callee-saved RG_N0/RG_N1. The late pass
-   reserves their save area by shifting every negative frame-relative reference;
-   CD_STKENTER/LEAVE use the metadata below to allocate, save, and restore it.
+   save cost. Profitable non-leaf candidates use callee-saved RG_N0/RG_N1. The
+   late pass reserves their save area by shifting every negative frame-relative
+   reference; CD_STKENTER/LEAVE use the metadata below to allocate/save/restore.
    The front end marks candidates with CD_LOCAL(offset); address-taken locals
    (matching CD_LEA) stay in memory. Reused frame slots share one register. */
 #define PROMLOC_MAX 512
@@ -355,18 +355,22 @@ func promote_locals(this:*scodegen)
   var int:i;var int:n;var int:c;var int:o;var int:leaf;
   var int:ncand;var int:nlea;var int:nused;var int:r;var int:j;var int:taken;
   var int:nreg;var int:rbase;var int:reserve;var int:align;
+  var int:nleave;var int:slot;var int:best;var int:score;var int:bestscore;
   var [PROMLOC_MAX]int:cand;   /* candidate local offsets (from CD_LOCAL)     */
   var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or -1        */
+  var [PROMLOC_MAX]int:uses;   /* frame loads/stores avoided by promotion     */
   var [PROMLOC_MAX]int:lea;    /* address-taken offsets (from CD_LEA)         */
   n=this->codeptr;prom_nreg=0;prom_shift=0;
-  leaf=1;ncand=0;nlea=0;
+  leaf=1;ncand=0;nlea=0;nleave=0;
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
     c=this->codes[i].code;
     if((c==CD_ZCALL)||(c==CD_ICALL))leaf=0;
+    else if(c==CD_STKLEAVE)nleave=nleave+1;
     else if(c==CD_LOCAL)
     {
-      if(ncand<PROMLOC_MAX){cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;ncand=ncand+1;}
+      if(ncand<PROMLOC_MAX)
+      {cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;uses[ncand]=0;ncand=ncand+1;}
       this->codes[i].code=CD_IGNORE;
     }
     else if(c==CD_LEA)
@@ -377,17 +381,50 @@ func promote_locals(this:*scodegen)
   /* On overflow, or where this target has no register in the needed ABI class,
      leave every local in memory. Markers are already safely stripped. */
   if((nreg==0)||(nlea>=PROMLOC_MAX)||(ncand>=PROMLOC_MAX))return;
+  for(i=0;i<ncand;i++)         /* count the memory references each would save */
+  for(j=0;j<n;j++)
+  if(((this->codes[j].code==CD_LDLW)||(this->codes[j].code==CD_STLW))
+    &&(this->codes[j].arg==cand[i]))uses[i]=uses[i]+1;
   nused=0;
-  for(i=0;i<ncand;i++)        /* pass 2: assign registers to safe candidates */
+  if(leaf)
   {
-    o=cand[i];
-    taken=0;
-    for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
-    if(taken)continue;
-    r=0-1;                     /* a reused frame slot keeps its register      */
-    for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
-    if(r>=0){creg[i]=r;continue;}
-    if(nused<nreg){creg[i]=rbase+nused;nused=nused+1;}
+    /* Leaf promotion has no preservation cost; retain its declaration-order
+       assignment so this profitability change cannot perturb that path. */
+    for(i=0;i<ncand;i++)
+    {
+      o=cand[i];
+      taken=0;
+      for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
+      if(taken)continue;
+      r=0-1;                   /* a reused frame slot keeps its register      */
+      for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
+      if(r>=0){creg[i]=r;continue;}
+      if(nused<nreg){creg[i]=rbase+nused;nused=nused+1;}
+    }
+  }
+  else
+  {
+    /* A non-leaf register costs one save at entry and one restore at every
+       surviving return. Pick the hottest profitable offsets, independent of
+       declaration order; break-even candidates remain in memory. */
+    for(slot=0;slot<nreg;slot++)
+    {
+      best=0-1;bestscore=0;
+      for(i=0;i<ncand;i++)
+      {
+        if(creg[i]>=0)continue;
+        o=cand[i];
+        taken=0;
+        for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
+        if(taken)continue;
+        score=uses[i]-1-nleave;
+        if(score>bestscore){best=i;bestscore=score;}
+      }
+      if(best<0)break;
+      o=cand[best];r=rbase+nused;
+      for(j=0;j<ncand;j++)if(cand[j]==o)creg[j]=r;
+      nused=nused+1;
+    }
   }
   for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
   {
