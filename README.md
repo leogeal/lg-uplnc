@@ -83,7 +83,7 @@ UPLNC→C transpiler that breaks the self-hosting cycle:
 ```sh
 cd transpiler
 ./build.sh              # transpile the UPLNC sources to C, build lpp1 + langc
-bash tests/run_tests.sh # 19 checks
+bash tests/run_tests.sh # cross-target compiler and utility suite
 ./fixpoint.sh           # self-host fixpoint check (needs a 32-bit toolchain)
 ```
 
@@ -109,6 +109,8 @@ automatically:
 ```sh
 perl src/langdrv.pl -march=x86_64 examples/wc.e -o wc
 perl src/langdrv.pl -march=x86_64 examples/fmtdemo.e lib/fmt.e -o fmtdemo
+perl src/langdrv.pl -march=x86_64 examples/sort.e \
+    examples/sort_lines.e examples/sort_order.e -o sort
 ```
 
 The driver accepts `.e`, `.s`, and `.o` inputs, supports separate compilation

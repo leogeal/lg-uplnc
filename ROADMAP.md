@@ -704,11 +704,23 @@ What turns a teaching compiler into something you'd build a project with:
     stdin, `-n`/`-i`/`-v`, conventional 0/1/2 statuses, and a documented regex
     subset (literal/`.`/`^`/`$`/`*`/escaping). Pattern/line limits diagnose
     instead of truncating, and a work budget bounds pathological backtracking.
-  - All build with the stage-0 tools; wc/cat/grep run on all **five** backends
-    (grep's separately linked matcher is exercised per target), while
-    fmtdemo/hexdump print byte-identical output on all five. Native grep tests
-    compare supported expressions with system grep and pin options, file/error
-    statuses, escaping, and resource limits; gated by `run_tests.sh` `[11]`
+  - ✅ `examples/sort.e` + `sort_lines.e/.he` + `sort_order.e/.he` — a
+    three-unit stable text sort and the first utility to own a substantial
+    dynamic data set. The input unit grows both line buffers and a heap array of
+    owned line pointers (with complete teardown and explicit limits of 1 MiB
+    per line and 262,144 lines); the ordering unit implements bottom-up stable
+    mergesort and invokes a comparator callback passed across object boundaries.
+    The CLI supports multiple files/stdin, `-f` ASCII folding, `-r`, `-u`,
+    combined options, and `--`; it reports conventional status 2 on input,
+    output, allocation, limit, or embedded-NUL errors. Differential tests use
+    `LC_ALL=C sort` as the oracle, including stable folded ordering, uniqueness,
+    dynamic growth, unsigned non-ASCII bytes, and unterminated final lines.
+  - All build with the stage-0 tools; wc/cat/grep/sort run on all **five**
+    backends (grep's matcher and sort's three units are separately linked per
+    target), while fmtdemo/hexdump print byte-identical output on all five.
+    Native grep/sort tests compare supported behavior with the system tools and
+    pin options, file/error statuses, escaping, resource limits, dynamic
+    storage, and text edge cases; gated by `run_tests.sh` `[11]`
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
 - 💭 A test/benchmark suite of UPLNC programs with expected output
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
