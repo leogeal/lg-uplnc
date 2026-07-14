@@ -25,7 +25,7 @@ func rec(n:int)
   var int:keep;
   if(n<=0)return 0;
   keep=n;
-  return rec(keep-1)+keep;
+  return rec(keep-1)+keep+(keep-keep);
 }
 
 func main()

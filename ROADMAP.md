@@ -400,7 +400,15 @@ wins first:
     every return. i386 remains a no-op because regspill already occupies its
     available callee-saved registers. Recursive and address-taken-local tests
     run on all five targets, and assembly checks pin each promoted register
-    class.
+    class. **Profitability follow-up:** after dead-code elimination, the pass
+    counts each candidate's surviving loads/stores and charges one entry save
+    plus one restore per surviving return. It ranks candidates by that net
+    benefit, independent of declaration order, and leaves break-even or losing
+    locals in memory; the zero-save-cost leaf path is unchanged. On the current
+    compiler's x86_64 self-output this cuts non-leaf preservation instructions
+    from 1,143 to 725 while retaining 1,978 of 2,080 promoted accesses: net
+    avoided frame-memory operations rise from 937 to 1,253, and output shrinks
+    by 523 assembly lines (10,752 bytes).
   - Result so far: ~12% of operand-stack spills avoid memory, and both leaf and
     non-leaf scalar locals can avoid frame traffic; all five self-host fixpoints
     stay byte-identical.

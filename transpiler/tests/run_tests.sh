@@ -498,39 +498,64 @@ else
     bad "langc not built"
 fi
 
-echo "[5b] non-leaf locals use callee-saved registers with frame save/restore"
+echo "[5b] non-leaf promotion is ABI-safe and profitability-aware"
 if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
-    src=tests/progs/nonleaf_promote.e
-    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=x86_64 > "$TMPD/uplnc_nonleaf_x64.s" 2>/dev/null
-    if grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64.s" \
-            && grep -Fq 'movq -16(%rbp), %r14' "$TMPD/uplnc_nonleaf_x64.s"; then
-        ok "x86_64 non-leaf local saved, promoted, and restored"
+    for arch in x64 arm64 riscv mips; do
+        case "$arch" in
+            x64)   march=x86_64 ;;
+            riscv) march=riscv64 ;;
+            mips)  march=mips64 ;;
+            *)     march="$arch" ;;
+        esac
+        for name in promote profit cold; do
+            src="tests/progs/nonleaf_$name.e"
+            "$LPP" "$src" 2>/dev/null \
+                | "$LANGC" "-march=$march" > "$TMPD/uplnc_nonleaf_${arch}_$name.s" 2>/dev/null
+        done
+    done
+
+    if grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64_promote.s" \
+            && grep -Fq 'movq -16(%rbp), %r14' "$TMPD/uplnc_nonleaf_x64_promote.s" \
+            && grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64_profit.s" \
+            && [ "$(grep -Fc 'movq %rax, %r14' "$TMPD/uplnc_nonleaf_x64_profit.s")" -ge 3 ] \
+            && ! grep -Fq 'movq %r15, -8(%rbp)' "$TMPD/uplnc_nonleaf_x64_profit.s" \
+            && ! grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64_cold.s"; then
+        ok "x86_64 non-leaf promotion preserves only profitable registers"
     else
-        bad "x86_64 non-leaf register promotion"
+        bad "x86_64 non-leaf promotion profitability"
     fi
 
-    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=arm64 > "$TMPD/uplnc_nonleaf_arm64.s" 2>/dev/null
-    if grep -Fq 'str x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64.s" \
-            && grep -Fq 'ldr x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64.s"; then
-        ok "arm64 non-leaf local saved, promoted, and restored"
+    if grep -Fq 'str x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64_promote.s" \
+            && grep -Fq 'ldr x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64_promote.s" \
+            && grep -Fq 'str x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64_profit.s" \
+            && [ "$(grep -Fc 'mov x19, x0' "$TMPD/uplnc_nonleaf_arm64_profit.s")" -ge 3 ] \
+            && ! grep -Fq 'str x20, [x29, #-8]' "$TMPD/uplnc_nonleaf_arm64_profit.s" \
+            && ! grep -Fq 'str x19, [x29, #-16]' "$TMPD/uplnc_nonleaf_arm64_cold.s"; then
+        ok "arm64 non-leaf promotion preserves only profitable registers"
     else
-        bad "arm64 non-leaf register promotion"
+        bad "arm64 non-leaf promotion profitability"
     fi
 
-    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=riscv64 > "$TMPD/uplnc_nonleaf_riscv.s" 2>/dev/null
-    if grep -Fq 'sd s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv.s" \
-            && grep -Fq 'ld s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv.s"; then
-        ok "riscv64 non-leaf local saved, promoted, and restored"
+    if grep -Fq 'sd s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv_promote.s" \
+            && grep -Fq 'ld s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv_promote.s" \
+            && grep -Fq 'sd s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv_profit.s" \
+            && [ "$(grep -Fc 'mv s1, a0' "$TMPD/uplnc_nonleaf_riscv_profit.s")" -ge 3 ] \
+            && ! grep -Fq 'sd s2, -8(s0)' "$TMPD/uplnc_nonleaf_riscv_profit.s" \
+            && ! grep -Fq 'sd s1, -16(s0)' "$TMPD/uplnc_nonleaf_riscv_cold.s"; then
+        ok "riscv64 non-leaf promotion preserves only profitable registers"
     else
-        bad "riscv64 non-leaf register promotion"
+        bad "riscv64 non-leaf promotion profitability"
     fi
 
-    "$LPP" "$src" 2>/dev/null | "$LANGC" -march=mips64 > "$TMPD/uplnc_nonleaf_mips.s" 2>/dev/null
-    if grep -Fq 'sd $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips.s" \
-            && grep -Fq 'ld $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips.s"; then
-        ok "mips64 non-leaf local saved, promoted, and restored"
+    if grep -Fq 'sd $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips_promote.s" \
+            && grep -Fq 'ld $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips_promote.s" \
+            && grep -Fq 'sd $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips_profit.s" \
+            && [ "$(grep -Fc 'move $16, $2' "$TMPD/uplnc_nonleaf_mips_profit.s")" -ge 3 ] \
+            && ! grep -Fq 'sd $17, -8($fp)' "$TMPD/uplnc_nonleaf_mips_profit.s" \
+            && ! grep -Fq 'sd $16, -16($fp)' "$TMPD/uplnc_nonleaf_mips_cold.s"; then
+        ok "mips64 non-leaf promotion preserves only profitable registers"
     else
-        bad "mips64 non-leaf register promotion"
+        bad "mips64 non-leaf promotion profitability"
     fi
 else
     bad "langc not built"

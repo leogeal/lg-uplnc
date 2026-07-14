@@ -58,6 +58,8 @@ nest_shr 42
 nest3 42
 leaf_promote 42
 nonleaf_promote 42
+nonleaf_profit 42
+nonleaf_cold 42
 enum 42
 switch 42
 ptrret 42
