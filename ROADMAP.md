@@ -675,7 +675,7 @@ What turns a teaching compiler into something you'd build a project with:
   pins separate compilation, multi-file linking, quiet/verbose behavior, error
   propagation, and path safety. Still open: a formatter and editor support
 - 💭 Module/namespace system; package layout
-- 🟡 Robustness: the original compiler can loop or corrupt memory on malformed
+- ✅ Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array
   dimensions route through `constexpr()` instead of spinning; overlong numeric
   literals, method names, identifiers, string literal pools, and float literal
@@ -683,8 +683,25 @@ What turns a teaching compiler into something you'd build a project with:
   returns nonzero on preprocessing errors and guards overlong source lines; the
   statement parser recovers at `;`/`}` instead of looping on unrecognized
   tokens or broken declarations (two hangs fixed), and an error-flood cap (30)
-  backstops anything that still spins while emitting errors. Remaining: a
-  deliberate fuzzing pass would harden the claim further
+  backstops anything that still spins while emitting errors.
+  - ✅ A **deliberate sanitizer + fuzzing pass** (`transpiler/sanitize.sh`,
+    `transpiler/fuzz/`): builds ASan+UBSan-instrumented `lpp1`/`langc` and runs
+    a deterministic, seeded mutation fuzzer over a seed corpus (plus every
+    `tests/progs` program) into both tools; a CI job (`sanitize-fuzz`) runs it
+    on every push. The pass found and fixed seven real defects the happy-path
+    suite never caught (it does not run under sanitizers). Five are on
+    error-recovery paths: a signed-overflow while scanning wide integer literals
+    (`number`); folding an out-of-range shift count (`foldtree`); an
+    uninitialised result `elval` that let a garbage type index `typtab` out of
+    bounds after a codegen error (`treetocode` — the general fix, since every
+    `ct_` handler shares that lval); a null-child walk on a binary operator
+    missing its right operand (`ct_LOR`/`ct_LAND`); and a write through an unset
+    symbol pointer when a global initializer had no valid name (`doginit`). Two
+    are memory leaks on *well-formed* programs: a name-list head node never
+    freed by its owner (`snamelist.done`), and each block scope's per-symbol
+    name list dropped on scope exit (`ssymtabcut`). Minimised repros live in
+    `fuzz/corpus/recovery-crashes.e`; ~240k mutated cases run clean under
+    ASan+UBSan, and the leak-detecting CI configuration is clean too.
 
 ## M7 — Proof it's real 🟡
 

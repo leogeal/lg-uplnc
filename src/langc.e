@@ -89,7 +89,11 @@ method snamelist.done()
 {
   front=&lst;
   if(lst)
-  lst->done();
+  {
+    lst->done();   /* frees lst->next onward -- snamenode.done never frees self */
+    free(lst);     /* ...so the owner frees the head node too (else it leaks) */
+    lst=0;
+  }
 }
 var *snamelist :cnmlst;
 method ssym.init()
@@ -168,6 +172,7 @@ func ssymtabcut(p:*ssymtab,w:**ssymlist)
   for(i=*w;i;i=n)
   {
     n=i->next;
+    i->sym.done();   /* release the symbol's nmlst, as ssymtabfree does */
     free(i);
   }
   *w=0;
@@ -965,7 +970,7 @@ func dovar()
   istyp=0;
   lst=lptr=0;
   lpom=&lst;
-  wdfd=1;wcnst=0;hasinit=0;
+  wdfd=1;wcnst=0;hasinit=0;idx=0;   /* idx stays 0 if no name parsed (malformed) */
   while(1)
   {
     if(amatch("extern",6))wdfd=0;
@@ -1112,8 +1117,10 @@ func doginit(idx:*ssym,typ:int)
   {error("initializer does not fit a 32-bit int");return;}
   if((typtab[typ].sort==V_ARR)||(typtab[typ].sort==V_STR))
   {error("arrays and structs cannot be initialized yet");return;}
-  idx->ginit=kind;
-  idx->offset=v;
+  /* idx is 0 when the declarator had no valid name (malformed input already
+     reported): the initializer expression above was still parsed to keep the
+     token stream in sync, but there is no symbol to record it on. */
+  if(idx){idx->ginit=kind;idx->offset=v;}
 }
 func addmac()
 {
@@ -2968,15 +2975,19 @@ func cttype(node:*enode)
 }
 func treetocode(node:*enode,lval:*elval)
 {
-  if(!node)
-  {
-    lval->sort=L_NUM;
-    lval->idx=0;
-    lval->offset=0;
-    lval->typ=T_INT;
-    lval->val=0;
-    return 0;
-  }
+  /* default the result to a harmless scalar before dispatch: every ct_ handler
+     shares this lval, so on any error-recovery path that falls through without
+     setting it (an unhandled node, `how to code a leaf?`, a handler bailing out
+     after error()), lval->typ stays a valid type instead of uninitialised stack
+     -- a garbage typ indexes typtab out of bounds in the caller. Valid input
+     overwrites these fields, so code for well-formed programs is unchanged.
+     (found by the sanitizer fuzz pass: SEGV in ct_PLUS on typtab[lval2.typ]). */
+  lval->sort=L_NUM;
+  lval->idx=0;
+  lval->offset=0;
+  lval->typ=T_INT;
+  lval->val=0;
+  if(!node)return 0;
   if(node->op==OP_LEAF)
   {
     if(node->leaf.vid==L_NUM)
@@ -3036,7 +3047,7 @@ func treetocode(node:*enode,lval:*elval)
       return 1;
     }
     else
-    error("how to code a leaf?");
+    {error("how to code a leaf?");return 0;}
   }
   else if(node->op==OP_COMMA)
   return ct_COMMA(node,lval);
@@ -3102,7 +3113,7 @@ func treetocode(node:*enode,lval:*elval)
   return ct_DOT(node,lval);
   else if(node->op==OP_COND)
   return ct_COND(node,lval);
-  else error("to be implemented");
+  else {error("to be implemented");return 0;}
 }
 func ct_COND(node:*enode,lval:*elval)
 {
@@ -3240,7 +3251,7 @@ func ct_LOR(node:*enode,lval:*elval)
   exitlab=getlabel();
   branchnonzero(lval1.typ,onelab);
   cnode=node->r;
-  while(cnode->op==OP_LOR)
+  while(cnode&&(cnode->op==OP_LOR))   /* node->r is 0 on a malformed `x ||` */
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
     branchnonzero(lval1.typ,onelab);
@@ -3273,7 +3284,7 @@ func ct_LAND(node:*enode,lval:*elval)
   exitlab=getlabel();
   branchzero(lval1.typ,zerolab);
   cnode=node->r;
-  while(cnode->op==OP_LAND)
+  while(cnode&&(cnode->op==OP_LAND))   /* node->r is 0 on a malformed `x &&` */
   {
     if(treetocode(cnode->l,&lval1))rvalue(&lval1);
     branchzero(lval1.typ,zerolab);
@@ -4563,8 +4574,13 @@ func foldtree(node:*enode)
     else if(node->op==OP_BAND)res=a&b;
     else if(node->op==OP_BOR)res=a|b;
     else if(node->op==OP_BXOR)res=a^b;
-    else if(node->op==OP_SHL)res=a<<b;
-    else if(node->op==OP_SHR)res=a>>b;     /* arithmetic, matches ct_SHR */
+    /* fold a shift only when the count is a valid exponent for every host int
+       -- a count >=32 (or negative) is UB on the 32-bit stage-0/native build
+       and merely wraps on a 64-bit host, so results would disagree. Larger
+       constant shifts are left unfolded for the backend to emit as a real
+       runtime shift, which also gets the width right for 64-bit operands. */
+    else if(node->op==OP_SHL){if((b>=0)&&(b<32))res=a<<b;else ok=0;}
+    else if(node->op==OP_SHR){if((b>=0)&&(b<32))res=a>>b;else ok=0;}     /* arithmetic, matches ct_SHR */
     else if(node->op==OP_EQ)res=(a==b);
     else if(node->op==OP_NEQ)res=(a!=b);
     else if(node->op==OP_LT)res=(a<b);
@@ -5516,12 +5532,16 @@ func number(val:*int)
   while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
     c=inbyte();
     putnumbuf(buf,&bp,c,bad);
+    /* shift only while the value still fits a signed 32-bit int; a hex literal
+       that would overflow is >0x7fffffff and takes the wide path below, so this
+       k is discarded -- skipping the overflowing shift keeps the in-range value
+       exact and avoids signed-overflow UB. 134217727 = INT_MAX>>4. */
     if(numeric(c)){
-    k=(k<<4)+(c-'0');
+    if(k<=134217727)k=(k<<4)+(c-'0');
     }
     else
     {
-      k=(k<<4)+(c-'a'+10);
+      if(k<=134217727)k=(k<<4)+(c-'a'+10);
     }
   }
   /* a hex value that does not fit a *signed* 32-bit int (more than 8 digits, or
@@ -5548,7 +5568,11 @@ func number(val:*int)
   while(numeric(ch())){
   c=inbyte();
   putnumbuf(buf,&bp,c,bad);
-  k=k*10+(c-'0');
+  /* accumulate only while the value still fits a signed 32-bit int; a literal
+     that would overflow is >2147483647 and takes the wide path below, so this
+     k is discarded -- skipping the overflowing multiply keeps the in-range
+     result exact and avoids signed-overflow UB. 214748364=INT_MAX/10, 7=%10. */
+  if((k<214748364)||((k==214748364)&&(c<='7')))k=k*10+(c-'0');
   }
   /* a '.' or exponent makes this a floating-point literal: keep the text and
      hand it to the assembler as a .double (M4). */
