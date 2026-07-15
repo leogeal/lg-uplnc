@@ -222,6 +222,7 @@ var litstkpt:[litstknu]int;
 var line:[linesize]char;
 var cline:int;
 var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
+var g_debug:int;      /* -g: emit .file/.loc line info at statement boundaries */
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
 var g_stmtclosed:int; /* the current statement consumed its ; or closing } */
@@ -359,11 +360,14 @@ func parseopt(argc:int,argv:**char)
   mapname="tlmap.map";
   tograph=0;
   graphname="tlgraph.dat";
+  g_debug=0;
   /*fprintf(stderr,"parseopt()\n");*/
   var int:i;
   for(i=1;i<argc;i++)
   {
-    if(strid(argv[i],"-march=x86_64"))
+    if(strid(argv[i],"-g"))
+    {g_debug=1;}
+    else if(strid(argv[i],"-march=x86_64"))
     {archsel=ARCH_X86_64;}
     else if(strid(argv[i],"-march=i386"))
     {archsel=ARCH_I386;}
@@ -1521,6 +1525,9 @@ func dofunc()
     if(argstk/target.wordsize<8)paramtyp[argstk/target.wordsize]=T_INTP;
     argstk=argstk+target.wordsize;
   }
+  /* -g: attribute the prologue to the function-header line, so a breakpoint on
+     the function stops with the frame already set up at the first statement. */
+  if(g_debug&&cfile[0])zloc(cline,cfile);
   zenter();
   if(target.arch!=ARCH_I386)
   {
@@ -1634,7 +1641,10 @@ func statemen()
   g_stmtclosed=0;
   blanks();
   if((!ch())&&iseof)return 0;
-  else
+  /* -g: mark this statement's source line in the op stream. After blanks()
+     cline/cfile are synced to the statement's first token (lpp1 markers
+     included); without markers (raw stdin) there is no file to name, so skip. */
+  if(g_debug&&cfile[0])zloc(cline,cfile);
   if(amatch("var",3))dolocvar();
   else if(match(tlcomp/*"{"*/))compound();
   else if(amatch("if",2))

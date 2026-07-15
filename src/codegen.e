@@ -319,7 +319,9 @@ func regspill(this:*scodegen)
           if(target.directop)
           {
             j=i+1;
-            while((j<n)&&(this->codes[j].code==CD_IGNORE))j=j+1;
+            /* skip CD_LOC like CD_IGNORE: a -g line marker between a POP and
+               its consumer must not block the retarget (else -g changes code) */
+            while((j<n)&&((this->codes[j].code==CD_IGNORE)||(this->codes[j].code==CD_LOC)))j=j+1;
             if((j<n)&&is2ndop(this->codes[j].code))
             {this->codes[j].reg=r;this->codes[i].code=CD_IGNORE;done=1;}
           }
@@ -487,11 +489,42 @@ func cg_insert(*scodegen this,*scode s)
   d->str=0;
   /*fprintf(stderr,"!insert()\n");*/
 }
+/* -g line info (M6): CD_LOC lowers to GNU-as `.file N "name"` / `.loc N line`
+   directives, which make the assembler build the DWARF .debug_line table --
+   the same syntax on all five targets, so it is handled here before the
+   per-arch dispatch. The file table maps each distinct file name to its DWARF
+   file number for the whole translation unit (numbers are per-object-file);
+   `.file` is emitted lazily the first time a file is referenced, which
+   satisfies gas's requirement that it precede the first `.loc` using it. */
+#define LOCFMAX 100
+var locfname:[LOCFMAX]*char;
+var nlocf:int;
+func cdloc(this:*scode)
+{
+  var int:i;
+  if(!this->str)return 0;
+  for(i=0;i<nlocf;i=i+1)if(strid(locfname[i],this->str))break;
+  if(i>=nlocf)
+  {
+    /* table full: attribute to the first file rather than fail -- degraded but
+       deterministic (100 distinct files in one unit; include nesting is 8) */
+    if(nlocf>=LOCFMAX)i=0;
+    else
+    {
+      locfname[i]=strdyn(this->str);
+      nlocf=nlocf+1;
+      ot(".file ");outdec(i+1);outstr(" \"");outstr(this->str);outstr("\"");nl();
+    }
+  }
+  ot(".loc ");outdec(i+1);outstr(" ");outdec(this->arg);nl();
+  return 0;
+}
 /* cd_write lowers one IR opcode to assembly. It dispatches to the per-target
    backend selected by target.arch (M2 Phase 2a). UPLNC has no function
    pointers, so this is an arch-id switch rather than a vtable. */
 func cd_write(*scode:this)
 {
+  if(this->code==CD_LOC){cdloc(this);return;}
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else if(target.arch==ARCH_ARM64)cd_write_arm64(this);
   else if(target.arch==ARCH_RISCV)cd_write_riscv(this);
@@ -3345,6 +3378,17 @@ func zldn(k:int)
   cd=cg_getitem(ccg);
   cd->code=CD_LDN;
   cd->arg=k;
+}
+/* -g: record a source location in the op stream so it lands between the right
+   instructions after the per-function flush (comments stream during parsing
+   and bunch up before the code, so they cannot carry line info). */
+func zloc(line:int,fname:*char)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LOC;
+  cd->arg=line;
+  cd->str=strdyn(fname);
 }
 func zldnw(idx:int,s:*char)  /* wide 64-bit literal: pool index + its text */
 {

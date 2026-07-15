@@ -464,7 +464,19 @@ What turns a teaching compiler into something you'd build a project with:
   varargs are rejected on i386), and `nargreg`-capped calls on register targets.
   The output contract is pinned byte-for-byte by `examples/fmtdemo.e` in
   `run_tests.sh` `[11]`, and verified byte-identical on all five backends
-- ⏳ **Debug info** (DWARF) so `gdb` works
+- ✅ **Debug info** (minimal, source-level) so `gdb` works — `langc -g` (and
+  `langdrv.pl -g`) emits GNU-as `.file`/`.loc` directives at statement
+  boundaries through a new pass-neutral `CD_LOC` opcode, and the assembler
+  builds the DWARF `.debug_line` table from them; `gdb` can then set
+  breakpoints by `file:line`, stop with source display, and step line-by-line
+  (backtraces already work via frame pointers). One shared lowering serves all
+  five backends (identical directive syntax); per-file numbering follows
+  `lpp1`'s line markers across `#include`. `-g` provably never changes the
+  generated instructions — `run_tests.sh` `[12]` strip-diffs the assembly on
+  every backend, checks statement-accurate line numbers, and (host) verifies a
+  real gdb `file:line` breakpoint; the compiler compiles its own sources with
+  `-g` cleanly under ASan/UBSan/LSan. Not yet emitted: variable/type DIEs
+  (`info locals`, `print var`) and CFI unwind annotations
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
 - 🟡 Language gaps:
