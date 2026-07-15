@@ -1066,6 +1066,106 @@ else
     fi
 fi
 
+echo "[12] -g debug info: .file/.loc line tables, with machine code unchanged"
+cat > "$TMPD/uplnc_dbg.e" <<'DBGEOF'
+func addone(x:int)
+{
+  return x+1;
+}
+func main()
+{
+  var int:i;
+  i=addone(41);
+  i=i+1;
+  return i-1;
+}
+DBGEOF
+./build/lpp1 "$TMPD/uplnc_dbg.e" > "$TMPD/uplnc_dbg.i" 2>/dev/null
+
+# line accuracy: the statements on lines 3 and 8..10 must appear verbatim
+./build/langc -march=x86_64 -g < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_g.s" 2>/dev/null
+if grep -q '\.file 1 ' "$TMPD/uplnc_dbg_g.s" \
+        && grep -q '^	\.loc 1 3$' "$TMPD/uplnc_dbg_g.s" \
+        && grep -q '^	\.loc 1 8$' "$TMPD/uplnc_dbg_g.s" \
+        && grep -q '^	\.loc 1 9$' "$TMPD/uplnc_dbg_g.s" \
+        && grep -q '^	\.loc 1 10$' "$TMPD/uplnc_dbg_g.s"; then
+    ok "-g emits .file and statement-accurate .loc directives"
+else
+    bad "-g .loc line accuracy"
+fi
+
+# default output stays free of debug directives
+./build/langc -march=x86_64 < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_ng.s" 2>/dev/null
+if grep -q '\.loc\|\.file' "$TMPD/uplnc_dbg_ng.s"; then
+    bad "no .loc/.file without -g"
+else
+    ok "no .loc/.file without -g"
+fi
+
+# -g must not change the generated instructions on any backend
+for a in i386 x86_64 arm64 riscv64 mips64; do
+    ./build/langc "-march=$a"    < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_$a.s"  2>/dev/null
+    ./build/langc "-march=$a" -g < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_${a}_g.s" 2>/dev/null
+    if grep -v '^	\.loc \|^	\.file ' "$TMPD/uplnc_dbg_${a}_g.s" \
+            | cmp -s - "$TMPD/uplnc_dbg_$a.s"; then
+        ok "-g leaves $a code unchanged (directives only)"
+    else
+        bad "-g perturbs $a code"
+    fi
+done
+
+# a second file via #include gets its own .file number
+cat > "$TMPD/uplnc_dbg_inc.he" <<'DBGEOF'
+func triple(x:int)
+{
+  return x*3;
+}
+DBGEOF
+printf '#include "uplnc_dbg_inc.he"\nfunc main()\n{\n  return triple(14);\n}\n' \
+    > "$TMPD/uplnc_dbg_multi.e"
+./build/lpp1 "$TMPD/uplnc_dbg_multi.e" 2>/dev/null \
+    | ./build/langc -march=x86_64 -g > "$TMPD/uplnc_dbg_multi.s" 2>/dev/null
+if grep -q '\.file 1 .*uplnc_dbg_inc\.he' "$TMPD/uplnc_dbg_multi.s" \
+        && grep -q '\.file 2 .*uplnc_dbg_multi\.e' "$TMPD/uplnc_dbg_multi.s" \
+        && grep -q '^	\.loc 2 4$' "$TMPD/uplnc_dbg_multi.s"; then
+    ok "-g assigns per-file numbers across #include"
+else
+    bad "-g multi-file .file numbering"
+fi
+
+# driver -g end-to-end on the host: binary runs and carries a .debug_line table
+case "$(uname -m)" in
+x86_64)
+    if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_dbg_bin" "$TMPD/uplnc_dbg.e" \
+            >/dev/null 2>&1 && "$TMPD/uplnc_dbg_bin"; [ $? = 42 ]; then
+        ok "driver -g binary builds and runs (42)"
+    else
+        bad "driver -g build/run"
+    fi
+    if command -v objdump >/dev/null \
+            && objdump --dwarf=decodedline "$TMPD/uplnc_dbg_bin" 2>/dev/null \
+               | grep -q 'uplnc_dbg\.e'; then
+        ok "driver -g binary has a DWARF line table"
+    else
+        bad "driver -g DWARF line table"
+    fi
+    if command -v gdb >/dev/null; then
+        if gdb -batch -q -ex 'break uplnc_dbg.e:9' -ex run -ex 'info line' \
+                "$TMPD/uplnc_dbg_bin" 2>/dev/null \
+                | grep -q 'Line 9 of .*uplnc_dbg\.e'; then
+            ok "gdb stops at a source line set by file:line"
+        else
+            bad "gdb file:line breakpoint"
+        fi
+    else
+        echo "  skip - no gdb on host"
+    fi
+    ;;
+*)
+    echo "  skip - host is not x86_64"
+    ;;
+esac
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]

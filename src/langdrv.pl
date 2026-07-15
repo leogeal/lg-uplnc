@@ -15,6 +15,7 @@ my $arch = 'i386';
 my $output;
 my $emit_asm = 0;
 my $compile_only = 0;
+my $debug_info = 0;
 my $verbose = 0;
 my $help = 0;
 my ($lpp_option, $langc_option, $cc_option);
@@ -38,6 +39,7 @@ Options:
   -o FILE        Write the output to FILE (default when linking: a.out)
   -S             Compile .e sources to assembly without assembling
   -c             Compile .e/.s inputs to object files without linking
+  -g             Emit source line info (.file/.loc) so gdb can map addresses
   -v, --verbose  Print commands as they are executed
   --lpp FILE     Use FILE as the preprocessor
   --langc FILE   Use FILE as the compiler
@@ -59,6 +61,7 @@ GetOptions(
     'o=s'           => \$output,
     'S'             => \$emit_asm,
     'c'             => \$compile_only,
+    'g'             => \$debug_info,
     'v|verbose'     => \$verbose,
     'lpp=s'         => \$lpp_option,
     'langc=s'       => \$langc_option,
@@ -236,7 +239,9 @@ sub compile_source {
     my $preprocessed = File::Spec->catfile($tmpdir, 'input-' . $sequence++ . '.i');
     my $rc = run_command(undef, $preprocessed, $lpp, $source);
     fail("preprocessing '$source' failed (exit $rc)") if $rc != 0;
-    $rc = run_command($preprocessed, $assembly, $langc, "-march=$arch");
+    my @langc_args = ("-march=$arch");
+    push @langc_args, '-g' if $debug_info;
+    $rc = run_command($preprocessed, $assembly, $langc, @langc_args);
     fail("compiling '$source' failed (exit $rc)") if $rc != 0;
 }
 
