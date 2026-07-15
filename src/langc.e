@@ -4545,13 +4545,65 @@ func loadnum(lval:*elval)
   outasm(", %eax");
   nl();*/
 }
+/* Checked arithmetic for the signed 32-bit value carried by an L_NUM leaf.
+   Stage-0 C has a 32-bit int even when it emits a 64-bit target, so evaluating
+   an overflowing fold in the compiler is both C undefined behaviour and wrong
+   for the 64-bit target. Leave such expressions for target codegen instead. */
+func foldadd(a:int,b:int,res:*int)
+{
+  if((b>0)&&(a>2147483647-b))return 0;
+  if((b<0)&&(a<(-2147483647-1)-b))return 0;
+  res[0]=a+b;
+  return 1;
+}
+func foldsub(a:int,b:int,res:*int)
+{
+  if((b>0)&&(a<(-2147483647-1)+b))return 0;
+  if((b<0)&&(a>2147483647+b))return 0;
+  res[0]=a-b;
+  return 1;
+}
+func foldmul(a:int,b:int,res:*int)
+{
+  if(!a||!b){res[0]=0;return 1;}
+  if(a>0)
+  {
+    if((b>0)&&(a>2147483647/b))return 0;
+    if((b<0)&&(b<(-2147483647-1)/a))return 0;
+  }
+  else
+  {
+    if((b>0)&&(a<(-2147483647-1)/b))return 0;
+    if((b<0)&&(a<2147483647/b))return 0;
+  }
+  res[0]=a*b;
+  return 1;
+}
+func folddiv(a:int,b:int,res:*int)
+{
+  if(!b)return 0;
+  if((a==(-2147483647-1))&&(b== -1))return 0;
+  res[0]=a/b;
+  return 1;
+}
+func foldrem(a:int,b:int,res:*int)
+{
+  if(!b)return 0;
+  if((a==(-2147483647-1))&&(b== -1))return 0;
+  res[0]=a%b;
+  return 1;
+}
+func foldshl(a:int,b:int,res:*int)
+{
+  if((a<0)||(b<0)||(b>=32))return 0;
+  if(a>(2147483647>>b))return 0;
+  res[0]=a<<b;
+  return 1;
+}
 /* M5 constant folding: collapse a constant *integer* subtree to a single L_NUM
    literal before codegen. Target-neutral (it rewrites the expression tree), so
    every backend then emits less code. Only integer literals are folded -- never
-   float literals (L_FNUM; the compiler does no float arithmetic) -- and never
-   division/remainder by zero (left for the existing runtime path). Folding uses
-   the host's 64-bit int, which matches the 64-bit targets exactly and matches
-   the 32-bit i386 for the small constants that actually occur. */
+   float literals (L_FNUM; the compiler does no float arithmetic). */
 func foldtree(node:*enode)
 {
   var int:a;var int:b;var int:res;var int:ok;
@@ -4566,20 +4618,15 @@ func foldtree(node:*enode)
      &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
   {
     a=node->l->leaf.val;b=node->r->leaf.val;ok=1;
-    if(node->op==OP_PLUS)res=a+b;
-    else if(node->op==OP_MINUS)res=a-b;
-    else if(node->op==OP_MUL)res=a*b;
-    else if(node->op==OP_DIV){if(b)res=a/b;else ok=0;}
-    else if(node->op==OP_REM){if(b)res=a%b;else ok=0;}
+    if(node->op==OP_PLUS)ok=foldadd(a,b,&res);
+    else if(node->op==OP_MINUS)ok=foldsub(a,b,&res);
+    else if(node->op==OP_MUL)ok=foldmul(a,b,&res);
+    else if(node->op==OP_DIV)ok=folddiv(a,b,&res);
+    else if(node->op==OP_REM)ok=foldrem(a,b,&res);
     else if(node->op==OP_BAND)res=a&b;
     else if(node->op==OP_BOR)res=a|b;
     else if(node->op==OP_BXOR)res=a^b;
-    /* fold a shift only when the count is a valid exponent for every host int
-       -- a count >=32 (or negative) is UB on the 32-bit stage-0/native build
-       and merely wraps on a 64-bit host, so results would disagree. Larger
-       constant shifts are left unfolded for the backend to emit as a real
-       runtime shift, which also gets the width right for 64-bit operands. */
-    else if(node->op==OP_SHL){if((b>=0)&&(b<32))res=a<<b;else ok=0;}
+    else if(node->op==OP_SHL)ok=foldshl(a,b,&res);
     else if(node->op==OP_SHR){if((b>=0)&&(b<32))res=a>>b;else ok=0;}     /* arithmetic, matches ct_SHR */
     else if(node->op==OP_EQ)res=(a==b);
     else if(node->op==OP_NEQ)res=(a!=b);
@@ -4595,7 +4642,7 @@ func foldtree(node:*enode)
           &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
   {
     a=node->r->leaf.val;ok=1;
-    if(node->op==OP_UMINUS)res=0-a;
+    if(node->op==OP_UMINUS)ok=foldsub(0,a,&res);
     else if(node->op==OP_BNOT)res=~a;
     else if(node->op==OP_LNOT)res=!a;
     else ok=0;
@@ -5907,6 +5954,9 @@ func outdec(n:int)
 {
   if(n<0){
   outbyte('-');
+  /* INT_MIN has no positive signed-int counterpart. It is reachable when a
+     checked fold leaves a target-wide expression for backend evaluation. */
+  if(n==(-2147483647-1)){outasm("2147483648");return;}
   n=-n;
   }
   outint(n);

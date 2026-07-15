@@ -701,7 +701,12 @@ What turns a teaching compiler into something you'd build a project with:
     freed by its owner (`snamelist.done`), and each block scope's per-symbol
     name list dropped on scope exit (`ssymtabcut`). Minimised repros live in
     `fuzz/corpus/recovery-crashes.e`; ~240k mutated cases run clean under
-    ASan+UBSan, and the leak-detecting CI configuration is clean too.
+    ASan+UBSan, and the leak-detecting CI configuration is clean too. Review
+    follow-up completed the fold fix with checked 32-bit add/subtract/multiply,
+    divide/remainder, negation, and left shift; fixed `INT_MIN` assembly-text
+    emission; and made LeakSanitizer/runtime failures unambiguously fail the
+    harness. `fold_overflow.e` runs the target-width behavior on all five
+    backends and is also a sanitizer seed.
 
 ## M7 — Proof it's real 🟡
 

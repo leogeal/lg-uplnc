@@ -30,6 +30,7 @@ TOKENS = (
 )
 SANITIZER_MARKERS = (
     b"AddressSanitizer",
+    b"LeakSanitizer",
     b"UndefinedBehaviorSanitizer",
     b"runtime error:",
     b"Sanitizer:DEADLYSIGNAL",
