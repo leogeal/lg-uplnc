@@ -664,7 +664,15 @@ What turns a teaching compiler into something you'd build a project with:
     no signature), and multiplies against varargs/sret/FP-args/methods — all
     for interop UPLNC does not need. Revisit only if C-ABI struct interop with
     external libraries becomes a goal, as its own milestone.
-- ⏳ A written **language specification** (the paper is the only spec today)
+- ✅ A written **language specification v0** — [`LANGUAGE.md`](LANGUAGE.md)
+  defines the current preprocessor and lexical rules, prefix type grammar,
+  target data models, declarations, functions and methods, control flow,
+  expression precedence, conversions, structure semantics, separate
+  compilation, undefined behavior, implementation limits, and unsupported C
+  constructs. It is derived from `langc`/`lpp1` plus the tested corpus rather
+  than treating the historical paper or bootstrap subset as the current
+  contract; a canonical fixture compiles on all five targets and runs as
+  expected on x86_64.
 - 🟡 Tooling: **real compiler driver ✅** — `langdrv.pl` now provides a quiet,
   target-aware CLI with `-march`, `-o`, `-S`, `-c`, and `-v`; accepts multiple
   `.e`/`.s`/`.o` inputs; uses collision-free temporary intermediates; preserves

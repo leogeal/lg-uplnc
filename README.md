@@ -15,6 +15,9 @@ on structures, and most C-style control statements. Its syntax parser is
 similar to Small C, and — notably — the compiler is **self-hosting**: it is
 written in UPLNC itself and can compile its own source.
 
+The current language contract, grammar, target data model, and implementation
+limits are defined in [`LANGUAGE.md`](LANGUAGE.md).
+
 The compiler runs in three stages:
 
 1. **Parse** the source and build a syntax tree.
@@ -43,6 +46,7 @@ commit. The original paper and raw archive are kept alongside for reference.
 |------|-------------|
 | [`src/`](src/) | Clean compiler source (self-hosting; written in UPLNC) |
 | [`transpiler/`](transpiler/) | `uplnc2c` — UPLNC→C transpiler that bootstraps the compiler |
+| [`LANGUAGE.md`](LANGUAGE.md) | UPLNC language specification, version 0 |
 | [`BOOTSTRAP.md`](BOOTSTRAP.md) | Bootstrapping plan + UPLNC feature/grammar inventory |
 | [`ROADMAP.md`](ROADMAP.md) | Direction: multi-target, multi-host, floating point, optimization, usability |
 | [`RETARGET.md`](RETARGET.md) | Design plan for a retargetable, multi-host backend |
