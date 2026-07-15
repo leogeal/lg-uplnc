@@ -124,6 +124,14 @@ struct sfield{
   int next;
 };
 
+/* -g: a block-scoped local harvested at scope exit (ssymtabcut) so its DWARF
+   variable DIE can still be emitted at function end, after the symbol is gone */
+struct sdbgloc{
+  [NAMESIZE]char name;
+  int typ;
+  int off;
+};
+
 #define litstksz 30000
 #define litstknu 15
 

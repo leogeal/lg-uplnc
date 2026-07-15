@@ -1102,12 +1102,30 @@ else
     ok "no .loc/.file without -g"
 fi
 
-# -g must not change the generated instructions on any backend
+# -g must not change the generated instructions on any backend. Strip the
+# debug-only output (whole .debug_* sections, CFI/line directives, debug
+# labels) from the -g assembly and normalize redundant .text directives on
+# both sides; what remains must be byte-identical.
+cat > "$TMPD/uplnc_stripdbg.awk" <<'DBGEOF'
+/^\t\.section \.debug_/ { indbg=1; next }
+/^\t\.section / { indbg=0 }
+/^\t\.text/ { indbg=0; next }
+/^\t\.data/ { indbg=0 }
+indbg { next }
+/^\t\.cfi_/ { next }
+/^\t\.loc / { next }
+/^\t\.file / { next }
+/^\.LFB[0-9]+:$/ { next }
+/^\.LFE[0-9]+:$/ { next }
+/^\.Ltext0:$/ { next }
+/^\.Letext0:$/ { next }
+{ print }
+DBGEOF
 for a in i386 x86_64 arm64 riscv64 mips64; do
     ./build/langc "-march=$a"    < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_$a.s"  2>/dev/null
     ./build/langc "-march=$a" -g < "$TMPD/uplnc_dbg.i" > "$TMPD/uplnc_dbg_${a}_g.s" 2>/dev/null
-    if grep -v '^	\.loc \|^	\.file ' "$TMPD/uplnc_dbg_${a}_g.s" \
-            | cmp -s - "$TMPD/uplnc_dbg_$a.s"; then
+    if awk -f "$TMPD/uplnc_stripdbg.awk" "$TMPD/uplnc_dbg_${a}_g.s" \
+            | cmp -s - <(grep -v '^	\.text$' "$TMPD/uplnc_dbg_$a.s"); then
         ok "-g leaves $a code unchanged (directives only)"
     else
         bad "-g perturbs $a code"
@@ -1201,6 +1219,75 @@ x86_64)
         fi
     else
         echo "  skip - no gdb on host"
+    fi
+
+    # debug part 2: CFI unwinding + variable/type DIEs (print, locals, bt)
+    cat > "$TMPD/uplnc_dbg2.e" <<'DBGEOF'
+struct point{int x;int y;};
+func dist2(p:*point)
+{
+  var int:dx,dy;
+  dx=p->x;
+  dy=p->y;
+  return dx*dx+dy*dy;
+}
+func main()
+{
+  var p:point;
+  var int:r;
+  var double:scale;
+  scale=2.5;
+  p.x=3;
+  p.y=4;
+  r=dist2(&p);
+  if(r==25)return 42;
+  return 1;
+}
+DBGEOF
+    if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_dbg2_bin" "$TMPD/uplnc_dbg2.e" \
+            >/dev/null 2>&1 && "$TMPD/uplnc_dbg2_bin"; [ $? = 42 ]; then
+        ok "debug-part2 test binary builds and runs (42)"
+    else
+        bad "debug-part2 build/run"
+    fi
+    if command -v readelf >/dev/null; then
+        readelf --debug-dump=info "$TMPD/uplnc_dbg2_bin" > "$TMPD/uplnc_dbg2.info" 2>/dev/null
+        if grep -q 'DW_TAG_structure_type' "$TMPD/uplnc_dbg2.info" \
+                && grep -q 'DW_TAG_member' "$TMPD/uplnc_dbg2.info" \
+                && grep -q 'DW_TAG_formal_parameter' "$TMPD/uplnc_dbg2.info" \
+                && grep -q 'DW_OP_fbreg' "$TMPD/uplnc_dbg2.info"; then
+            ok "-g emits struct/member/parameter DIEs with frame locations"
+        else
+            bad "-g DIE structure"
+        fi
+        if readelf --debug-dump=frames "$TMPD/uplnc_dbg2_bin" 2>/dev/null \
+                | grep -q 'FDE'; then
+            ok "-g emits .debug_frame FDEs (CFI)"
+        else
+            bad "-g CFI frames"
+        fi
+    else
+        echo "  skip - no readelf on host"
+    fi
+    if command -v gdb >/dev/null; then
+        gdb -batch -q -ex 'break uplnc_dbg2.e:17' -ex run \
+            -ex 'print p' -ex 'print scale' -ex 'ptype p' \
+            "$TMPD/uplnc_dbg2_bin" > "$TMPD/uplnc_dbg2.gdb" 2>/dev/null
+        if grep -q '{x = 3, y = 4}' "$TMPD/uplnc_dbg2.gdb" \
+                && grep -q '= 2\.5' "$TMPD/uplnc_dbg2.gdb" \
+                && grep -q 'int x;' "$TMPD/uplnc_dbg2.gdb"; then
+            ok "gdb prints struct locals, doubles, and member types"
+        else
+            bad "gdb variable DIEs (print/ptype)"
+        fi
+        gdb -batch -q -ex 'break uplnc_dbg2.e:5' -ex run -ex bt \
+            "$TMPD/uplnc_dbg2_bin" > "$TMPD/uplnc_dbg2.bt" 2>/dev/null
+        if grep -q '#0 .*dist2' "$TMPD/uplnc_dbg2.bt" \
+                && grep -q '#1 .*main.*uplnc_dbg2\.e' "$TMPD/uplnc_dbg2.bt"; then
+            ok "gdb backtraces through CFI with parameter values"
+        else
+            bad "gdb CFI backtrace"
+        fi
     fi
     ;;
 *)

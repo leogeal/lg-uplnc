@@ -342,6 +342,32 @@ func regspill(this:*scodegen)
 #define PROMLOC_MAX 512
 var prom_nreg:int;
 var prom_shift:int;
+/* -g: which frame offsets were register-promoted by the LAST cg_print, and by
+   how much the surviving negative offsets were shifted -- langc's DWARF
+   variable emitter (dumpfndbg) asks after each function: a promoted local gets
+   no location (honest "optimized out"), a memory local gets its post-shift
+   frame offset. */
+var prom_offlist:[PROMLOC_MAX]int;
+var prom_noff:int;
+func dbgpromoted(off:int)
+{
+  var int:i;
+  for(i=0;i<prom_noff;i++)if(prom_offlist[i]==off)return 1;
+  return 0;
+}
+func dbgpromshift()
+{
+  return prom_shift;
+}
+/* DWARF number of the frame-base register on the current target */
+func dwframe()
+{
+  if(target.arch==ARCH_X86_64)return 6;   /* rbp */
+  if(target.arch==ARCH_ARM64)return 29;   /* x29 */
+  if(target.arch==ARCH_RISCV)return 8;    /* s0  */
+  if(target.arch==ARCH_MIPS)return 30;    /* fp  */
+  return 5;                               /* ebp */
+}
 func promframeop(c:int)
 {
   return (c==CD_LEA)||(c==CD_STLW)||(c==CD_STLB)
@@ -362,7 +388,7 @@ func promote_locals(this:*scodegen)
   var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or -1        */
   var [PROMLOC_MAX]int:uses;   /* frame loads/stores avoided by promotion     */
   var [PROMLOC_MAX]int:lea;    /* address-taken offsets (from CD_LEA)         */
-  n=this->codeptr;prom_nreg=0;prom_shift=0;
+  n=this->codeptr;prom_nreg=0;prom_shift=0;prom_noff=0;
   leaf=1;ncand=0;nlea=0;nleave=0;
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
@@ -428,6 +454,13 @@ func promote_locals(this:*scodegen)
       nused=nused+1;
     }
   }
+  for(i=0;i<ncand;i++)        /* record the distinct promoted offsets for -g */
+  if(creg[i]>=0)
+  {
+    taken=0;
+    for(j=0;j<prom_noff;j++)if(prom_offlist[j]==cand[i])taken=1;
+    if(!taken){prom_offlist[prom_noff]=cand[i];prom_noff=prom_noff+1;}
+  }
   for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
   {
     c=this->codes[i].code;
@@ -488,6 +521,44 @@ func cg_insert(*scodegen this,*scode s)
   else
   d->str=0;
   /*fprintf(stderr,"!insert()\n");*/
+}
+/* -g CFI (M6 debug part 2): unwind annotations for the DWARF .debug_frame
+   table (selected over .eh_frame by `.cfi_sections .debug_frame` in header(),
+   so the loaded image is unchanged). The frame model is the same on every
+   target -- CFA = frame register + 16 (8 on i386) after the prologue -- and
+   each backend emits the directives between its own prologue/epilogue
+   instructions. Mid-function epilogues are bracketed by remember_state (in
+   CD_STKLEAVE) and restore_state (after CD_RET's return instruction), because
+   the CFI table is address-ordered: without the bracket, the epilogue's
+   sp-based CFA rule would leak onto the code that follows a mid-function
+   `return`. All of it is gated on -g, like CD_LOC. */
+var extern g_debug:int;
+func cfi(s:*char)
+{
+  if(!g_debug)return 0;
+  ot(".cfi_");outstr(s);nl();
+  return 0;
+}
+func cfi1(s:*char,a:int)
+{
+  if(!g_debug)return 0;
+  ot(".cfi_");outstr(s);outstr(" ");outdec(a);nl();
+  return 0;
+}
+func cfi2(s:*char,a:int,b:int)
+{
+  if(!g_debug)return 0;
+  ot(".cfi_");outstr(s);outstr(" ");outdec(a);outstr(", ");outdec(b);nl();
+  return 0;
+}
+/* DWARF register number of the i-th non-leaf promotion save register
+   (RG_N0+i) on the current target: r14/r15, x19/x20, s1/s2, $16/$17. */
+func dwfnsave(i:int)
+{
+  if(target.arch==ARCH_X86_64)return 14+i;
+  if(target.arch==ARCH_ARM64)return 19+i;
+  if(target.arch==ARCH_RISCV){if(i)return 18;return 9;}
+  return 16+i;   /* mips */
 }
 /* -g line info (M6): CD_LOC lowers to GNU-as `.file N "name"` / `.loc N line`
    directives, which make the assembler build the DWARF .debug_line table --
@@ -708,18 +779,23 @@ func cd_write_x86_64(*scode:this)
   {
     var int:i;
     ol("pushq %rbp");
+    cfi1("def_cfa_offset",16);
+    cfi2("offset",6,-16);
     ol("movq %rsp, %rbp");
+    cfi1("def_cfa_register",6);
     if(prom_shift)
     {ot("subq $");outdec(0-prom_shift);outstr(", %rsp");nl();}
     for(i=0;i<prom_nreg;i++)
     {
       ot("movq ");outstr(regnames[RG_N0+i]);outstr(", ");
       outdec(prom_shift+i*target.wordsize);outstr("(%rbp)");nl();
+      cfi2("offset",dwfnsave(i),prom_shift+i*target.wordsize-16);
     }
   }
   else if(this->code==CD_STKLEAVE)
   {
     var int:i;
+    cfi("remember_state");
     for(i=0;i<prom_nreg;i++)
     {
       ot("movq ");outdec(prom_shift+i*target.wordsize);outstr("(%rbp), ");
@@ -727,12 +803,17 @@ func cd_write_x86_64(*scode:this)
     }
     ol("movq %rbp, %rsp");
     ol("popq %rbp");
+    cfi2("def_cfa",7,8);
+    cfi1("restore",6);
   }
   else if(this->code==CD_SAVECSR)
   {
     ot("movq %rbx, ");outdec(this->arg);outstr("(%rbp)");nl();
     ot("movq %r12, ");outdec(this->arg+8);outstr("(%rbp)");nl();
     ot("movq %r13, ");outdec(this->arg+16);outstr("(%rbp)");nl();
+    cfi2("offset",3,this->arg-16);
+    cfi2("offset",12,this->arg+8-16);
+    cfi2("offset",13,this->arg+16-16);
   }
   else if(this->code==CD_RESTCSR)
   {
@@ -818,6 +899,7 @@ func cd_write_x86_64(*scode:this)
   else if(this->code==CD_RET)
   {
     ol("ret");
+    cfi("restore_state");
   }
   else if(this->code==CD_LDLIT)
   {
@@ -1413,17 +1495,29 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_STKENTER)
   {
     var int:i;
-    ol("stp x29, x30, [sp, #-16]!");ol("mov x29, sp");
+    ol("stp x29, x30, [sp, #-16]!");
+    cfi1("def_cfa_offset",16);
+    cfi2("offset",29,-16);
+    cfi2("offset",30,-8);
+    ol("mov x29, sp");
+    cfi1("def_cfa_register",29);
     if(prom_shift)addimm_arm64("sp","sp",prom_shift);
     for(i=0;i<prom_nreg;i++)
-    framemem_arm64("str",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+    {
+      framemem_arm64("str",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+      cfi2("offset",dwfnsave(i),prom_shift+i*target.wordsize-16);
+    }
   }
   else if(this->code==CD_STKLEAVE)
   {
     var int:i;
+    cfi("remember_state");
     for(i=0;i<prom_nreg;i++)
     framemem_arm64("ldr",regnames[RG_N0+i],prom_shift+i*target.wordsize);
     ol("mov sp, x29");ol("ldp x29, x30, [sp], #16");
+    cfi2("def_cfa",31,0);
+    cfi1("restore",29);
+    cfi1("restore",30);
   }
   else if(this->code==CD_INCREG)
   {if(this->arg>0)addimm_arm64("x0","x0",this->arg);}
@@ -1447,7 +1541,7 @@ func cd_write_arm64(*scode:this)
   else if(this->code==CD_MOVAD)ol("mov x1, x0");
   else if(this->code==CD_MOVR)   /* dst, src */
   movins("mov ",regnames[this->reg],regnames[this->arg]);
-  else if(this->code==CD_RET)ol("ret");
+  else if(this->code==CD_RET){ol("ret");cfi("restore_state");}
   else if(this->code==CD_LDLIT)litaddr_arm64(regnames[this->reg],this->arg);
   else if(this->code==CD_LDN)loadimm_arm64(regnames[this->reg],this->arg);
   else if(this->code==CD_LDNW)   /* wide literal: gas ldr= pseudo (literal pool) */
@@ -1686,22 +1780,35 @@ func cd_write_riscv(*scode:this)
     /* save ra+fp, set s0 to point at the saved fp (like %rbp): saved fp at
        0(s0), saved ra at 8(s0), incoming stack args at 16(s0). */
     ol("addi sp, sp, -16");
+    cfi1("def_cfa_offset",16);
     ol("sd s0, 0(sp)");
+    cfi2("offset",8,-16);
     ol("sd ra, 8(sp)");
+    cfi2("offset",1,-8);
     ol("mv s0, sp");
+    cfi1("def_cfa_register",8);
     if(prom_shift)addimm_riscv("sp","sp",prom_shift);
     for(i=0;i<prom_nreg;i++)
-    framemem_riscv("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+    {
+      framemem_riscv("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+      cfi2("offset",dwfnsave(i),prom_shift+i*target.wordsize-16);
+    }
   }
   else if(this->code==CD_STKLEAVE)
   {
     var int:i;
+    cfi("remember_state");
     for(i=0;i<prom_nreg;i++)
     framemem_riscv("ld",regnames[RG_N0+i],prom_shift+i*target.wordsize);
     ol("mv sp, s0");
+    /* the CFA rule was s0-based; rebase onto sp BEFORE s0 is reloaded */
+    cfi2("def_cfa",2,16);
     ol("ld s0, 0(sp)");
+    cfi1("restore",8);
     ol("ld ra, 8(sp)");
+    cfi1("restore",1);
     ol("addi sp, sp, 16");
+    cfi1("def_cfa_offset",0);
   }
   else if(this->code==CD_INCREG)
   {if(this->arg>0)addimm_riscv("a0","a0",this->arg);}
@@ -1719,7 +1826,7 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_MOVAD)ol("mv a1, a0");
   else if(this->code==CD_MOVR)   /* dst, src */
   movins("mv ",regnames[this->reg],regnames[this->arg]);
-  else if(this->code==CD_RET)ol("ret");
+  else if(this->code==CD_RET){ol("ret");cfi("restore_state");}
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("la ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
    if(this->arg)addimm_riscv(regnames[this->reg],regnames[this->reg],this->arg);}
@@ -1961,22 +2068,35 @@ func cd_write_mips(*scode:this)
     /* save ra+fp, point $fp at the saved fp (like %rbp): saved fp at 0($fp),
        saved ra at 8($fp), incoming stack args at 16($fp). */
     ol("daddiu $sp, $sp, -16");
+    cfi1("def_cfa_offset",16);
     ol("sd $fp, 0($sp)");
+    cfi2("offset",30,-16);
     ol("sd $ra, 8($sp)");
+    cfi2("offset",31,-8);
     ol("move $fp, $sp");
+    cfi1("def_cfa_register",30);
     if(prom_shift)addimm_mips("$sp","$sp",prom_shift);
     for(i=0;i<prom_nreg;i++)
-    framemem_mips("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+    {
+      framemem_mips("sd",regnames[RG_N0+i],prom_shift+i*target.wordsize);
+      cfi2("offset",dwfnsave(i),prom_shift+i*target.wordsize-16);
+    }
   }
   else if(this->code==CD_STKLEAVE)
   {
     var int:i;
+    cfi("remember_state");
     for(i=0;i<prom_nreg;i++)
     framemem_mips("ld",regnames[RG_N0+i],prom_shift+i*target.wordsize);
     ol("move $sp, $fp");
+    /* the CFA rule was $fp-based; rebase onto $sp BEFORE $fp is reloaded */
+    cfi2("def_cfa",29,16);
     ol("ld $fp, 0($sp)");
+    cfi1("restore",30);
     ol("ld $ra, 8($sp)");
+    cfi1("restore",31);
     ol("daddiu $sp, $sp, 16");
+    cfi1("def_cfa_offset",0);
   }
   else if(this->code==CD_INCREG)
   {if(this->arg>0)addimm_mips("$2","$2",this->arg);}
@@ -1994,7 +2114,7 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_MOVAD)ol("move $3, $2");
   else if(this->code==CD_MOVR)   /* dst, src */
   movins("move ",regnames[this->reg],regnames[this->arg]);
-  else if(this->code==CD_RET)ol("jr $ra");
+  else if(this->code==CD_RET){ol("jr $ra");cfi("restore_state");}
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("dla ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
    if(this->arg)addimm_mips(regnames[this->reg],regnames[this->reg],this->arg);}
@@ -2297,18 +2417,27 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_STKENTER)
   {
     ol("pushl %ebp");
+    cfi1("def_cfa_offset",8);
+    cfi2("offset",5,-8);
     ol("movl %esp, %ebp");
+    cfi1("def_cfa_register",5);
   }
   else if(this->code==CD_STKLEAVE)
   {
+    cfi("remember_state");
     ol("movl %ebp, %esp");
     ol("popl %ebp");
+    cfi2("def_cfa",4,4);
+    cfi1("restore",5);
   }
   else if(this->code==CD_SAVECSR)
   {
     ot("movl %ebx, ");outdec(this->arg);outstr("(%ebp)");nl();
     ot("movl %esi, ");outdec(this->arg+4);outstr("(%ebp)");nl();
     ot("movl %edi, ");outdec(this->arg+8);outstr("(%ebp)");nl();
+    cfi2("offset",3,this->arg-8);
+    cfi2("offset",6,this->arg+4-8);
+    cfi2("offset",7,this->arg+8-8);
   }
   else if(this->code==CD_RESTCSR)
   {
@@ -2394,6 +2523,7 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_RET)
   {
     ol("ret");
+    cfi("restore_state");
   }
   else if(this->code==CD_LDLIT)
   {
