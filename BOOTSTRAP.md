@@ -6,6 +6,10 @@ This document captures (a) what the build actually needs, (b) a precise
 feature/grammar inventory of the language *as used by the compiler sources*, and
 (c) a concrete plan to break the cycle and reach a verified self-hosting build.
 
+This is the historical bootstrap inventory, not the complete current language
+reference. See [`LANGUAGE.md`](LANGUAGE.md) for the version 0 specification,
+including features added after bootstrap and the supported target data models.
+
 Everything below is derived directly from the sources in [`src/`](src/) and the
 driver `langdrv.pl`, not from external documentation.
 
@@ -46,9 +50,9 @@ The emitted `.s` assumes:
 - gcc both **assembles and links** the output, so a 32-bit toolchain is required
   to build the compiler's *own output* (including when it compiles itself).
 
-There is **no inline assembly anywhere in the compiler sources** — although the
-language supports an `asm` statement (`stasm` in `tlangc.he`), the compiler
-itself never uses it. Nothing exotic needs to survive translation.
+There is **no inline assembly anywhere in the compiler sources**. A legacy
+`stasm` constant remains in `tlangc.he`, but the language parser has no `asm`
+statement. Nothing exotic needs to survive translation.
 
 ---
 
