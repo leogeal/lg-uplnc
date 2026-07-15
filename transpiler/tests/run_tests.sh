@@ -1133,6 +1133,48 @@ else
     bad "-g multi-file .file numbering"
 fi
 
+# preserve lpp1's full filename instead of truncating it at the old 79-byte limit
+DBGLONG="$TMPD/uplnc_dbg_abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnop.e"
+cp "$TMPD/uplnc_dbg.e" "$DBGLONG"
+./build/lpp1 "$DBGLONG" > "$TMPD/uplnc_dbg_long.i" 2>/dev/null
+./build/langc -march=x86_64 -g < "$TMPD/uplnc_dbg_long.i" \
+    > "$TMPD/uplnc_dbg_long.s" 2>/dev/null
+if grep -Fq "$DBGLONG" "$TMPD/uplnc_dbg_long.s"; then
+    ok "-g preserves long source filenames"
+else
+    bad "-g long source filename"
+fi
+
+# gas quoted strings treat backslash as an escape, so .file must double it
+DBGBSL="$TMPD/uplnc_dbg_back\\name.e"
+cp "$TMPD/uplnc_dbg.e" "$DBGBSL"
+./build/lpp1 "$DBGBSL" > "$TMPD/uplnc_dbg_bslash.i" 2>/dev/null
+./build/langc -march=x86_64 -g < "$TMPD/uplnc_dbg_bslash.i" \
+    > "$TMPD/uplnc_dbg_bslash.s" 2>/dev/null
+if grep -Fq 'uplnc_dbg_back\\name.e"' "$TMPD/uplnc_dbg_bslash.s"; then
+    ok "-g escapes backslashes in assembler filenames"
+else
+    bad "-g assembler filename escaping"
+fi
+
+# sequential includes may reference more files than the nesting depth; every
+# distinct file must retain its own DWARF number.
+i=0
+while [ "$i" -le 100 ]; do
+    printf '# 1 "uplnc_dbg_file_%03d.e"\nfunc dbg%03d(){return %d;}\n' \
+        "$i" "$i" "$i"
+    i=$((i+1))
+done > "$TMPD/uplnc_dbg_many.i"
+./build/langc -march=x86_64 -g < "$TMPD/uplnc_dbg_many.i" \
+    > "$TMPD/uplnc_dbg_many.s" 2>/dev/null
+if [ "$(grep -c '^	\.file ' "$TMPD/uplnc_dbg_many.s")" = 101 ] \
+        && grep -q '^	\.file 101 "uplnc_dbg_file_100\.e"$' "$TMPD/uplnc_dbg_many.s" \
+        && grep -q '^	\.loc 101 1$' "$TMPD/uplnc_dbg_many.s"; then
+    ok "-g assigns distinct numbers beyond 100 source files"
+else
+    bad "-g dynamic source file table"
+fi
+
 # driver -g end-to-end on the host: binary runs and carries a .debug_line table
 case "$(uname -m)" in
 x86_64)
