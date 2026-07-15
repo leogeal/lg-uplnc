@@ -166,12 +166,16 @@ func addglb(sname:*char,sort:int,dfd:int,offset:int,type:int)
   res->line=cline;
   return res;
 }
+var extern g_debug:int;   /* defined below, needed by ssymtabcut's -g harvest */
 func ssymtabcut(p:*ssymtab,w:**ssymlist)
 {
   var *ssymlist:i,n;
   for(i=*w;i;i=n)
   {
     n=i->next;
+    /* -g: the DWARF variable DIEs are written at function end, but this local
+       dies with its block scope -- harvest what the DIE needs first. */
+    if(g_debug&&(i->sym.sort==S_VARL))dbglocadd(i->sym.name,i->sym.type,i->sym.offset);
     i->sym.done();   /* release the symbol's nmlst, as ssymtabfree does */
     free(i);
   }
@@ -223,6 +227,10 @@ var line:[linesize]char;
 var cline:int;
 var cfile:[FILESIZE]char; /* current file, from lpp1's `# <n> "<file>"` markers */
 var g_debug:int;      /* -g: emit .file/.loc line info at statement boundaries */
+var dbgmain:[FILESIZE]char; /* -g: the unit's first marker file = DWARF CU name */
+var g_cu:int;         /* -g: CU header + abbrev table already emitted */
+var dbgloclst:*sdbgloc; /* -g: block locals harvested at scope exit (per fn) */
+var ndbgloc,adbgloc:int;
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
 var g_stmtclosed:int; /* the current statement consumed its ; or closing } */
@@ -469,6 +477,7 @@ func main(argc:int,argv:**char)
   dumplits();
   dumpfloats();
   dumpglbs();
+  if(g_debug&&g_cu)dumpdbgtail();
   if(tomap)
   printmap();
   if(tograph)
@@ -534,6 +543,15 @@ func header()
   comment();
   outstr("The Test Compiler");
   nl();
+  /* -g: route CFI to the strippable .debug_frame (never .eh_frame, which is
+     loaded at run time) -- must precede every .cfi_startproc. .Ltext0 marks
+     the unit's code start for the compile-unit DIE's low_pc. */
+  if(g_debug)
+  {
+    ot(".cfi_sections .debug_frame");nl();
+    ol(target.dir_text);
+    outstr(".Ltext0");col();nl();
+  }
 }
 func parse()
 {
@@ -1241,6 +1259,8 @@ func insline()
         i++;k=0;
         while(line[i]&&(line[i]!='"')&&(k<FILESIZE-1))cfile[k++]=line[i++];
         cfile[k]=0;
+        /* -g: the first marker names the unit's main source = the DWARF CU */
+        if(!dbgmain[0])strcp(dbgmain,cfile);
       }
       lptr=0;
       continue;
@@ -1298,6 +1318,245 @@ func domethod()
   dofunc();
   methodcls=0;
   methodidx=0;
+}
+/* ---- -g DWARF .debug_info / .debug_abbrev emission (M6 debug part 2) ----
+   Hand-written DWARF 4 DIEs, emitted as assembler directives so gas computes
+   every length and offset via label arithmetic (.4byte .Lx-.Ly) and the
+   result is correct on either endianness. Layout: one compile unit; its
+   children are the subprogram DIEs (streamed after each function, while the
+   local symbol table is still alive) followed by one DIE per typtab entry
+   (emitted by dumpdbgtail, when all types are known). Variables use
+   DW_OP_fbreg against a frame base of DW_OP_breg<frame reg>, i.e. the same
+   frame-pointer-relative offsets the generated code uses; register-promoted
+   locals get a DIE without location (gdb reports them "optimized out" rather
+   than showing a stale frame slot). Block-scoped locals are harvested by
+   ssymtabcut into dbgloclst; they get plain variable DIEs, not lexical
+   blocks, so two block locals sharing one name are both listed. */
+func dbglocadd(nm:*char,typ:int,off:int)
+{
+  if(ndbgloc>=adbgloc)
+  {
+    adbgloc=adbgloc+64;
+    chkmem(dbgloclst=realloc(dbgloclst,adbgloc*sizeof(sdbgloc)));
+  }
+  strcp(dbgloclst[ndbgloc].name,nm);
+  dbgloclst[ndbgloc].typ=typ;
+  dbgloclst[ndbgloc].off=off;
+  ndbgloc++;
+}
+func dbyte(n:int){ot(".byte ");outdec(n);nl();}
+func duleb(n:int){ot(".uleb128 ");outdec(n);nl();}
+func dsleb(n:int){ot(".sleb128 ");outdec(n);nl();}
+func d4byte(n:int){ot(".4byte ");outdec(n);nl();}
+func dstrz(s:*char){ot(".asciz \"");outgasstr(s);outstr("\"");nl();}
+func dref(t:int){ot(".4byte .LT");outdec(t);outstr("-.Lcu0");nl();}
+/* length in bytes of the SLEB128 encoding of v (for exprloc lengths) */
+func sleblen(v:int)
+{
+  var int:n,b;
+  n=0;
+  while(1)
+  {
+    b=v&127;
+    v=v>>7;              /* arithmetic shift: v converges to 0 or -1 */
+    n++;
+    if((v==0)&&(!(b&64)))break;
+    if((v==(0-1))&&(b&64))break;
+  }
+  return n;
+}
+/* one abbrev attribute pair */
+func dab(at:int,form:int){duleb(at);duleb(form);}
+/* the fixed abbreviation table + the compile-unit header and DIE. Called once,
+   lazily, before the first subprogram DIE (the CU name -- the unit's first
+   line-marker file -- is only known once parsing has started). */
+func dumpdbghdr()
+{
+  ot(".section .debug_abbrev");nl();
+  outstr(".Ldebug_abbrev0");col();nl();
+  duleb(1);duleb(17);dbyte(1);            /* compile_unit, has children */
+  dab(37,8);                              /* producer, string */
+  dab(19,11);                             /* language, data1 */
+  dab(3,8);                               /* name, string */
+  dab(17,1);                              /* low_pc, addr */
+  dab(18,6);                              /* high_pc, data4 length */
+  dab(16,23);                             /* stmt_list, sec_offset */
+  dbyte(0);dbyte(0);
+  duleb(2);duleb(46);dbyte(1);            /* subprogram, has children */
+  dab(63,25);                             /* external, flag_present */
+  dab(3,8);dab(17,1);dab(18,6);
+  dab(64,24);                             /* frame_base, exprloc */
+  dab(73,19);                             /* type, ref4 */
+  dbyte(0);dbyte(0);
+  duleb(3);duleb(5);dbyte(0);             /* formal_parameter */
+  dab(3,8);dab(73,19);dab(2,24);          /* name, type, location exprloc */
+  dbyte(0);dbyte(0);
+  duleb(4);duleb(52);dbyte(0);            /* variable with location */
+  dab(3,8);dab(73,19);dab(2,24);
+  dbyte(0);dbyte(0);
+  duleb(5);duleb(52);dbyte(0);            /* variable without location */
+  dab(3,8);dab(73,19);
+  dbyte(0);dbyte(0);
+  duleb(6);duleb(36);dbyte(0);            /* base_type */
+  dab(3,8);dab(62,11);dab(11,11);         /* name, encoding, byte_size */
+  dbyte(0);dbyte(0);
+  duleb(7);duleb(15);dbyte(0);            /* pointer_type -> type */
+  dab(73,19);
+  dbyte(0);dbyte(0);
+  duleb(8);duleb(15);dbyte(0);            /* bare pointer (void*, fallback) */
+  dbyte(0);dbyte(0);
+  duleb(9);duleb(19);dbyte(1);            /* structure_type, has children */
+  dab(3,8);dab(11,6);                     /* name, byte_size data4 */
+  dbyte(0);dbyte(0);
+  duleb(10);duleb(13);dbyte(0);           /* member */
+  dab(3,8);dab(73,19);dab(56,6);          /* name, type, member offset data4 */
+  dbyte(0);dbyte(0);
+  duleb(11);duleb(1);dbyte(1);            /* array_type, has children */
+  dab(73,19);
+  dbyte(0);dbyte(0);
+  duleb(12);duleb(33);dbyte(0);           /* subrange_type */
+  dab(55,6);                              /* count, data4 */
+  dbyte(0);dbyte(0);
+  dbyte(0);                               /* end of abbreviations */
+  ot(".section .debug_info");nl();
+  outstr(".Lcu0");col();nl();
+  ot(".4byte .Lcu_end0-.Lcu_start0");nl();
+  outstr(".Lcu_start0");col();nl();
+  ot(".2byte 4");nl();                    /* DWARF version */
+  ot(".4byte .Ldebug_abbrev0");nl();
+  dbyte(target.wordsize);                 /* address size */
+  duleb(1);                               /* the compile-unit DIE */
+  dstrz("UPLNC langc");
+  dbyte(1);                               /* DW_LANG_C89 */
+  dstrz(dbgmain);
+  if(target.wordsize==8){ot(".8byte .Ltext0");nl();}
+  else{ot(".4byte .Ltext0");nl();}
+  ot(".4byte .Letext0-.Ltext0");nl();
+  ot(".4byte .Ldebug_line0");nl();        /* this unit's line table */
+  ol(target.dir_text);
+}
+/* subprogram + parameter/variable DIEs for the function just flushed. gp is
+   its symbol, fnum its .LFB/.LFE label number, fnargs the parameter-area size
+   (argstk after the parameter list). Called while locsymtab still holds the
+   function-scope names; block locals come from dbgloclst. */
+func dbgvar(nm:*char,typ:int,off:int,ispar:int)
+{
+  var int:shifted;
+  if(!an(nm[0]))return 0;                 /* internal names like `0sret` */
+  if(dbgpromoted(off))
+  {
+    duleb(5);                             /* variable, no location */
+    dstrz(nm);
+    dref(typ);
+    return 0;
+  }
+  shifted=off;
+  if(off<0)shifted=off+dbgpromshift();    /* non-leaf save area moved us down */
+  if(ispar)duleb(3);else duleb(4);
+  dstrz(nm);
+  dref(typ);
+  duleb(1+sleblen(shifted));              /* exprloc: DW_OP_fbreg <sleb> */
+  dbyte(145);
+  dsleb(shifted);
+  return 0;
+}
+func dumpfndbg(gp:*ssym,fnum:int,fnargs:int)
+{
+  var *ssymlist:q;
+  var int:i,ispar;
+  if(!dbgmain[0])return 0;                /* no marker file: line info absent */
+  if(!g_cu){dumpdbghdr();g_cu=1;}
+  ot(".section .debug_info");nl();
+  duleb(2);                               /* subprogram, children follow */
+  dstrz(gp->name);
+  if(target.wordsize==8){ot(".8byte .LFB");outdec(fnum);nl();}
+  else{ot(".4byte .LFB");outdec(fnum);nl();}
+  ot(".4byte .LFE");outdec(fnum);outstr("-.LFB");outdec(fnum);nl();
+  duleb(2);dbyte(112+dwframe());dbyte(0); /* frame_base: DW_OP_breg<fp> 0 */
+  dref(gp->type);
+  for(q=locsymtab.lst;q;q=q->next)
+  if(q->sym.sort==S_VARL)
+  {
+    if(target.arch==ARCH_I386)ispar=(q->sym.offset>0);
+    else ispar=((q->sym.offset<0)&&(q->sym.offset>=(0-fnargs)));
+    dbgvar(q->sym.name,q->sym.type,q->sym.offset,ispar);
+  }
+  for(i=0;i<ndbgloc;i++)                  /* block locals live here now */
+  dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0);
+  dbyte(0);                               /* end of subprogram children */
+  ol(target.dir_text);
+  return 0;
+}
+/* the DIE for typtab entry i (label .LT<i>); structs get member children */
+func dbgtype(i:int)
+{
+  var int:k,enc;
+  var *char:nm;
+  outstr(".LT");outdec(i);col();nl();
+  if(typtab[i].sort==V_PTR)
+  {
+    k=typtab[i].type;
+    if((k>0)&&(k<typptr)){duleb(7);dref(k);}
+    else duleb(8);
+    return 0;
+  }
+  if(typtab[i].sort==V_ARR)
+  {
+    duleb(11);dref(typtab[i].type);
+    duleb(12);d4byte(typtab[i].dim);
+    dbyte(0);
+    return 0;
+  }
+  if(typtab[i].sort==V_STR)
+  {
+    duleb(9);
+    dstrz(typtab[i].name);
+    d4byte(typtab[i].size);
+    for(k=typtab[i].type;k;k=fieldtab[k].next)
+    {
+      if(typtab[fieldtab[k].type].sort==V_FNC)continue;   /* method slot */
+      duleb(10);
+      dstrz(fieldtab[k].name);
+      dref(fieldtab[k].type);
+      d4byte(fieldtab[k].offset);
+    }
+    dbyte(0);
+    return 0;
+  }
+  if(typtab[i].sort==V_FND)
+  {
+    nm="int";enc=5;
+    if(i==T_CHAR){nm="char";enc=6;}
+    else if(i==T_DOUBLE){nm="double";enc=4;}
+    else if(i==T_FLOAT){nm="float";enc=4;}
+    else if(i==T_UINT){nm="unsigned";enc=7;}
+    else if(i==T_LLONG){nm="long long";enc=5;}
+    else if(i==T_ULLONG){nm="unsigned long long";enc=7;}
+    else if(i==T_UCHAR){nm="unsigned char";enc=8;}
+    duleb(6);
+    dstrz(nm);
+    dbyte(enc);
+    dbyte(gettsize(i));
+    return 0;
+  }
+  duleb(8);                               /* V_FNC and anything else: void* */
+  return 0;
+}
+/* close the debug info: code-end label, the type DIEs, the CU terminator, and
+   the empty labelled .debug_line section that gas fills with the line table
+   generated from the .loc directives (label = this unit's table start). */
+func dumpdbgtail()
+{
+  var int:i;
+  ol(target.dir_text);
+  outstr(".Letext0");col();nl();
+  ot(".section .debug_info");nl();
+  for(i=1;i<typptr;i++)dbgtype(i);
+  dbyte(0);                               /* end of compile-unit children */
+  outstr(".Lcu_end0");col();nl();
+  ot(".section .debug_line");nl();
+  outstr(".Ldebug_line0");col();nl();
+  ol(target.dir_text);   /* leave the assembler in .text for the trailer */
 }
 func dofunc()
 {
@@ -1487,6 +1746,7 @@ func dofunc()
   var scodegen:codeg;
   cg_init(&codeg);
   ccg=&codeg;
+  ndbgloc=0;   /* -g: fresh block-local harvest for this function */
   if(gp->dfd)error("this function was already defined");
   gp->dfd=1;
   ol(target.dir_text);
@@ -1502,6 +1762,13 @@ func dofunc()
   outname(n);
   col();
   nl();
+  /* -g: open the CFI frame and place the subprogram's low-pc label (.LFB<n>,
+     paired with .LFE<n> after the code flush; both feed the DWARF DIEs). */
+  if(g_debug)
+  {
+    outstr(".LFB");outdec(nfunc);col();nl();
+    ot(".cfi_startproc");nl();
+  }
   /*ol("pushl %ebp");
   ol("movl %esp, %ebp");*/
   /* M6 2b: a struct-returning function takes a hidden pointer to the caller's
@@ -1626,6 +1893,14 @@ func dofunc()
   zret();
   cg_print(&codeg);
   cg_done(&codeg);
+  /* -g: close the CFI frame and the subprogram's address range, then write
+     the subprogram + variable DIEs while locsymtab still holds the names */
+  if(g_debug)
+  {
+    outstr(".LFE");outdec(nfunc);col();nl();
+    ot(".cfi_endproc");nl();
+    dumpfndbg(gp,nfunc,argstk);
+  }
   /*fprintf(stderr,"dofunc:savecg=%d\n",savecg);*/
   ccg=savecg;
   cnmlst=savenmlst;

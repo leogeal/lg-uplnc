@@ -202,7 +202,9 @@ def main():
     if args.target in ("all", "lpp"):
         targets.append(("lpp", [str(lpp)]))
     if args.target in ("all", "langc"):
-        targets.append(("langc", [str(langc), "-march=x86_64"]))
+        # -g is a strict superset of the default path: it additionally runs the
+        # .loc/CFI/DWARF-DIE emitters, which must also survive malformed input.
+        targets.append(("langc", [str(langc), "-march=x86_64", "-g"]))
 
     good = True
     for index, (target, command) in enumerate(targets):

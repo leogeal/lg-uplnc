@@ -475,8 +475,28 @@ What turns a teaching compiler into something you'd build a project with:
   generated instructions — `run_tests.sh` `[12]` strip-diffs the assembly on
   every backend, checks statement-accurate line numbers, and (host) verifies a
   real gdb `file:line` breakpoint; the compiler compiles its own sources with
-  `-g` cleanly under ASan/UBSan/LSan. Not yet emitted: variable/type DIEs
-  (`info locals`, `print var`) and CFI unwind annotations
+  `-g` cleanly under ASan/UBSan/LSan.
+  - ✅ **Part 2: CFI unwind + variable/type DIEs** — `gdb` is now fully
+    usable. CFI: every backend annotates its own prologue/epilogue
+    (`.cfi_def_cfa*`/`.cfi_offset`, callee-saved CSR/promotion saves included);
+    mid-function epilogues are bracketed with `remember_state`/`restore_state`
+    because the CFI table is address-ordered; directives go to the strippable
+    `.debug_frame` (never `.eh_frame`), so the loaded image is unchanged.
+    DIEs: hand-written DWARF 4 in `.debug_abbrev`/`.debug_info` via label
+    arithmetic (endian-safe — verified on big-endian mips64). One DIE per
+    `typtab` entry gives full types: base types, pointers, arrays with counts,
+    and structs **with members**, so `print p`, `p.x + p.y`, `info locals`,
+    and `ptype` all work; params and memory-resident locals get
+    `DW_OP_fbreg` locations (post-promotion-shift offsets), register-promoted
+    locals honestly report `<optimized out>`, and block-scoped locals are
+    harvested at scope exit (`ssymtabcut`) so they appear too. The CU's
+    `stmt_list` uses the label-in-`.debug_line` idiom, so multi-unit `-g`
+    links resolve each unit's line table (verified: two-unit program, both
+    CUs correct, cross-unit `bt` shows parameter values). The fuzz harness
+    now runs langc with `-g`, so the debug emitters face malformed input in
+    CI too; the strip-diff `[12]` equality gate covers the new output on all
+    five backends. Remaining ideas: lexical-block scoping for shadowed block
+    locals, and location lists for promoted locals
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
 - 🟡 Language gaps:
