@@ -35,6 +35,8 @@ echo "[sanitize] compiling langc with $CC_BIN ($SANITIZERS)"
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}"
 export UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
 
+python3 -m unittest fuzz.test_fuzz
+
 exec python3 fuzz/fuzz.py \
     --lpp "$OUT/lpp1" \
     --langc "$OUT/langc" \

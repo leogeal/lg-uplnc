@@ -53,6 +53,7 @@ double_array_write 42
 float_array 42
 float_ptr 42
 const_fold 42
+fold_overflow 42
 nest_div 42
 nest_shr 42
 nest3 42
