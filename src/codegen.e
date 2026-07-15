@@ -496,9 +496,18 @@ func cg_insert(*scodegen this,*scode s)
    file number for the whole translation unit (numbers are per-object-file);
    `.file` is emitted lazily the first time a file is referenced, which
    satisfies gas's requirement that it precede the first `.loc` using it. */
-#define LOCFMAX 100
-var locfname:[LOCFMAX]*char;
+#define LOCFGROW 32
+var locfname:**char;
 var nlocf:int;
+var locfmax:int;
+func outgasstr(s:*char)
+{
+  while(*s)
+  {
+    if((*s==92)||(*s=='"'))outbyte(92);
+    outbyte(*s++);
+  }
+}
 func cdloc(this:*scode)
 {
   var int:i;
@@ -506,15 +515,14 @@ func cdloc(this:*scode)
   for(i=0;i<nlocf;i=i+1)if(strid(locfname[i],this->str))break;
   if(i>=nlocf)
   {
-    /* table full: attribute to the first file rather than fail -- degraded but
-       deterministic (100 distinct files in one unit; include nesting is 8) */
-    if(nlocf>=LOCFMAX)i=0;
-    else
+    if(nlocf>=locfmax)
     {
-      locfname[i]=strdyn(this->str);
-      nlocf=nlocf+1;
-      ot(".file ");outdec(i+1);outstr(" \"");outstr(this->str);outstr("\"");nl();
+      locfmax=locfmax+LOCFGROW;
+      chkmem(locfname=realloc(locfname,locfmax*sizeof(*char)));
     }
+    i=nlocf++;
+    locfname[i]=strdyn(this->str);
+    ot(".file ");outdec(i+1);outstr(" \"");outgasstr(this->str);outstr("\"");nl();
   }
   ot(".loc ");outdec(i+1);outstr(" ");outdec(this->arg);nl();
   return 0;
@@ -3567,6 +3575,7 @@ var scodegen:cgglb;
 func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
+  locfname=0;nlocf=0;locfmax=0;
   chkmem(regnames=calloc(9,sizeof(*char)));
   if(target.arch==ARCH_ARM64)
   {
@@ -3640,6 +3649,7 @@ func icodegen()
 }
 func dcodegen()
 {
+  var int:i;
   /*fprintf(stderr,"dcodegen()\n");*/
   /*fprintf(stderr,"ccg=%d\n",ccg);*/
   /*fprintf(stderr,"ccg.codeptr=%d\n",ccg->codeptr);*/
@@ -3647,4 +3657,7 @@ func dcodegen()
   cg_done(ccg);
   if(regnames)
   free(regnames);
+  for(i=0;i<nlocf;i++)free(locfname[i]);
+  if(locfname)free(locfname);
+  locfname=0;nlocf=0;locfmax=0;
 }

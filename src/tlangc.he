@@ -20,6 +20,7 @@
 #define linesize 180
 #define linemax linesize-1
 #define mpmax linemax
+#define FILESIZE 160 /* source names carried by lpp1 line markers */
 #define stif 1
 #define stwhile 2
 #define streturn 3
@@ -61,7 +62,7 @@ struct ssym{
   int isva;  /* variadic function: parameter list ended with ... */
   int nfixed;/* number of named parameters before ... */
   int wused; /* referenced at least once (unused-variable warning); params start 1 */
-  [80]char wfile; /* declaration file for deferred unused-variable warnings */
+  [FILESIZE]char wfile; /* declaration file for deferred unused-variable warnings */
   func init;
   func done;
 };

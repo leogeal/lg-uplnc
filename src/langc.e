@@ -221,7 +221,7 @@ var litstkle:[litstknu]int;
 var litstkpt:[litstknu]int;
 var line:[linesize]char;
 var cline:int;
-var cfile:[80]char;   /* current source file, from lpp1's `# <n> "<file>"` markers */
+var cfile:[FILESIZE]char; /* current file, from lpp1's `# <n> "<file>"` markers */
 var g_debug:int;      /* -g: emit .file/.loc line info at statement boundaries */
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
@@ -1239,7 +1239,7 @@ func insline()
       if(line[i]=='"')
       {
         i++;k=0;
-        while(line[i]&&(line[i]!='"')&&(k<79))cfile[k++]=line[i++];
+        while(line[i]&&(line[i]!='"')&&(k<FILESIZE-1))cfile[k++]=line[i++];
         cfile[k]=0;
       }
       lptr=0;
@@ -1598,7 +1598,7 @@ func dofunc()
   {
     var *ssymlist:wl;
     var [64]char:wmsg;
-    var [80]char:savecf;
+    var [FILESIZE]char:savecf;
     var int:wk,wj,savecl;
     for(wl=locsymtab.lst;wl;wl=wl->next)
     if((wl->sym.sort==S_VARL)&&(!wl->sym.wused)
