@@ -477,7 +477,11 @@ func main(argc:int,argv:**char)
   dumplits();
   dumpfloats();
   dumpglbs();
-  if(g_debug&&g_cu)dumpdbgtail();
+  if(g_debug&&dbgmain[0])
+  {
+    if(!g_cu){dumpdbghdr(0);g_cu=1;} /* global-only unit: no line table */
+    dumpdbgtail();
+  }
   if(tomap)
   printmap();
   if(tograph)
@@ -1370,7 +1374,7 @@ func dab(at:int,form:int){duleb(at);duleb(form);}
 /* the fixed abbreviation table + the compile-unit header and DIE. Called once,
    lazily, before the first subprogram DIE (the CU name -- the unit's first
    line-marker file -- is only known once parsing has started). */
-func dumpdbghdr()
+func dumpdbghdr(hasline:int)
 {
   ot(".section .debug_abbrev");nl();
   outstr(".Ldebug_abbrev0");col();nl();
@@ -1417,6 +1421,16 @@ func dumpdbghdr()
   duleb(12);duleb(33);dbyte(0);           /* subrange_type */
   dab(55,6);                              /* count, data4 */
   dbyte(0);dbyte(0);
+  duleb(13);duleb(52);dbyte(0);            /* global variable */
+  dab(63,25);                             /* external, flag_present */
+  dab(3,8);dab(73,19);dab(2,24);          /* name, type, location exprloc */
+  dbyte(0);dbyte(0);
+  duleb(14);duleb(24);dbyte(0);            /* unspecified_parameters (...) */
+  dbyte(0);dbyte(0);
+  duleb(15);duleb(17);dbyte(1);            /* compile_unit without stmt_list */
+  dab(37,8);dab(19,11);dab(3,8);
+  dab(17,1);dab(18,6);
+  dbyte(0);dbyte(0);
   dbyte(0);                               /* end of abbreviations */
   ot(".section .debug_info");nl();
   outstr(".Lcu0");col();nl();
@@ -1425,20 +1439,19 @@ func dumpdbghdr()
   ot(".2byte 4");nl();                    /* DWARF version */
   ot(".4byte .Ldebug_abbrev0");nl();
   dbyte(target.wordsize);                 /* address size */
-  duleb(1);                               /* the compile-unit DIE */
+  if(hasline)duleb(1);else duleb(15);     /* the compile-unit DIE */
   dstrz("UPLNC langc");
   dbyte(1);                               /* DW_LANG_C89 */
   dstrz(dbgmain);
   if(target.wordsize==8){ot(".8byte .Ltext0");nl();}
   else{ot(".4byte .Ltext0");nl();}
   ot(".4byte .Letext0-.Ltext0");nl();
-  ot(".4byte .Ldebug_line0");nl();        /* this unit's line table */
+  if(hasline){ot(".4byte .Ldebug_line0");nl();} /* this unit's line table */
   ol(target.dir_text);
 }
-/* subprogram + parameter/variable DIEs for the function just flushed. gp is
-   its symbol, fnum its .LFB/.LFE label number, fnargs the parameter-area size
-   (argstk after the parameter list). Called while locsymtab still holds the
-   function-scope names; block locals come from dbgloclst. */
+/* Subprogram + parameter/variable DIEs for the function just flushed. gp is
+   its symbol and fnum its .LFB/.LFE label number. Called while locsymtab still
+   holds the function-scope names; block locals come from dbgloclst. */
 func dbgvar(nm:*char,typ:int,off:int,ispar:int)
 {
   var int:shifted;
@@ -1460,12 +1473,12 @@ func dbgvar(nm:*char,typ:int,off:int,ispar:int)
   dsleb(shifted);
   return 0;
 }
-func dumpfndbg(gp:*ssym,fnum:int,fnargs:int)
+func dumpfndbg(gp:*ssym,fnum:int)
 {
   var *ssymlist:q;
-  var int:i,ispar;
+  var int:i;
   if(!dbgmain[0])return 0;                /* no marker file: line info absent */
-  if(!g_cu){dumpdbghdr();g_cu=1;}
+  if(!g_cu){dumpdbghdr(1);g_cu=1;}
   ot(".section .debug_info");nl();
   duleb(2);                               /* subprogram, children follow */
   dstrz(gp->name);
@@ -1474,18 +1487,31 @@ func dumpfndbg(gp:*ssym,fnum:int,fnargs:int)
   ot(".4byte .LFE");outdec(fnum);outstr("-.LFB");outdec(fnum);nl();
   duleb(2);dbyte(112+dwframe());dbyte(0); /* frame_base: DW_OP_breg<fp> 0 */
   dref(gp->type);
+  /* Keep the function signature contiguous and exact: explicit metadata also
+     covers stack-passed parameters, whose positive offsets look like locals. */
   for(q=locsymtab.lst;q;q=q->next)
-  if(q->sym.sort==S_VARL)
-  {
-    if(target.arch==ARCH_I386)ispar=(q->sym.offset>0);
-    else ispar=((q->sym.offset<0)&&(q->sym.offset>=(0-fnargs)));
-    dbgvar(q->sym.name,q->sym.type,q->sym.offset,ispar);
-  }
+  if((q->sym.sort==S_VARL)&&q->sym.ispar)
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,1);
+  if(gp->isva)duleb(14);                  /* DW_TAG_unspecified_parameters */
+  for(q=locsymtab.lst;q;q=q->next)
+  if((q->sym.sort==S_VARL)&&(!q->sym.ispar))
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,0);
   for(i=0;i<ndbgloc;i++)                  /* block locals live here now */
   dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0);
   dbyte(0);                               /* end of subprogram children */
   ol(target.dir_text);
   return 0;
+}
+/* A defined global variable. Its location is DW_OP_addr followed by a
+   target-sized relocatable address, so it works for .comm, .data and .rodata. */
+func dbgglob(sym:*ssym)
+{
+  duleb(13);
+  dstrz(sym->name);
+  dref(sym->type);
+  duleb(1+target.wordsize);dbyte(3);       /* exprloc: DW_OP_addr <address> */
+  if(target.wordsize==8)ot(".8byte ");else ot(".4byte ");
+  outname(sym->name);nl();
 }
 /* the DIE for typtab entry i (label .LT<i>); structs get member children */
 func dbgtype(i:int)
@@ -1548,9 +1574,12 @@ func dbgtype(i:int)
 func dumpdbgtail()
 {
   var int:i;
+  var *ssymlist:q;
   ol(target.dir_text);
   outstr(".Letext0");col();nl();
   ot(".section .debug_info");nl();
+  for(q=glbsymtab.lst;q;q=q->next)
+  if((q->sym.sort==S_VARG)&&q->sym.dfd)dbgglob(&q->sym);
   for(i=1;i<typptr;i++)dbgtype(i);
   dbyte(0);                               /* end of compile-unit children */
   outstr(".Lcu_end0");col();nl();
@@ -1616,6 +1645,7 @@ func dofunc()
     {pidxsym=addloc("this",S_VARL,1,-(argstk+target.wordsize),getptrty(methodcls));pidxsym->wused=1;}
     else
     {pidxsym=addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));pidxsym->wused=1;}
+    pidxsym->ispar=1;
     paramtyp[0]=T_INTP;   /* 'this' is a pointer (integer class), never a double */
     argstk=argstk+target.wordsize;
   }
@@ -1698,6 +1728,7 @@ func dofunc()
       pidxsym=addloc(argn,S_VARL,1,argstk+2*target.wordsize,argtype);
       argstk=argstk+k;
     }
+    pidxsym->ispar=1;
     if(pcnst)pidxsym->cnst=1;   /* const: rejected in ct_ASSIGN and ++/-- */
     pidxsym->wused=1;           /* parameters are exempt from the unused warning */
     if(!match(","))if(ch()!=')')
@@ -1789,6 +1820,7 @@ func dofunc()
     cursret=addloc("0sret",S_VARL,1,-(argstk+target.wordsize),T_INTP);
     else
     cursret=addloc("0sret",S_VARL,1,argstk+2*target.wordsize,T_INTP);
+    cursret->ispar=1;
     if(argstk/target.wordsize<8)paramtyp[argstk/target.wordsize]=T_INTP;
     argstk=argstk+target.wordsize;
   }
@@ -1899,7 +1931,7 @@ func dofunc()
   {
     outstr(".LFE");outdec(nfunc);col();nl();
     ot(".cfi_endproc");nl();
-    dumpfndbg(gp,nfunc,argstk);
+    dumpfndbg(gp,nfunc);
   }
   /*fprintf(stderr,"dofunc:savecg=%d\n",savecg);*/
   ccg=savecg;

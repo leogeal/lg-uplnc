@@ -487,9 +487,12 @@ What turns a teaching compiler into something you'd build a project with:
     `typtab` entry gives full types: base types, pointers, arrays with counts,
     and structs **with members**, so `print p`, `p.x + p.y`, `info locals`,
     and `ptype` all work; params and memory-resident locals get
-    `DW_OP_fbreg` locations (post-promotion-shift offsets), register-promoted
-    locals honestly report `<optimized out>`, and block-scoped locals are
-    harvested at scope exit (`ssymtabcut`) so they appear too. The CU's
+    `DW_OP_fbreg` locations (post-promotion-shift offsets), including explicit
+    parameter tags for stack-passed arguments; variadic functions retain their
+    `...`. Register-promoted locals honestly report `<optimized out>`, globals
+    use relocatable `DW_OP_addr` locations (including global-only units), and
+    block-scoped locals are harvested at scope exit (`ssymtabcut`) so they
+    appear too. The CU's
     `stmt_list` uses the label-in-`.debug_line` idiom, so multi-unit `-g`
     links resolve each unit's line table (verified: two-unit program, both
     CUs correct, cross-unit `bt` shows parameter values). The fuzz harness
