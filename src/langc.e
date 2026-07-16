@@ -678,20 +678,24 @@ func dostruct()
        declaration (`func area:double;`). The slot is the method's DECLARATION,
        so the type recorded here is what call sites use -- the definition
        must agree (checked in dofunc). */
+    var int:slottyped;
+    slottyped=0;
     if(cbtype())
-      t=gettypen();
+      {t=gettypen();slottyped=1;}
     else t=T_INT;
     if(!symname(fname))
       error("method name expected");
     if(match(":"))
     {
-      if(t!=T_INT)error("method return type given twice");
+      if(slottyped)error("method return type given twice");
       t=gettypen();
     }
     if(t==T_FLOAT)
     error("float method return not supported yet -- use double");
     if(typtab[t].sort==V_STR)
     error("a struct-returning method is not supported yet");
+    if(typtab[t].sort==V_ARR)
+    error("an array-returning method is not supported yet");
     t=getfnctype(t);
     ns();
     if(!ttop)
@@ -1608,13 +1612,17 @@ func dofunc()
   var int:argtype;
   var *ssym:gp;
   var int:k;
-  var [8]int:paramtyp;   /* M4 slice 4b: type of each register param, by position */
+  var [32]int:paramtyp;  /* parameter types, by source position */
   var int:nfpparam;      /* M4 slice 4b: how many params are doubles */
+  var int:nintparam;     /* x86_64/arm64 integer-class parameter count */
+  var int:nstackparam;   /* parameters assigned to positive stack slots */
   var int:isva;          /* varargs: the parameter list ended with `...` */
   var int:nfixed;        /* number of named parameters before `...` */
   var int:pcnst;         /* current parameter is const */
   var *ssym:pidxsym;     /* its symbol (to set the cnst flag) */
   nfpparam=0;
+  nintparam=0;
+  nstackparam=0;
   isva=0;
   nfixed=0;
   g_vaoff=0;
@@ -1661,6 +1669,7 @@ func dofunc()
     {pidxsym=addloc("this",S_VARL,1,argstk+2*target.wordsize,getptrty(methodcls));pidxsym->wused=1;}
     pidxsym->ispar=1;
     paramtyp[0]=T_INTP;   /* 'this' is a pointer (integer class), never a double */
+    nintparam=1;
     argstk=argstk+target.wordsize;
   }
   while(!match(trarg/*")"*/))
@@ -1715,26 +1724,50 @@ func dofunc()
     if(k&(target.wordsize-1))k=k+target.wordsize-(k&(target.wordsize-1));
     if(target.arch!=ARCH_I386)
     {
-      /* SysV/AAPCS64: params 1-6 arrive in registers and are spilled to
-         -(slot)(fp); params 7+ arrive on the stack (caller-pushed). */
-      var int:pidx;var int:boff;
+      /* Register parameters are spilled to -(slot)(fp); supported overflow
+         parameters remain in caller-provided positive stack slots. */
+      var int:pidx;var int:boff;var int:inreg;
       pidx=argstk/target.wordsize;
       if(argtype==T_FLOAT)   /* slice 5: float at the ABI boundary is single-prec */
       error("float parameter not supported yet -- use double");
-      if(pidx<8)paramtyp[pidx]=argtype;   /* slice 4b: remember param types */
-      if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
+      if(pidx<32)paramtyp[pidx]=argtype;
+      else error("too many function parameters");
+      /* x86_64/arm64 allocate integer and FP argument registers independently.
+         RISC-V/MIPS keep the existing positional integer-register convention. */
+      inreg=0;
+      if((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64))
+      {
+        if(argtype==T_DOUBLE)
+        {
+          if(nfpparam<8)inreg=1;
+          nfpparam=nfpparam+1;
+        }
+        else
+        {
+          if(nintparam<target.nargreg)inreg=1;
+          nintparam=nintparam+1;
+        }
+      }
+      else
+      {
+        if(pidx<target.nargreg)inreg=1;
+        if(argtype==T_DOUBLE)nfpparam=nfpparam+1;
+      }
       /* Big-endian: a sub-word param (char) is passed/spilled inside a full word,
          so its byte lives at the *high* end of the slot. Shift the symbol offset
          to that byte; reads/writes/address-of then all hit the right byte. */
       boff=0;
       if(target.bigendian&&(gettsize(argtype)<target.wordsize))
       boff=target.wordsize-gettsize(argtype);
-      if(pidx<target.nargreg)
+      if(inreg)
       pidxsym=addloc(argn,S_VARL,1,-(argstk+target.wordsize)+boff,argtype);
       else
       /* stack params sit above the 16-byte frame record at a per-slot stride
          (==wordsize, but 16 on arm64 where each pushed arg is a 16-byte slot) */
-      pidxsym=addloc(argn,S_VARL,1,2*target.wordsize+(pidx-target.nargreg)*target.stackslot+boff,argtype);
+      {
+        pidxsym=addloc(argn,S_VARL,1,2*target.wordsize+nstackparam*target.stackslot+boff,argtype);
+        nstackparam=nstackparam+1;
+      }
       argstk=argstk+target.wordsize;
     }
     else
@@ -1751,6 +1784,11 @@ func dofunc()
       break;
     }
     if(endst())break;
+  }
+  if((nfpparam>0)&&((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64)))
+  {
+    if(nintparam>target.nargreg)error(">6 integer parameters alongside floats");
+    if(nfpparam>8)error(">8 floating-point parameters");
   }
   /* optional return-type annotation:  func f(...) : double  (M4 slice 4b).
      Absent -> int (unchanged); set on gp so forward declarations carry it too. */
@@ -1777,6 +1815,8 @@ func dofunc()
       if(!sawann)gp->type=mslot;
       if(typtab[gp->type].sort==V_STR)
       error("a struct-returning method is not supported yet");
+      if(typtab[gp->type].sort==V_ARR)
+      error("an array-returning method is not supported yet");
     }
   }
   if(isva)
@@ -1854,7 +1894,9 @@ func dofunc()
     else
     cursret=addloc("0sret",S_VARL,1,argstk+2*target.wordsize,T_INTP);
     cursret->ispar=1;
-    if(argstk/target.wordsize<8)paramtyp[argstk/target.wordsize]=T_INTP;
+    if(argstk/target.wordsize<32)paramtyp[argstk/target.wordsize]=T_INTP;
+    else error("too many function parameters");
+    nintparam=nintparam+1;
     argstk=argstk+target.wordsize;
   }
   /* -g: attribute the prologue to the function-header line, so a breakpoint on
@@ -1863,32 +1905,42 @@ func dofunc()
   zenter();
   if(target.arch!=ARCH_I386)
   {
-    /* reserve slots for and spill only the register params (1-6); params 7+ are
-       on the caller's stack at positive offsets and need no spill. */
+    /* Reserve slots for register parameters. Mixed x86_64/arm64 signatures
+       classify integer and FP registers independently, so as many as fourteen
+       source positions can arrive in registers; the other targets retain the
+       positional integer-register convention. */
     var int:nsp;
     nsp=argstk/target.wordsize;
-    if(nsp>target.nargreg)nsp=target.nargreg;
-    if(nsp>0)
+    if((nfpparam>0)&&((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64)))
     {
-      Zsp=modstk(Zsp-nsp*target.wordsize);
-      /* riscv and mips pass FP args in integer registers, so a double param
-         arrives in an integer arg register too -- spill it (its bits) with the
-         plain integer spillargs, then it is read back as a double via ldc1/fld. */
-      if((nfpparam==0)||(target.arch==ARCH_RISCV)||(target.arch==ARCH_MIPS))
-      spillargs(nsp);   /* all-integer params: unchanged, byte-identical path */
-      else
+      var int:pi;var int:ireg;var int:freg;
+      if(nsp>32)nsp=32;  /* the parser has already diagnosed this case */
+      if(nsp>0)Zsp=modstk(Zsp-nsp*target.wordsize);
+      ireg=0;freg=0;
+      for(pi=0;pi<nsp;pi++)
       {
-        /* mixed/float params: route by SysV class -- doubles came in %xmm0..,
-           ints/ptrs in %rdi.., each spilled to its own slot -(pidx+1)*ws(%rbp). */
-        var int:pi;var int:ireg;var int:freg;
-        ireg=0;freg=0;
-        for(pi=0;pi<nsp;pi++)
+        if(paramtyp[pi]==T_DOUBLE)
         {
-          if(paramtyp[pi]==T_DOUBLE)
-          {sargfp(-(pi+1)*target.wordsize,freg);freg=freg+1;}
-          else
-          {sargint(-(pi+1)*target.wordsize,ireg);ireg=ireg+1;}
+          if(freg<8)sargfp(-(pi+1)*target.wordsize,freg);
+          freg=freg+1;
         }
+        else
+        {
+          if(ireg<target.nargreg)sargint(-(pi+1)*target.wordsize,ireg);
+          ireg=ireg+1;
+        }
+      }
+    }
+    else
+    {
+      if(nsp>target.nargreg)nsp=target.nargreg;
+      if(nsp>0)
+      {
+        Zsp=modstk(Zsp-nsp*target.wordsize);
+        /* riscv and mips pass FP args in integer registers, so a double param
+           arrives in an integer arg register too -- spill it (its bits) with
+           plain integer stores, then read it back as a double. */
+        spillargs(nsp);
       }
     }
     if(isva)
