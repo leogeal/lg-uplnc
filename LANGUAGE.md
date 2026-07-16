@@ -669,6 +669,27 @@ calls are not general C ABI promises.
 The language itself supplies no standard library. Programs may declare and link
 platform functions or use the project's small `lib/` layer.
 
+### 12.1 Debug information
+
+`langc -g` (or `langdrv.pl -g`) adds DWARF debug information to the generated
+assembly on every target. It never changes the generated instructions; the
+addition is line tables built from `.file`/`.loc` directives, call-frame
+unwind data in the strippable `.debug_frame` section (never `.eh_frame`, so
+the loaded image is unchanged), and type and variable descriptions in
+`.debug_info`.
+
+With `-g` a DWARF debugger can set breakpoints by file and line, step by
+statement, produce call-stack backtraces with parameter values, and evaluate
+variables: parameters, locals, and defined globals are typed (including
+structure members, pointers, and arrays), so `print`, `info locals`, and
+`ptype` work. Two accuracy rules are deliberate: a local that the optimizer
+promoted into a register is reported without a location (the debugger says it
+is optimized out rather than showing a stale frame slot), and block-scoped
+locals appear as plain function-level variables, so two block locals sharing a
+name are both listed. Line and file attribution follows the preprocessor's
+line markers across `#include`, and separately compiled `-g` units link with
+each unit's line table intact.
+
 ## 13. Undefined and Unspecified Behavior
 
 The compiler does not insert general runtime checks. Behavior is undefined for:
@@ -698,6 +719,7 @@ The version 0 implementation diagnoses or restricts the following:
 | Physical source line | 158 bytes before newline |
 | Identifier | 15 characters |
 | Include nesting | 8 nested included files |
+| Resolved include path | 159 bytes (the including file's directory + the quoted name) |
 | Preprocessor macros | 299 definitions; 6000-byte shared name/body pool |
 | String literals | 16000-byte pool per translation unit, including NULs |
 | Floating and wide literals | 200 entries and a 4000-byte text pool per unit |
