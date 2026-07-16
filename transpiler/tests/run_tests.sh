@@ -500,8 +500,8 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "floating-point variadic arg marshaling"
     fi
     # typed-method diagnostics: the slot is authoritative; definitions must
-    # agree, struct/float returns are rejected, and an unknown method is a
-    # compile-time error instead of a link failure.
+    # agree, non-scalar returns and duplicate type forms are rejected, and an
+    # unknown method is a compile-time error instead of a link failure.
     printf 'struct s{func m:double;};\nmethod s.m():int{return 1;}\nfunc main(){return 0;}\n' > "$TMPD/uplnc_meth1.e"
     "$LPP" "$TMPD/uplnc_meth1.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth1.err"
     [ "$?" != 0 ] && grep -q 'conflicts with its struct declaration' "$TMPD/uplnc_meth1.err" \
@@ -517,6 +517,16 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     [ "$?" != 0 ] && grep -q 'no such method' "$TMPD/uplnc_meth3.err" \
         && ok "unknown method call diagnosed at compile time" \
         || bad "unknown method diagnostic"
+    printf 'struct s{func m:[2]int;};\nfunc main(){return 0;}\n' > "$TMPD/uplnc_meth4.e"
+    "$LPP" "$TMPD/uplnc_meth4.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth4.err"
+    [ "$?" != 0 ] && grep -q 'array-returning method' "$TMPD/uplnc_meth4.err" \
+        && ok "array-returning method slot rejected" \
+        || bad "array-returning method diagnostic"
+    printf 'struct s{func int m:double;};\nfunc main(){return 0;}\n' > "$TMPD/uplnc_meth5.e"
+    "$LPP" "$TMPD/uplnc_meth5.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth5.err"
+    [ "$?" != 0 ] && grep -q 'method return type given twice' "$TMPD/uplnc_meth5.err" \
+        && ok "method slot with two return types rejected" \
+        || bad "duplicate method return-type diagnostic"
     # i386 vastart() walks 4-byte slots; an 8-byte variadic integer would
     # misalign every following argument, so reject it at the known call site.
     printf 'func first(...){var p:*int;p=vastart();return p[0]+p[1];}\nfunc main(){return first(4294967295,42);}\n' > "$TMPD/uplnc_varargs_wide.e"
