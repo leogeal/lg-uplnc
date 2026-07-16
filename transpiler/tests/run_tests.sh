@@ -1289,6 +1289,67 @@ DBGEOF
             bad "gdb CFI backtrace"
         fi
     fi
+
+    # Metadata edges: stack-passed args stay formal parameters, globals retain
+    # their type/location, and variadic signatures retain the ellipsis.
+    cat > "$TMPD/uplnc_dbgmeta.e" <<'DBGEOF'
+var int:dbg_global = 99;
+func sum7(a:int,b:int,c:int,d:int,e:int,f:int,g:int)
+{
+  return a+b+c+d+e+f+g;
+}
+func vari(fmt:*char,...)
+{
+  return 0;
+}
+func main()
+{
+  if((sum7(1,2,3,4,5,6,7)==28)&&(dbg_global==99))return 42;
+  return 1;
+}
+DBGEOF
+    if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_dbgmeta_bin" \
+            "$TMPD/uplnc_dbgmeta.e" >/dev/null 2>&1 \
+            && "$TMPD/uplnc_dbgmeta_bin"; [ $? = 42 ]; then
+        ok "debug metadata edge test binary builds and runs (42)"
+    else
+        bad "debug metadata edge build/run"
+    fi
+    if command -v readelf >/dev/null; then
+        readelf --debug-dump=info "$TMPD/uplnc_dbgmeta_bin" \
+            > "$TMPD/uplnc_dbgmeta.info" 2>/dev/null
+        if [ "$(grep -c 'DW_TAG_formal_parameter' "$TMPD/uplnc_dbgmeta.info")" = 8 ] \
+                && grep -q 'DW_TAG_unspecified_parameters' "$TMPD/uplnc_dbgmeta.info" \
+                && grep -q 'DW_AT_name.*dbg_global' "$TMPD/uplnc_dbgmeta.info" \
+                && grep -q 'DW_OP_addr' "$TMPD/uplnc_dbgmeta.info"; then
+            ok "-g preserves stack parameters, varargs, and global locations"
+        else
+            bad "-g parameter/global DIE edges"
+        fi
+
+        printf 'var int:only_global = 7;\n' > "$TMPD/uplnc_dbgglobal.e"
+        if perl "$DRIVER" -march=x86_64 -g -c -o "$TMPD/uplnc_dbgglobal.o" \
+                "$TMPD/uplnc_dbgglobal.e" >/dev/null 2>&1 \
+                && readelf --debug-dump=info "$TMPD/uplnc_dbgglobal.o" \
+                   > "$TMPD/uplnc_dbgglobal.info" 2>/dev/null \
+                && grep -q 'DW_AT_name.*only_global' "$TMPD/uplnc_dbgglobal.info" \
+                && grep -q 'DW_OP_addr' "$TMPD/uplnc_dbgglobal.info"; then
+            ok "-g emits globals for a function-free translation unit"
+        else
+            bad "-g global-only compile unit"
+        fi
+    fi
+    if command -v gdb >/dev/null; then
+        gdb -batch -q -ex 'ptype sum7' -ex 'ptype vari' -ex 'ptype dbg_global' \
+            "$TMPD/uplnc_dbgmeta_bin" > "$TMPD/uplnc_dbgmeta.gdb" 2>/dev/null
+        if grep -q 'int (int, int, int, int, int, int, int)' "$TMPD/uplnc_dbgmeta.gdb" \
+                && grep -q 'int (char \*, \.\.\.)' "$TMPD/uplnc_dbgmeta.gdb" \
+                && grep -q '^type = int$' "$TMPD/uplnc_dbgmeta.gdb"; then
+            ok "gdb sees complete signatures and the global type"
+        else
+            bad "gdb parameter/global metadata"
+        fi
+    fi
     ;;
 *)
     echo "  skip - host is not x86_64"
