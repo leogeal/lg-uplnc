@@ -13,5 +13,7 @@ func main()
   putf("hex: %x [%08x] [%8x]\n",255,48879,48879);
   putf("str: %s, char: %c%c%c, pct: 100%%\n","abc",'x','y','z');
   putf("mix: %s=%d (%04x)\n","val",1000,1000);
+  putf("flt: %f %.2f %.0f\n",1.5,3.14159,2.5);
+  putf("fpad: [%10.3f] [%010.3f] [%.3f]\n",0.0-2.5,2.5,0.0625);
   return 0;
 }

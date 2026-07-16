@@ -4297,9 +4297,13 @@ func chkvarcall(fn:*ssym,args:*enode,cnt:int)
   error("too few arguments to a variadic function");
   if((target.arch!=ARCH_I386)&&(cnt>target.nargreg))
   error("this many arguments in a variadic call are not supported yet");
-  /* Unsupported variadic slot shapes: x86_64/arm64 put FP varargs outside the
-     integer va area; on i386 a long long occupies two 4-byte slots while
-     vastart() exposes a word cursor, so it would misalign every following arg. */
+  /* Unsupported variadic slot shape: on i386 a long long occupies two 4-byte
+     slots while vastart() exposes a word cursor, so it would misalign every
+     following arg the reader does not expect. (A *double* also spans two i386
+     slots, but that is the documented %f contract -- the reader knows to
+     advance two words -- and FP variadic args are supported on every target:
+     the call site sends their raw bits through the integer slots, see
+     ct_FUNC, so the callee's ordinary va-area spill captures them.) */
   rr=args;
   pos=cnt;
   while(rr)
@@ -4307,8 +4311,6 @@ func chkvarcall(fn:*ssym,args:*enode,cnt:int)
     if(pos>fn->nfixed)
     {
       at=cttype(rr->l);
-      if(((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64))&&isfp(at))
-      error("floating-point variadic arguments are not supported yet");
       if((target.arch==ARCH_I386)&&ll32(at))
       error("64-bit variadic arguments are not supported on i386");
     }
@@ -4376,8 +4378,15 @@ func ct_FUNC(node:*enode,lval:*elval)
       /* RISC-V and MIPS pass FP args as raw bits in the *integer* registers (the
          variadic convention -- what printf reads), so they take the integer path
          below; only x86_64/arm64 use the separate FP-register marshaling. A
-         struct-returning call always takes the integer path. */
-      if((cfp>0)&&(!structret)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS))
+         struct-returning call always takes the integer path. A call to a KNOWN
+         VARIADIC function also takes it on x86_64/arm64: its FP args are all in
+         the variadic tail (FP named params are rejected at the definition), and
+         the callee's va-area spill only captures the integer registers -- so
+         their raw bits travel in integer slots, fpush + the integer marshal.
+         External C variadic interop is unchanged: without a `...` prototype the
+         call cannot know, and keeps the plain SysV/AAPCS FP marshaling. */
+      if((cfp>0)&&(!structret)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS)
+         &&(!l->leaf.idx->isva))
       {
         /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
            (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
@@ -4412,9 +4421,9 @@ func ct_FUNC(node:*enode,lval:*elval)
         if(cnt>target.nargreg)pad=(((Zsp-nstack*target.stackslot)%16)+16)%16;
         else pad=(((Zsp-cnt*target.stackslot)%16)+16)%16;
         if(pad)Zsp=modstk(Zsp-pad);
-        /* push each arg; a double on riscv is fpush'd as raw bits (fsd) so the
-           integer marshal ld's it into the arg register. On x86_64/arm64 there
-           are no FP args here (cfp==0), so this is the plain integer push. */
+        /* push each arg; a double is fpush'd as raw bits into its (word or
+           16-byte) slot so the integer marshal loads it into the arg register
+           unchanged -- riscv/mips always, x86_64/arm64 for variadic callees. */
         if(structret)pushaddr(sretp);   /* sret pointer pushed first (deepest) */
         while(r){k=treetocode(r->l,&lval2);if(k)rvalue(&lval2);
           if(isfp(lval2.typ))fpush();else zpush();r=r->r;}

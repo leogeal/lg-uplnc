@@ -470,16 +470,18 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "variadic call with spilled args diagnostic"
     fi
 
-    # x86_64/arm64 pass FP varargs in FP registers, but this vastart() model
-    # exposes the integer register tail; reject the unsupported shape cleanly.
-    printf 'func first(...){var p:*int;p=vastart();return p[0];}\nfunc main(){return first(1.0);}\n' > "$TMPD/uplnc_varargs_fp.e"
+    # FP varargs travel as raw bits in the integer slots (see vararg_fp.e for
+    # the cross-target run check); the call site must compile and marshal the
+    # double through the integer registers, never %xmm (whose bits the
+    # variadic callee's integer va-area spill would drop).
+    printf 'func first(...){var p:*int;var dp:*double;p=vastart();dp=p;if(*dp==1.5)return 42;return 1;}\nfunc main(){return first(1.5);}\n' > "$TMPD/uplnc_varargs_fp.e"
     if "$LPP" "$TMPD/uplnc_varargs_fp.e" 2>/dev/null \
-            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_varargs_fp.s" 2>"$TMPD/uplnc_varargs_fp.err"; then
-        bad "floating-point variadic arg exits nonzero"
-    elif grep -q 'floating-point variadic arguments' "$TMPD/uplnc_varargs_fp.s"; then
-        ok "floating-point variadic arg diagnosed"
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_varargs_fp.s" 2>"$TMPD/uplnc_varargs_fp.err" \
+            && ! grep -q 'movsd.*%xmm0, %xmm' "$TMPD/uplnc_varargs_fp.s" \
+            && grep -qE 'movq [0-9]*\(%rsp\), %rdi' "$TMPD/uplnc_varargs_fp.s"; then
+        ok "floating-point variadic arg marshals through integer registers"
     else
-        bad "floating-point variadic arg diagnostic"
+        bad "floating-point variadic arg marshaling"
     fi
     # i386 vastart() walks 4-byte slots; an 8-byte variadic integer would
     # misalign every following argument, so reject it at the known call site.
@@ -930,7 +932,7 @@ else
     # lib/fmt.e (stdlib v0): fmtdemo prints the library's fixed output contract
     if FD=$(buildutil fmtdemo fmt); then
         "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1
-        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\n' > "$TMPD/uplnc_fmtdemo.want"
+        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\nflt: 1.500000 3.14 3\nfpad: [    -2.500] [000002.500] [0.062]\n' > "$TMPD/uplnc_fmtdemo.want"
         cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want" \
             && ok "fmtdemo.e matches the lib/fmt.e output contract" || bad "fmtdemo.e output"
     else bad "fmtdemo.e + lib/fmt.e build"; fi
