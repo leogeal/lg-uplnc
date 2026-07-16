@@ -1356,6 +1356,23 @@ DBGEOF
     ;;
 esac
 
+echo "[13] benchmark suite: kernels compile, run, and self-check (host)"
+case "$(uname -m)" in
+x86_64)
+    for b in sieve fib matmul strops mandel; do
+        if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_bench_$b" "bench/$b.e" \
+                >/dev/null 2>&1 && "$TMPD/uplnc_bench_$b" >/dev/null; then
+            ok "bench/$b.e checksum"
+        else
+            bad "bench/$b.e build or checksum"
+        fi
+    done
+    ;;
+*)
+    echo "  skip - host is not x86_64"
+    ;;
+esac
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]

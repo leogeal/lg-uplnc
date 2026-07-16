@@ -346,8 +346,32 @@ wins first:
     run-correctness tests are the gate. (A tried-and-dropped *modstk-coalescing*
     rule was reverted: arm64 rounds each `CD_MODSTK` up to 16 for `sp` alignment,
     so summing args then rounding ≠ rounding each — it broke arm64 self-hosting.)
-- ⏳ Further peepholes: redundant `mov` elimination; a modstk-coalescer that is
-  safe under arm64's alignment rounding
+- ✅ Further peepholes (measurement-driven, using the new `bench/` suite; on
+  the benchmarks + `langc.e` corpus the x86_64 output had 779 adjacent
+  sp-adjustment pairs, 62 same-slot store/load pairs, and 64 x86-only mov
+  pairs before these landed):
+  - ✅ **modstk coalescer, alignment-safe** — adjacent `CD_MODSTK` ops merge
+    (and cancelling pairs vanish) only when the target's *physical* lowering
+    is distributive over the pair: `modstkphys()` models arm64's
+    round-magnitude-to-16 (`target.stackslot`), so `phys(a)+phys(b) ==
+    phys(a+b)` is the exact safety condition — the earlier sum-then-round
+    coalescer broke arm64 self-hosting precisely because that identity fails
+    for non-16-multiples. Only the net sp change is observable between
+    adjacent ops (nothing that emits code sits between; `.loc`/marker ops are
+    hopped via `noemit()`, which also keeps `-g` output equality). Adjacent
+    sp-pair sites: 779 → 55 on the corpus.
+  - ✅ **store-load forwarding** (the practical face of redundant-`mov`
+    elimination at the IR level) — `STLW off; LDLW off` keeps its value in
+    the accumulator: an accumulator reload is dropped, a rule-A-retargeted
+    reload becomes a register copy (`CD_MOVR`) instead of a memory read.
+    Same-slot pairs: 62 → 14 (the rest are non-adjacent). The remaining mov
+    pairs are an x86-lowering artifact (`SUB2REGS` leaves its result in both
+    registers), not an IR redundancy — left for a per-backend pass if ever
+    warranted.
+  - Net effect: `langc.e` self-compile shrinks 40,551 → 39,590 x86_64
+    instructions (−2.4%); every benchmark on every backend got smaller (e.g.
+    `mandel` i386 251→242, arm64 211→202). All five fixpoints re-reached;
+    706→711 tests green.
 - ✅ **Constant folding** in the expression tree (`foldtree()` in `langc.e`, run
   on each expression after parsing, before codegen — target-neutral, so all four
   backends emit less code). Collapses a constant *integer* subtree to one `L_NUM`
@@ -787,7 +811,16 @@ What turns a teaching compiler into something you'd build a project with:
     pin options, file/error statuses, escaping, resource limits, dynamic
     storage, and text edge cases; gated by `run_tests.sh` `[11]`
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
-- 💭 A test/benchmark suite of UPLNC programs with expected output
+- ✅ A test/benchmark suite of UPLNC programs with expected output —
+  `transpiler/bench/`: five self-checking kernels (`sieve`, recursive `fib`,
+  `matmul`, `strops` byte churning, `mandel` double FP), each printing and
+  verifying a checksum that is deliberately word-size- and
+  endianness-independent (and, for `mandel`, IEEE-double-exact — x87 i386
+  agrees empirically). `bench/bench.sh` reports per-target instruction counts
+  (deterministic, toolchain-free) and best-of-N native wall times, and fails
+  on any wrong checksum, so it doubles as a correctness gate; `run_tests.sh`
+  `[13]` runs all five natively in CI. This is what made the peephole work
+  above measurement-driven.
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
   fixpoint-clean — achieved via the M3 arm64 backend + the host-portability CI.
   The `test-arm64` job (native `ubuntu-24.04-arm` runner) builds stage-0 with the

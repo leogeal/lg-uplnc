@@ -208,6 +208,28 @@ func ispureload(code:int)
    before lowering, so both backends (and both self-host fixpoints) benefit.
    Eliminated items become CD_IGNORE (lowered to nothing), so indices are
    stable and a single forward pass suffices. */
+/* ops that lower to no machine instruction: safe to hop when matching
+   adjacent instructions (CD_LOC emits only debug directives; CD_LOCAL is a
+   promote-locals marker stripped before lowering) */
+func noemit(c:int)
+{
+  return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_LOCAL);
+}
+/* the PHYSICAL stack-pointer delta a CD_MODSTK with argument k lowers to on
+   the current target: exact on every backend except arm64, whose lowering
+   rounds the magnitude up to 16 to keep sp aligned (stackslot 16). Two
+   adjacent adjustments may merge only when this mapping is distributive over
+   the pair -- summing then rounding is NOT the same as rounding each (the
+   naive coalescer broke arm64 self-hosting once before). */
+func modstkphys(k:int)
+{
+  var int:a;
+  if(target.stackslot==target.wordsize)return k;
+  a=k;if(a<0)a=0-a;
+  a=(a+target.stackslot-1)/target.stackslot*target.stackslot;
+  if(k<0)return 0-a;
+  return a;
+}
 func peephole(this:*scodegen)
 {
   var int:i;var int:n;var int:j;
@@ -247,6 +269,43 @@ func peephole(this:*scodegen)
       while((j<n)&&(this->codes[j].code!=CD_LAB))
       {this->codes[j].code=CD_IGNORE;j=j+1;}
       i=j;
+    }
+    /* C: coalesce adjacent stack-pointer adjustments (nothing that emits code
+       may sit between them, so only the NET sp change is observable). The
+       physical-delta check keeps arm64's per-op 16-rounding exact; on every
+       other target it is always true and cancelling pairs vanish outright. */
+    else if(this->codes[i].code==CD_MODSTK)
+    {
+      j=i+1;
+      while((j<n)&&noemit(this->codes[j].code))j=j+1;
+      if((j<n)&&(this->codes[j].code==CD_MODSTK)
+         &&(modstkphys(this->codes[i].arg)+modstkphys(this->codes[j].arg)
+            ==modstkphys(this->codes[i].arg+this->codes[j].arg)))
+      {
+        this->codes[j].arg=this->codes[i].arg+this->codes[j].arg;
+        this->codes[i].code=CD_IGNORE;
+        if(this->codes[j].arg==0)this->codes[j].code=CD_IGNORE;
+        i=j;                     /* the merged op may chain with the next */
+      }
+      else i=i+1;
+    }
+    /* E: store-load forwarding -- a frame store immediately reloaded from the
+       same slot still has the value in the accumulator: drop an accumulator
+       reload outright; a reload retargeted at the 2nd register (rule A)
+       becomes a register copy instead of a memory read.
+         STLW off ; LDLW off        ==>  STLW off
+         STLW off ; LDLW off -> 2nd ==>  STLW off ; MOVR 2nd <- acc        */
+    else if(this->codes[i].code==CD_STLW)
+    {
+      j=i+1;
+      while((j<n)&&noemit(this->codes[j].code))j=j+1;
+      if((j<n)&&(this->codes[j].code==CD_LDLW)
+         &&(this->codes[j].arg==this->codes[i].arg))
+      {
+        if(this->codes[j].reg==RG_A)this->codes[j].code=CD_IGNORE;
+        else{this->codes[j].code=CD_MOVR;this->codes[j].arg=RG_A;}
+      }
+      i=i+1;
     }
     else i=i+1;
   }
