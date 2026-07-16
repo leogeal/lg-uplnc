@@ -7,15 +7,19 @@
      %d  signed word decimal          %u  unsigned word decimal
      %x  unsigned word hex            %c  one character
      %s  NUL-terminated string        %f  fixed-point double
+     %e  scientific double            %g  shortest-form double
      %%  a literal percent
    An optional width pads with spaces, or with zeros after a leading 0:
      %6d, %04x. A negative %d zero-pads after the sign (-0042) and
      space-pads before it (  -42), like printf. %s ignores the width (v0).
-   %f takes an optional precision: %.2f, %8.3f, %010.3f. The default is six
-   fraction digits; %.0f prints no point, and larger values are capped at 18.
-   Rounding is half-up at the last printed digit (printf rounds to
-   nearest-even; this differs on exact halves). Signed zero keeps its sign;
-   nan and inf print as text.
+   %f, %e and %g take an optional precision: %.2f, %8.3e, %010.3g. For %f/%e
+   it is the fraction-digit count (default six; .0 prints no point); for %g
+   it is the significant-digit count (default six, 0 counts as 1); larger
+   values are capped at 18. %e prints at least two exponent digits; %g picks
+   the %e form when the exponent is below -4 or at least the precision, and
+   strips trailing fraction zeros like printf. Rounding is half-up at the
+   last printed digit (printf rounds to nearest-even; this differs on exact
+   halves). Signed zero keeps its sign; nan and inf print as text.
 
    v0 limits, by design:
      - a %f argument's integer part must fit the target's signed word
@@ -154,6 +158,162 @@ func putfpad(x:double,w:int,pc:int,prec:int)
   return 0;
 }
 
+/* normalize a finite, positive x into [1,10); returns the decimal exponent.
+   Repeated multiply/divide is an approximation (each step rounds), but it is
+   deterministic IEEE arithmetic, identical on every backend. */
+func fnorm(px:*double)
+{
+  var e:int = 0;
+  var x:double;
+  x=*px;
+  while(x>=10.0){x=x/10.0;e++;}
+  while(x<1.0){x=x*10.0;e--;}
+  *px=x;
+  return e;
+}
+
+/* scientific notation with prec fraction digits: [-]d.dddddde+XX, at least
+   two exponent digits like printf. Rounds half-up; a mantissa that rounds
+   past 9.999... renormalizes to 1.000...e+(X+1) instead of printing 10.x. */
+func putepad(x:double,w:int,pc:int,prec:int)
+{
+  var neg:int = 0;
+  var e,ee,n,k:int;
+  var half:double;
+  if(prec<0)prec=0;
+  if(prec>18)prec=18;
+  if(x!=x)
+  {
+    while(w>3){putchar(' ');w--;}
+    return putstr("nan");
+  }
+  if((x<0.0)||((x==0.0)&&((1.0/x)<0.0))){neg=1;x=0.0-x;}
+  if((x!=0.0)&&(x==x/2.0))
+  {
+    n=3+neg;
+    while(w>n){putchar(' ');w--;}
+    if(neg)putchar('-');
+    return putstr("inf");
+  }
+  e=0;
+  if(x!=0.0)e=fnorm(&x);
+  half=0.5;
+  for(k=0;k<prec;k=k+1)half=half/10.0;
+  if(x+half>=10.0){x=x/10.0;e=e+1;}   /* the mantissa's rounding carries */
+  ee=e;if(ee<0)ee=0-ee;
+  k=1;n=ee;while(n>9){k++;n=n/10;}     /* exponent digits, printed >= 2 */
+  if(k<2)k=2;
+  n=1+neg+2+k;                         /* d, sign, 'e' and exp sign, digits */
+  if(prec)n=n+1+prec;
+  if(pc==' ')while(w>n){putchar(' ');w--;}
+  if(neg)putchar('-');
+  if(pc=='0')while(w>n){putchar('0');w--;}
+  putfpad(x,0,' ',prec);               /* single-digit mantissa, same rounding */
+  putchar('e');
+  if(e<0)putchar('-');else putchar('+');
+  if(ee<10)putchar('0');
+  putupad(ee,0,' ');
+  return 0;
+}
+
+/* %g: prec SIGNIFICANT digits (default 6, 0 counts as 1). Uses the %e form
+   when the exponent is < -4 or >= prec, the %f form otherwise, and strips
+   trailing fraction zeros (and a bare point) like printf. */
+func putgpad(x:double,w:int,pc:int,prec:int)
+{
+  var buf:[48]char;
+  var neg:int = 0;
+  var e,ee,i,k,pt,d:int;
+  var half,frac:double;
+  if(prec<1)prec=1;
+  if(prec>18)prec=18;
+  if(x!=x)
+  {
+    while(w>3){putchar(' ');w--;}
+    return putstr("nan");
+  }
+  if((x<0.0)||((x==0.0)&&((1.0/x)<0.0))){neg=1;x=0.0-x;}
+  if((x!=0.0)&&(x==x/2.0))
+  {
+    k=3+neg;
+    while(w>k){putchar(' ');w--;}
+    if(neg)putchar('-');
+    return putstr("inf");
+  }
+  if(x==0.0)
+  {
+    k=1+neg;
+    if(pc==' ')while(w>k){putchar(' ');w--;}
+    if(neg)putchar('-');
+    if(pc=='0')while(w>k){putchar('0');w--;}
+    putchar('0');
+    return 0;
+  }
+  e=fnorm(&x);
+  half=0.5;
+  for(k=1;k<prec;k=k+1)half=half/10.0;
+  if(x+half>=10.0){x=x/10.0;e=e+1;}
+  /* extract the prec significant digits of the rounded mantissa, once */
+  frac=x+half;
+  d=frac;                              /* leading digit, 1..9 */
+  var digs:[20]int;
+  digs[0]=d;
+  frac=frac-d;
+  for(k=1;k<prec;k=k+1)
+  {
+    frac=frac*10.0;
+    d=frac;
+    digs[k]=d;
+    frac=frac-d;
+  }
+  i=0;
+  if((e<(0-4))||(e>=prec))
+  {
+    /* scientific form: d[.ddd]e+XX with the zeros stripped */
+    k=prec;
+    while((k>1)&&(digs[k-1]==0))k--;
+    buf[i++]='0'+digs[0];
+    if(k>1)
+    {
+      buf[i++]='.';
+      for(pt=1;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+    }
+    buf[i++]='e';
+    if(e<0)buf[i++]='-';else buf[i++]='+';
+    ee=e;if(ee<0)ee=0-ee;
+    if(ee>99){buf[i++]='0'+ee/100;ee=ee%100;buf[i++]='0'+ee/10;buf[i++]='0'+ee%10;}
+    else{buf[i++]='0'+ee/10;buf[i++]='0'+ee%10;}
+  }
+  else
+  {
+    /* fixed form: the point sits after position e; strip fraction zeros */
+    k=prec;
+    while((k>e+1)&&(digs[k-1]==0))k--;   /* never strip integer digits */
+    if(e>=0)
+    {
+      for(pt=0;pt<=e;pt=pt+1)buf[i++]='0'+digs[pt];
+      if(k>e+1)
+      {
+        buf[i++]='.';
+        for(pt=e+1;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+      }
+    }
+    else
+    {
+      buf[i++]='0';
+      buf[i++]='.';
+      for(pt=0;pt<(0-e)-1;pt=pt+1)buf[i++]='0';
+      for(pt=0;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+    }
+  }
+  buf[i]=0;
+  k=i+neg;
+  if(pc==' ')while(w>k){putchar(' ');w--;}
+  if(neg)putchar('-');
+  if(pc=='0')while(w>k){putchar('0');w--;}
+  return putstr(buf);
+}
+
 /* the mini printf (see the header comment for the format language) */
 func putf(fmt:*char,...)
 {
@@ -205,13 +365,15 @@ func putf(fmt:*char,...)
     else if(c=='x')putxpad(p[i++],w,pc);
     else if(c=='c')putchar(p[i++]);
     else if(c=='s')putstr(p[i++]);
-    else if(c=='f')
+    else if((c=='f')||(c=='e')||(c=='g'))
     {
       /* the double's raw bits travel in integer varargs slots: one word slot
          on the 64-bit targets, two 4-byte slots on i386 */
       dp=p+i;
       i=i+8/sizeof(int);
-      putfpad(*dp,w,pc,prec);
+      if(c=='f')putfpad(*dp,w,pc,prec);
+      else if(c=='e')putepad(*dp,w,pc,prec);
+      else putgpad(*dp,w,pc,prec);
     }
     else if(c=='%')putchar('%');
     else putchar('%');   /* unknown or truncated spec: emit the % and move on */

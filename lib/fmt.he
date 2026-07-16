@@ -5,6 +5,8 @@ func putupad(u:unsigned,w:int,pc:int);
 func putxpad(u:unsigned,w:int,pc:int);
 func putdpad(n:int,w:int,pc:int);
 func putfpad(x:double,w:int,pc:int,prec:int);
+func putepad(x:double,w:int,pc:int,prec:int);
+func putgpad(x:double,w:int,pc:int,prec:int);
 func putd(n:int);
 func putu(u:unsigned);
 func putx(u:unsigned);
