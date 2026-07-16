@@ -825,13 +825,31 @@ What turns a teaching compiler into something you'd build a project with:
     output, allocation, limit, or embedded-NUL errors. Differential tests use
     `LC_ALL=C sort` as the oracle, including stable folded ordering, uniqueness,
     dynamic growth, unsigned non-ASCII bytes, and unterminated final lines.
-  - All build with the stage-0 tools; wc/cat/grep/sort run on all **five**
+  - ✅ `examples/calc.e` — a tiny **expression interpreter** (langc in
+    miniature: scanner → recursive-descent parser → heap AST → evaluator), the
+    first utility built on a **tree of heap-allocated struct nodes walked by
+    methods** (`node.done()` frees subtrees, `node.count()` sizes them for
+    `-n`), on mutually recursive parse functions with declared pointer
+    returns, and on the new `%f` (division by zero prints IEEE `inf`/`nan`).
+    Precedence/parens/unary minus, `a`–`z` double variables with assignment,
+    column-accurate errors, statuses 0/1/2, an overlong-line guard — and an
+    output contract designed to be **byte-identical on all five backends**
+    (integer fast path bounded to the smallest target word; e-notation above
+    it, since `%f`'s integer part is word-bounded). Pinned session transcript
+    + per-backend FP checks in `run_tests.sh` `[11]`.
+  - All build with the stage-0 tools; wc/cat/grep/sort/calc run on all **five**
     backends (grep's matcher and sort's three units are separately linked per
     target), while fmtdemo/hexdump print byte-identical output on all five.
     Native grep/sort tests compare supported behavior with the system tools and
     pin options, file/error statuses, escaping, resource limits, dynamic
     storage, and text edge cases; gated by `run_tests.sh` `[11]`
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
+    — calc's findings: it is the first dogfood program that surfaced **no
+    compiler bug**; the two pinches were both *design limits* it had to route
+    around — methods return `int` only (`eval()` wanted to be a method but
+    returns `double` — a candidate M6 gap if it keeps recurring), and `%f`'s
+    word-bounded integer part (a `%e` in `lib/fmt.e` would subsume calc's
+    hand-rolled e-notation)
 - ✅ A test/benchmark suite of UPLNC programs with expected output —
   `transpiler/bench/`: five self-checking kernels (`sieve`, recursive `fib`,
   `matmul`, `strops` byte churning, `mandel` double FP), each printing and
