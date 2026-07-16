@@ -6,17 +6,25 @@
    putf(fmt, ...) -- a mini printf:
      %d  signed word decimal          %u  unsigned word decimal
      %x  unsigned word hex            %c  one character
-     %s  NUL-terminated string        %%  a literal percent
+     %s  NUL-terminated string        %f  fixed-point double
+     %%  a literal percent
    An optional width pads with spaces, or with zeros after a leading 0:
      %6d, %04x. A negative %d zero-pads after the sign (-0042) and
      space-pads before it (  -42), like printf. %s ignores the width (v0).
+   %f takes an optional precision: %.2f, %8.3f, %010.3f. The default is six
+   fraction digits; %.0f prints no point. Rounding is half-up at the last
+   printed digit (printf rounds to nearest-even; this differs on exact
+   halves). nan and inf print as text.
 
    v0 limits, by design:
-     - no %f: FP varargs are rejected at compile time on x86_64/arm64
-     - arguments are word-size values (the compiler rejects 64-bit varargs on
-       i386, where they would occupy two slots)
+     - a %f argument's integer part must fit the target's signed word
+       (2^63 on the 64-bit targets, 2^31 on i386)
+     - the other arguments are word-size values (the compiler rejects
+       64-bit integer varargs on i386, where they would occupy two slots;
+       a %f double also occupies two i386 slots, which putf accounts for)
      - a call passes at most nargreg args on the register targets
-       (fmt + 5 varargs on x86_64/arm64, fmt + 7 on riscv64/mips64)
+       (fmt + 5 varargs on x86_64/arm64, fmt + 7 on riscv64/mips64);
+       on those targets a double still uses one argument slot
    Only libc putchar is used underneath.
    ------------------------------------------------------------------------- */
 
@@ -85,14 +93,70 @@ func putd(n:int){return putdpad(n,0,' ');}
 func putu(u:unsigned){return putupad(u,0,' ');}
 func putx(u:unsigned){return putxpad(u,0,' ');}
 
+/* fixed-point double with prec fraction digits; pads to width w with pc like
+   %d (spaces before the sign, zeros after it). Rounds half-up by adding
+   0.5*10^-prec first, so 0.9999995 correctly carries into 1.000000. The
+   integer part must fit the target's signed word. */
+func putfpad(x:double,w:int,pc:int,prec:int)
+{
+  var neg:int = 0;
+  var ip:unsigned;
+  var frac:double;
+  var half:double;
+  var d:unsigned;
+  var k:int;
+  var n:int;
+  if(x!=x)                       /* only NaN compares unequal to itself */
+  {
+    while(w>3){putchar(' ');w--;}
+    return putstr("nan");
+  }
+  if(x<0.0){neg=1;x=0.0-x;}
+  if(x>1.7e308)
+  {
+    n=3+neg;
+    while(w>n){putchar(' ');w--;}
+    if(neg)putchar('-');
+    return putstr("inf");
+  }
+  half=0.5;
+  for(k=0;k<prec;k=k+1)half=half/10.0;
+  x=x+half;
+  ip=x;                          /* truncate toward zero */
+  frac=x-ip;
+  n=0;d=ip;                      /* printed length, for the width padding */
+  while(d){n++;d=d/10;}
+  if(!n)n=1;
+  if(neg)n++;
+  if(prec)n=n+1+prec;
+  if(pc==' ')while(w>n){putchar(' ');w--;}
+  if(neg)putchar('-');
+  if(pc=='0')while(w>n){putchar('0');w--;}
+  putupad(ip,0,' ');
+  if(prec)
+  {
+    putchar('.');
+    for(k=0;k<prec;k=k+1)
+    {
+      frac=frac*10.0;
+      d=frac;
+      putchar('0'+d);
+      frac=frac-d;
+    }
+  }
+  return 0;
+}
+
 /* the mini printf (see the header comment for the format language) */
 func putf(fmt:*char,...)
 {
   var p:*int;
+  var dp:*double;
   var i:int = 0;
   var w:int;
   var pc:int;
   var c:int;
+  var prec:int;
   p=vastart();
   while(*fmt)
   {
@@ -104,11 +168,23 @@ func putf(fmt:*char,...)
     }
     pc=' ';
     w=0;
+    prec=6;
     if(*fmt=='0'){pc='0';fmt++;}
     while((*fmt>='0')&&(*fmt<='9'))
     {
       w=w*10+(*fmt-'0');
       fmt++;
+    }
+    if(*fmt=='.')
+    {
+      fmt++;
+      prec=0;
+      while((*fmt>='0')&&(*fmt<='9'))
+      {
+        prec=prec*10+(*fmt-'0');
+        fmt++;
+      }
+      if(prec>18)prec=18;   /* a double has no more decimal signal than that */
     }
     c=*fmt;
     if(c)fmt++;
@@ -117,6 +193,14 @@ func putf(fmt:*char,...)
     else if(c=='x')putxpad(p[i++],w,pc);
     else if(c=='c')putchar(p[i++]);
     else if(c=='s')putstr(p[i++]);
+    else if(c=='f')
+    {
+      /* the double's raw bits travel in integer varargs slots: one word slot
+         on the 64-bit targets, two 4-byte slots on i386 */
+      dp=p+i;
+      i=i+8/sizeof(int);
+      putfpad(*dp,w,pc,prec);
+    }
     else if(c=='%')putchar('%');
     else putchar('%');   /* unknown or truncated spec: emit the % and move on */
   }

@@ -482,16 +482,30 @@ What turns a teaching compiler into something you'd build a project with:
   Still open: columns in the caret line are byte-offsets (good enough)
 - 🟡 A small **standard library** — v0 started, grown from the M7 dogfooding
   needs: `lib/fmt.e` provides `putf(fmt,...)`, a mini printf (`%d %u %x %c %s
-  %%`, space/zero width padding) built on the new varargs (`vastart()`) with
-  only libc `putchar` underneath, plus the `putd`/`putu`/`putx`/`putstr`
-  building blocks. Callers include declarations from `fmt.he`; `fmt.e` is
-  compiled and linked once, so multi-file programs do not get duplicate
-  definitions. Quoted lpp1 includes now resolve relative to the including file
-  rather than its working directory. v0 limits documented in the header: no
-  `%f` (FP varargs are rejected on x86_64/arm64), word-size args (64-bit
-  varargs are rejected on i386), and `nargreg`-capped calls on register targets.
-  The output contract is pinned byte-for-byte by `examples/fmtdemo.e` in
-  `run_tests.sh` `[11]`, and verified byte-identical on all five backends
+  %f %%`, space/zero width padding, `.N` precision for `%f`) built on the new
+  varargs (`vastart()`) with only libc `putchar` underneath, plus the
+  `putd`/`putu`/`putx`/`putstr`/`putfpad` building blocks. Callers include
+  declarations from `fmt.he`; `fmt.e` is compiled and linked once, so
+  multi-file programs do not get duplicate definitions. Quoted lpp1 includes
+  now resolve relative to the including file rather than its working directory.
+  - ✅ **FP varargs → `%f`** — a `double` argument to a *known-variadic*
+    function travels as raw bits through the integer argument slots (the
+    riscv/mips convention, now applied on x86_64/arm64 too by routing such
+    calls down the integer marshal; `fpush` + `CD_MARGINT` already had the
+    right semantics, so no new opcodes). The callee's ordinary va-area spill
+    captures the bits and `putf` recovers them with a `*double` onto the slot
+    — one word slot on the 64-bit targets, two 4-byte slots on i386 (`%f`
+    advances the cursor by `8/sizeof(int)`). `%f` prints sign, word-range
+    integer part, and half-up-rounded fraction (default 6 digits, `%.Nf`),
+    plus `nan`/`inf`; the extended `fmtdemo` contract is byte-identical on
+    all five backends (x87 i386 and big-endian mips64 included), and
+    `tests/progs/vararg_fp.e` exercises the raw slot mechanism everywhere.
+    External C variadic interop (`printf("%f",…)`) is unchanged and remains
+    target-dependent — `putf` is the portable answer.
+  - v0 limits documented in the header: `%f`'s integer part is word-range;
+    64-bit *integer* varargs are still rejected on i386; `nargreg`-capped
+    calls on register targets. The output contract is pinned byte-for-byte by
+    `examples/fmtdemo.e` in `run_tests.sh` `[11]`
 - ✅ **Debug info** (minimal, source-level) so `gdb` works — `langc -g` (and
   `langdrv.pl -g`) emits GNU-as `.file`/`.loc` directives at statement
   boundaries through a new pass-neutral `CD_LOC` opcode, and the assembler

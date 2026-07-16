@@ -371,12 +371,18 @@ A final `...` makes a function variadic. Within its definition, `vastart()`
 returns a `*int` pointing to the first variadic word. Successive arguments are
 read as `p[0]`, `p[1]`, and so on. There is no `va_end` operation.
 
-Variadic values must use one target-word slot. Pointer and word-sized integer
-arguments are supported. Floating-point variadic arguments are unsupported on
-x86_64 and arm64, and 64-bit variadic arguments are unsupported on i386.
-Variadic methods, variadic structure-returning functions, and variadic
-functions with floating-point named parameters are unsupported. Section 14
-lists register-target argument-count limits.
+Pointer and word-sized integer arguments occupy one word slot each. A
+`double` variadic argument is passed as its raw bits through the same slot
+sequence: one word slot on the 64-bit targets and two consecutive 4-byte
+slots on i386. The reader recovers it by treating the slot address as a
+`*double` and, on i386, advancing the cursor by two words. This is UPLNC's
+own variadic convention between UPLNC functions; a declaration with `...`
+must be visible at the call site for it to apply, and passing floating
+values to *external* C variadic functions remains target-dependent. 64-bit
+integer variadic arguments are unsupported on i386. Variadic methods,
+variadic structure-returning functions, and variadic functions with
+floating-point named parameters are unsupported. Section 14 lists
+register-target argument-count limits.
 
 ### 7.3 Methods
 
@@ -692,7 +698,7 @@ The version 0 implementation diagnoses or restricts the following:
 | Physical source line | 158 bytes before newline |
 | Identifier | 15 characters |
 | Include nesting | 8 nested included files |
-| Preprocessor macros | 298 definitions; 6000-byte shared name/body pool |
+| Preprocessor macros | 299 definitions; 6000-byte shared name/body pool |
 | String literals | 16000-byte pool per translation unit, including NULs |
 | Floating and wide literals | 200 entries and a 4000-byte text pool per unit |
 | Numeric token | 47 characters |
@@ -709,8 +715,10 @@ Additional ABI-dependent restrictions are:
   its variadic tail, and a known variadic call cannot exceed the target's
   argument-register count: six on x86_64 and arm64, eight on riscv64 and
   mips64.
-- On x86_64 and arm64, floating variadic arguments are unsupported. On i386,
-  64-bit variadic arguments are unsupported.
+- A floating variadic argument travels as raw bits in integer argument slots
+  (two 4-byte slots on i386) and requires the callee's `...` declaration to be
+  visible at the call site. On i386, 64-bit integer variadic arguments are
+  unsupported.
 - On register targets, a structure-returning call cannot combine floating
   arguments with the hidden result pointer, and its explicit arguments must
   leave one argument register free for that pointer.
