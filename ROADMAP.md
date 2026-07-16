@@ -851,10 +851,28 @@ What turns a teaching compiler into something you'd build a project with:
   - ⏳ More / larger programs to keep surfacing real language and usability gaps
     — calc's findings: it is the first dogfood program that surfaced **no
     compiler bug**; the two pinches were both *design limits* it had to route
-    around — methods return `int` only (`eval()` wanted to be a method but
-    returns `double` — a candidate M6 gap if it keeps recurring), and `%f`'s
-    word-bounded integer part (a `%e` in `lib/fmt.e` would subsume calc's
-    hand-rolled e-notation)
+    around — methods returned `int` only (**since fixed: typed method
+    returns**, see the language-gaps entry below — `calc`'s `eval()` is now
+    the double-returning method it wanted to be), and `%f`'s word-bounded
+    integer part (a `%e` in `lib/fmt.e` would subsume calc's hand-rolled
+    e-notation — still open)
+  - ✅ **Typed method returns + FP method arguments** (M6, dogfood-driven by
+    calc): a method slot carries the return type — `func area:double;` or the
+    original type-first `func double area;` (a latent piece of the 2003
+    grammar, now specified and tested) — defaulting to `int`. The slot is the
+    authoritative declaration: call sites read their result type from it (so
+    calls before the definition are correctly typed), definitions may repeat
+    it via `: type` but must match, and calling an undeclared method is now a
+    compile-time error instead of a link failure. Method calls follow the
+    function argument conventions per target — doubles in FP registers on
+    x86_64/arm64 (positional int/FP classification with the receiver as the
+    first integer arg), raw bits in integer registers on riscv/mips, 8-byte
+    stack pushes (doubles *and* long long, a fixed pre-existing gap) on i386.
+    `cttype` types method calls, so enclosing expressions promote correctly.
+    Struct returns, `float` returns, and variadic methods stay cleanly
+    rejected. Golden `method_typed.e` runs on all five backends; conflict /
+    struct-return / unknown-method diagnostics are pinned; all five
+    fixpoints stay byte-identical (the compiler declares no typed methods).
 - ✅ A test/benchmark suite of UPLNC programs with expected output —
   `transpiler/bench/`: five self-checking kernels (`sieve`, recursive `fib`,
   `matmul`, `strops` byte churning, `mandel` double FP), each printing and

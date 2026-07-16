@@ -316,7 +316,7 @@ struct-member      = field-declaration | method-slot ;
 field-declaration  = ( type [ ":" ] identifier-list
                      | identifier-list ":" type ) ";" ;
 identifier-list    = identifier { "," identifier } ;
-method-slot        = "func" identifier ";" ;
+method-slot        = "func" ( type identifier | identifier [ ":" type ] ) ";" ;
 ```
 
 The structure name immediately becomes a type name. Fields are selected with
@@ -325,8 +325,12 @@ The structure name immediately becomes a type name. Fields are selected with
 Member names within one structure must be unique. A structure may refer to
 itself through a pointer, but must not contain itself directly.
 
-A method slot declares a statically dispatched, `int`-returning method name for
-the structure. It consumes no object storage. See section 7.3.
+A method slot declares a statically dispatched method name for the structure
+and carries the method's return type — written before the name or after a
+trailing colon, defaulting to `int`. A structure or `float` return type is
+rejected (use `double`). The slot consumes no object storage and is the
+method's authoritative declaration: every call site reads the return type
+from it. See section 7.3.
 
 ## 7. Functions and Methods
 
@@ -388,11 +392,14 @@ register-target argument-count limits.
 
 ```ebnf
 method-definition = "method" struct-name ( "." | "::" ) method-name
-                    "(" [ named-parameters ] ")" statement ;
+                    "(" [ named-parameters ] ")" [ return-clause ] statement ;
 ```
 
-The method name must first appear as a method slot in the named structure. A
-method call uses ordinary postfix syntax:
+The method name must first appear as a method slot in the named structure.
+The slot's type is the method's return type; a definition may repeat it in a
+return clause, which must then match the slot, and inherits it otherwise.
+Calling an undeclared method is a compile-time error. A method call uses
+ordinary postfix syntax:
 
 ```text
 object.method(argument)
@@ -404,9 +411,12 @@ an implicit `*Struct` parameter named `this`. Inside a method, an unqualified
 field or method-slot name is resolved through `this`, so `value = x` is
 equivalent to `this->value = x` when `value` is a field.
 
-Version 0 methods return `int`, are not variadic, cannot return structures, and
-cannot receive floating-point arguments. Method overloading and virtual
-dispatch are not supported.
+Methods have function parity for scalars: they may return any scalar type
+declared on their slot (word integers, pointers, byte types, 64-bit integers,
+`double`) and may take `double` parameters, which follow the same per-target
+argument conventions as function calls. Version 0 methods are not variadic
+and cannot return structures. Method overloading and virtual dispatch are not
+supported.
 
 ### 7.4 Structure values and returns
 
@@ -748,7 +758,10 @@ Additional ABI-dependent restrictions are:
 - An indirect call is limited to integer/pointer arguments and an `int` return.
   On register targets its arguments cannot exceed the target argument-register
   count.
-- Methods accept only integer/pointer arguments and return `int`.
+- Methods follow the function argument and return conventions for scalars
+  (including `double`); they cannot be variadic or return structures. On
+  register targets a method call's arguments plus the receiver observe the
+  same register-count limits as function calls.
 
 These limits describe this compiler release, not a commitment that later
 language versions must retain them.
