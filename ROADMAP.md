@@ -371,7 +371,11 @@ wins first:
   - Net effect: `langc.e` self-compile shrinks 40,551 → 39,590 x86_64
     instructions (−2.4%); every benchmark on every backend got smaller (e.g.
     `mandel` i386 251→242, arm64 211→202). All five fixpoints re-reached;
-    706→711 tests green.
+    706→711 tests green. `run_tests.sh` `[13]` also unit-tests the IR rewrites
+    (including a deliberately unsafe arm64 `-8/-8` pair that must stay split)
+    and pins the generated assembly shape for coalescing across debug markers
+    and same-slot store/load forwarding, so silently disabling or over-applying
+    either rule is a regression; the complete suite is now 716 tests.
 - ✅ **Constant folding** in the expression tree (`foldtree()` in `langc.e`, run
   on each expression after parsing, before codegen — target-neutral, so all four
   backends emit less code). Collapses a constant *integer* subtree to one `L_NUM`
@@ -817,10 +821,14 @@ What turns a teaching compiler into something you'd build a project with:
   verifying a checksum that is deliberately word-size- and
   endianness-independent (and, for `mandel`, IEEE-double-exact — x87 i386
   agrees empirically). `bench/bench.sh` reports per-target instruction counts
-  (deterministic, toolchain-free) and best-of-N native wall times, and fails
-  on any wrong checksum, so it doubles as a correctness gate; `run_tests.sh`
-  `[13]` runs all five natively in CI. This is what made the peephole work
-  above measurement-driven.
+  (deterministic, toolchain-free), best-of-N native wall times, and an explicit
+  `checked`/`assembled`/`static` status. It probes the same compiler families as
+  the driver, uses QEMU when direct execution is unavailable (including i386),
+  and supports `--target` plus `--require-run` for strict automation. The
+  per-backend sections of `run_tests.sh` invoke that strict mode whenever their
+  toolchain is present, so all five kernels are checksum-gated on each of the
+  five CI backends rather than only on the x86_64 host. This is what made the
+  peephole work above measurement-driven.
 - ✅ Re-host: a `langc` that runs natively on arm64 *and* targets arm64,
   fixpoint-clean — achieved via the M3 arm64 backend + the host-portability CI.
   The `test-arm64` job (native `ubuntu-24.04-arm` runner) builds stage-0 with the
