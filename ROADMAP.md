@@ -526,7 +526,9 @@ What turns a teaching compiler into something you'd build a project with:
     (`.cfi_def_cfa*`/`.cfi_offset`, callee-saved CSR/promotion saves included);
     mid-function epilogues are bracketed with `remember_state`/`restore_state`
     because the CFI table is address-ordered; directives go to the strippable
-    `.debug_frame` (never `.eh_frame`), so the loaded image is unchanged.
+    `.debug_frame` rather than `.eh_frame`, keeping the compiler-generated
+    unwind table out of loaded segments. Linker-generated allocated metadata,
+    such as a GNU build ID, may still differ between debug and non-debug links.
     DIEs: hand-written DWARF 4 in `.debug_abbrev`/`.debug_info` via label
     arithmetic (endian-safe — verified on big-endian mips64). One DIE per
     `typtab` entry gives full types: base types, pointers, arrays with counts,

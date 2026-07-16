@@ -583,14 +583,15 @@ func cg_insert(*scodegen this,*scode s)
 }
 /* -g CFI (M6 debug part 2): unwind annotations for the DWARF .debug_frame
    table (selected over .eh_frame by `.cfi_sections .debug_frame` in header(),
-   so the loaded image is unchanged). The frame model is the same on every
-   target -- CFA = frame register + 16 (8 on i386) after the prologue -- and
-   each backend emits the directives between its own prologue/epilogue
-   instructions. Mid-function epilogues are bracketed by remember_state (in
-   CD_STKLEAVE) and restore_state (after CD_RET's return instruction), because
-   the CFI table is address-ordered: without the bracket, the epilogue's
-   sp-based CFA rule would leak onto the code that follows a mid-function
-   `return`. All of it is gated on -g, like CD_LOC. */
+   keeping compiler-generated unwind data out of loaded segments; linker
+   metadata such as the GNU build ID may still differ). The frame model is the
+   same on every target -- CFA = frame register + 16 (8 on i386) after the
+   prologue -- and each backend emits the directives between its own
+   prologue/epilogue instructions. Mid-function epilogues are bracketed by
+   remember_state (in CD_STKLEAVE) and restore_state (after CD_RET's return
+   instruction), because the CFI table is address-ordered: without the bracket,
+   the epilogue's sp-based CFA rule would leak onto the code that follows a
+   mid-function `return`. All of it is gated on -g, like CD_LOC. */
 var extern g_debug:int;
 func cfi(s:*char)
 {

@@ -674,9 +674,10 @@ platform functions or use the project's small `lib/` layer.
 `langc -g` (or `langdrv.pl -g`) adds DWARF debug information to the generated
 assembly on every target. It never changes the generated instructions; the
 addition is line tables built from `.file`/`.loc` directives, call-frame
-unwind data in the strippable `.debug_frame` section (never `.eh_frame`, so
-the loaded image is unchanged), and type and variable descriptions in
-`.debug_info`.
+unwind data in the strippable `.debug_frame` section rather than `.eh_frame`,
+and type and variable descriptions in `.debug_info`. These compiler-generated
+debug sections are not loaded at runtime. Linker-generated allocated metadata,
+such as a GNU build ID, may still differ between debug and non-debug links.
 
 With `-g` a DWARF debugger can set breakpoints by file and line, step by
 statement, produce call-stack backtraces with parameter values, and evaluate
