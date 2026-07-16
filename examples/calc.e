@@ -18,11 +18,13 @@
    byte-identical on all five backends. Using a variable before assigning it
    is an error. With -n each result is followed by the node count of its
    syntax tree (the method-dispatch dogfood). Errors go to stderr with a
-   1-based column; the exit status is 1 if any line failed, else 0. */
+   1-based column; overlong lines, embedded NULs, and input read failures are
+   diagnosed. The exit status is 1 if any input failed, else 0. */
 #include "../lib/fmt.he"
 
 func malloc(n:int);
 func free(p:int);
+func ferror(fp:*int);
 var extern stderr,stdin,stdout:*int;
 
 struct node{
@@ -212,13 +214,15 @@ func putval(x:double)
   var neg:int = 0;
   if(x!=x){putf("%f",x);return 0;}             /* nan */
   if(x<0.0){neg=1;x=0.0-x;}
-  if(x>1.7e308)                                 /* inf */
+  /* For nonzero infinity, halving leaves the value unchanged. A magnitude
+     cutoff would misclassify the finite range between 1.7e308 and DBL_MAX. */
+  if((x!=0.0)&&(x==x/2.0))                      /* inf */
   {
     if(neg)putstr("-");
     putf("%f",x*2.0);
     return 0;
   }
-  if(x<2147483647.0)
+  if(x<=2147483647.0)
   {
     k=x;
     if(k==x)
@@ -240,17 +244,34 @@ func putval(x:double)
 
 func readline()
 {
-  var c,i,over:int;
-  i=0;over=0;
+  var c,i,over,nul:int;
+  i=0;over=0;nul=0;
   while(1)
   {
     c=getchar();
-    if(c<0){if(!i)return 0;break;}
+    if(c<0)
+    {
+      if(ferror(stdin))
+      {
+        fprintf(stderr,"calc: input read error\n");
+        line[0]=0;
+        return 0-2;
+      }
+      if((!i)&&(!nul))return 0;
+      break;
+    }
     if(c==10)break;
+    if(!c){nul=1;continue;}
     if(i<LINEMAX-1)line[i++]=c;
     else over=1;
   }
   line[i]=0;
+  if(nul)
+  {
+    fprintf(stderr,"calc:%d: embedded NUL is not supported\n",lineno);
+    line[0]=0;
+    return 0-1;
+  }
   if(over)
   {
     fprintf(stderr,"calc:%d: line too long\n",lineno);
@@ -330,7 +351,7 @@ func main(argc:int,argv:**char)
     lineno++;
     k=readline();
     if(!k)break;
-    if(k<0){bad=1;continue;}
+    if(k<0){bad=1;if(k==(0-2))break;continue;}
     if(blankline())continue;
     if(doline())bad=1;
   }
