@@ -2,8 +2,9 @@
    Reads one expression (or assignment) per line from stdin and prints its
    value. A fitting program for a compiler project: it is langc in miniature
    (scanner, recursive-descent parser, heap AST, evaluator), and it exercises
-   the newest ground: a tree of heap-allocated struct nodes walked by METHODS,
-   mutually recursive parse functions with declared pointer returns, and %f
+   the newest ground: a tree of heap-allocated struct nodes walked by METHODS
+   (including the double-returning eval(), typed-method parity), mutually
+   recursive parse functions with declared pointer returns, and %f
    (including IEEE inf/nan from division by zero).
 
      line  := VAR '=' expr | expr          VAR is one letter a-z
@@ -33,8 +34,9 @@ struct node{
   int vn;      /* variable index for 'v' */
   *node l;
   *node r;
-  func done;   /* free the children below this node */
-  func count;  /* nodes in this subtree */
+  func done;         /* free the children below this node */
+  func count;        /* nodes in this subtree */
+  func eval:double;  /* the subtree's value -- a typed method return */
 };
 method node.done()
 {
@@ -185,21 +187,21 @@ func pexpr():*node
   }
 }
 
-func evalnode(n:*node):double
+method node.eval()
 {
   var a,b:double;
-  if(n->op=='n')return n->val;
-  if(n->op=='v')
+  if(op=='n')return val;
+  if(op=='v')
   {
-    if(!vset[n->vn]){if(!everr)everr='a'+n->vn;return 0.0;}
-    return vars[n->vn];
+    if(!vset[vn]){if(!everr)everr='a'+vn;return 0.0;}
+    return vars[vn];
   }
-  if(n->op=='~')return 0.0-evalnode(n->l);
-  a=evalnode(n->l);
-  b=evalnode(n->r);
-  if(n->op=='+')return a+b;
-  if(n->op=='-')return a-b;
-  if(n->op=='*')return a*b;
+  if(op=='~')return 0.0-l->eval();
+  a=l->eval();
+  b=r->eval();
+  if(op=='+')return a+b;
+  if(op=='-')return a-b;
+  if(op=='*')return a*b;
   return a/b;    /* '/': division by zero is IEEE inf/nan, printed as such */
 }
 
@@ -316,7 +318,7 @@ func doline()
     n->done();free(n);
     return 1;
   }
-  x=evalnode(n);
+  x=n->eval();
   if(everr)
   {
     fprintf(stderr,"calc:%d: unset variable '%c'\n",lineno,everr);

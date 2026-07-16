@@ -499,6 +499,24 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     else
         bad "floating-point variadic arg marshaling"
     fi
+    # typed-method diagnostics: the slot is authoritative; definitions must
+    # agree, struct/float returns are rejected, and an unknown method is a
+    # compile-time error instead of a link failure.
+    printf 'struct s{func m:double;};\nmethod s.m():int{return 1;}\nfunc main(){return 0;}\n' > "$TMPD/uplnc_meth1.e"
+    "$LPP" "$TMPD/uplnc_meth1.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth1.err"
+    [ "$?" != 0 ] && grep -q 'conflicts with its struct declaration' "$TMPD/uplnc_meth1.err" \
+        && ok "method definition/slot return-type conflict diagnosed" \
+        || bad "method return-type conflict diagnostic"
+    printf 'struct t{int v;};\nstruct s{func m:t;};\nfunc main(){return 0;}\n' > "$TMPD/uplnc_meth2.e"
+    "$LPP" "$TMPD/uplnc_meth2.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth2.err"
+    [ "$?" != 0 ] && grep -q 'struct-returning method' "$TMPD/uplnc_meth2.err" \
+        && ok "struct-returning method slot rejected" \
+        || bad "struct-returning method diagnostic"
+    printf 'struct s{int v;func m;};\nmethod s.m(){return 0;}\nfunc main(){var x:s;return x.nosuch();}\n' > "$TMPD/uplnc_meth3.e"
+    "$LPP" "$TMPD/uplnc_meth3.e" 2>/dev/null | "$LANGC" -march=x86_64 >/dev/null 2>"$TMPD/uplnc_meth3.err"
+    [ "$?" != 0 ] && grep -q 'no such method' "$TMPD/uplnc_meth3.err" \
+        && ok "unknown method call diagnosed at compile time" \
+        || bad "unknown method diagnostic"
     # i386 vastart() walks 4-byte slots; an 8-byte variadic integer would
     # misalign every following argument, so reject it at the known call site.
     printf 'func first(...){var p:*int;p=vastart();return p[0]+p[1];}\nfunc main(){return first(4294967295,42);}\n' > "$TMPD/uplnc_varargs_wide.e"

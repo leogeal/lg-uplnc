@@ -673,12 +673,26 @@ func dostruct()
   if(streq(line+lptr,trcomp))break;
   if(amatch(tfunc/*func*/,4))
     {
+    /* method slot: `func name;` returns int; a return type may come first
+       (`func double area;`, the original grammar) or trail like a function
+       declaration (`func area:double;`). The slot is the method's DECLARATION,
+       so the type recorded here is what call sites use -- the definition
+       must agree (checked in dofunc). */
     if(cbtype())
       t=gettypen();
     else t=T_INT;
-    t=getfnctype(t);
     if(!symname(fname))
       error("method name expected");
+    if(match(":"))
+    {
+      if(t!=T_INT)error("method return type given twice");
+      t=gettypen();
+    }
+    if(t==T_FLOAT)
+    error("float method return not supported yet -- use double");
+    if(typtab[t].sort==V_STR)
+    error("a struct-returning method is not supported yet");
+    t=getfnctype(t);
     ns();
     if(!ttop)
       {
@@ -1740,11 +1754,30 @@ func dofunc()
   }
   /* optional return-type annotation:  func f(...) : double  (M4 slice 4b).
      Absent -> int (unchanged); set on gp so forward declarations carry it too. */
-  if(match(":"))
   {
-    gp->type=gettypen();
-    if(gp->type==T_FLOAT)   /* slice 5: float return is single-prec at the ABI */
-    error("float return not supported yet -- use double");
+    var int:sawann;
+    sawann=0;
+    if(match(":"))
+    {
+      sawann=1;
+      gp->type=gettypen();
+      if(gp->type==T_FLOAT)   /* slice 5: float return is single-prec at the ABI */
+      error("float return not supported yet -- use double");
+    }
+    /* a method's return type lives on its SLOT in the struct declaration
+       (call sites read it from there, so it is always visible before any
+       call). A definition may repeat it, but must agree; without an
+       annotation it inherits the slot type. */
+    if(methodcls&&methodidx)
+    {
+      var int:mslot;
+      mslot=typtab[fieldtab[methodidx].type].type;
+      if(sawann&&(gp->type!=mslot))
+      error("method return type conflicts with its struct declaration");
+      if(!sawann)gp->type=mslot;
+      if(typtab[gp->type].sort==V_STR)
+      error("a struct-returning method is not supported yet");
+    }
   }
   if(isva)
   {
@@ -3250,6 +3283,19 @@ func cttype(node:*enode)
     if(node->l&&(node->l->op==OP_LEAF)&&node->l->leaf.idx
        &&(node->l->leaf.idx->sort==S_FUNC))
     return node->l->leaf.idx->type;
+    /* a method call yields its slot's declared return type. Stay a pure,
+       total oracle: resolve quietly and fall back to int on anything odd. */
+    if(node->l&&(node->l->op==OP_DOT))
+    {
+      var int:st,f;
+      st=cttype(node->l->l);
+      if(typtab[st].sort==V_STR)
+      {
+        f=findfiel(node->l->name,st);
+        if(f&&(typtab[fieldtab[f].type].sort==V_FNC))
+        return typtab[fieldtab[f].type].type;
+      }
+    }
     return T_INT;
   }
   else if(node->op==OP_PLUS||node->op==OP_MINUS||node->op==OP_MUL
@@ -4465,15 +4511,60 @@ func ct_FUNC(node:*enode,lval:*elval)
   }
   else if(l&&l->op==OP_DOT)
   {
-    /*error("calling of method: to be constructed");*/
+    /* method call. Arguments follow the same conventions as function calls
+       (typed-method parity): doubles use the FP registers on x86_64/arm64 and
+       travel as raw bits through the integer path on riscv/mips; on i386 a
+       double or long long is an 8-byte stack push. The receiver is evaluated
+       AFTER the arguments (unchanged) and marshals as the first (integer)
+       argument. The call's result type comes from the method's slot in the
+       struct declaration. */
     var int:nargs;
     r=node->r;
     nargs=0;
     var int:savezsp2;var int:cnt2;var *enode:rr2;var int:pad2;
+    var int:mfp;var int:mfi;var int:mret;
+    var [NAMESIZE]char:methodname;
+    cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
+    mfp=0;rr2=r;while(rr2){if(isfp(cttype(rr2->l)))mfp++;rr2=rr2->r;}
+    if((mfp>0)&&((target.arch==ARCH_X86_64)||(target.arch==ARCH_ARM64)))
+    {
+      /* FP marshaling, mirroring the direct-call path: doubles -> %xmm0../d0..,
+         ints/pointers (the receiver included) -> %rdi../x0.. by class. */
+      var int:mcint;var int:mireg;var int:mfreg;var int:mi;var int:mj;
+      var [32]int:matypes;
+      mcint=cnt2-mfp;
+      if(mcint>6)error(">6 integer args alongside floats");
+      if(mfp>8)error(">8 floating-point args");
+      if((mcint>6)||(mfp>8)){lval->sort=L_ONREG;lval->idx=0;lval->offset=0;lval->typ=T_INT;return 0;}
+      savezsp2=Zsp;
+      pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
+      if(pad2)Zsp=modstk(Zsp-pad2);
+      mj=cnt2-1;rr2=r;
+      while(rr2){k=treetocode(rr2->l,&lval2);if(k)rvalue(&lval2);
+        if(isfp(lval2.typ))fpush();else zpush();
+        matypes[mj]=lval2.typ;mj=mj-1;rr2=rr2->r;}
+      k=ct_ADDRDIR(l->l,&lval2);
+      if(typtab[lval2.typ].sort!=V_PTR)error("should be pointer...");
+      if(typtab[typtab[lval2.typ].type].sort!=V_STR)error("methods are for structures...\n");
+      if(k)rvalue(&lval2);
+      zpush();
+      matypes[0]=T_INTP;                       /* the receiver: integer class */
+      makemethodname(methodname,typtab[typtab[lval2.typ].type].name,l->name);
+      cnmlst->addm(methodname);
+      mireg=0;mfreg=0;
+      for(mi=0;mi<cnt2;mi++)
+      {
+        if(isfp(matypes[mi])){margfp(mi*target.stackslot,mfreg);mfreg=mfreg+1;}
+        else{margint(mi*target.stackslot,mireg);mireg=mireg+1;}
+      }
+      zcall(methodname,mfreg);
+      Zsp=modstk(savezsp2);
+    }
+    else
+    {
     if(target.arch!=ARCH_I386)
     {
       savezsp2=Zsp;
-      cnt2=1;rr2=r;while(rr2){cnt2++;rr2=rr2->r;}   /* explicit args + this */
       if(cnt2>target.nargreg)pad2=(((Zsp-(cnt2-target.nargreg)*target.stackslot)%16)+16)%16;
       else pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
       if(pad2)Zsp=modstk(Zsp-pad2);
@@ -4482,20 +4573,15 @@ func ct_FUNC(node:*enode,lval:*elval)
     {
       k=treetocode(r->l,&lval2);
       if(k)rvalue(&lval2);
-      /* methods marshal args as integers on both targets; a floating-point
-         method argument would push a stale accumulator -- reject it cleanly. */
-      if(isfp(lval2.typ))
-      error("floating-point method arguments not supported yet");
-      zpush();
-      nargs=nargs+target.wordsize;
+      /* riscv/mips: a double travels as raw bits through its integer slot,
+         exactly like the function convention on those targets. i386: 8-byte
+         stack push for doubles and long long, like function calls. */
+      if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
+      else if((target.arch==ARCH_I386)&&ll32(lval2.typ)){zpush64();nargs=nargs+8;}
+      else{zpush();nargs=nargs+target.wordsize;}
       r=r->r;
     }
-    /*zcall(l->leaf.idx->name);*/
-    /*fprintf(stderr,"tree:");*/
-    /*pretree(l->l,stderr);fprintf(stderr,"\n");*/
     k=ct_ADDRDIR(l->l,&lval2);
-    /*fprintf(stderr,"lval2.sort=%d,offset=%d,typ=%d\n",
-    lval2.sort,lval2.offset,lval2.typ);*/
     if(typtab[lval2.typ].sort!=V_PTR)
     {
       error("should be pointer...");
@@ -4509,7 +4595,6 @@ func ct_FUNC(node:*enode,lval:*elval)
     if(k)rvalue(&lval2);
     zpush();
     nargs=nargs+target.wordsize;
-    var [NAMESIZE]char:methodname;
     makemethodname(methodname,typtab[typtab[lval2.typ].type].name,l->name);
     cnmlst->addm(methodname);
     if(target.arch!=ARCH_I386)
@@ -4524,6 +4609,22 @@ func ct_FUNC(node:*enode,lval:*elval)
       zcall(methodname,0);
       Zsp=modstk(Zsp+nargs);
     }
+    }
+    /* the slot in the struct declaration is the method's authoritative type;
+       an unknown method is an error here rather than at link time */
+    mret=T_INT;
+    if(typtab[lval2.typ].sort==V_PTR)
+    {
+      mfi=findfiel(l->name,typtab[lval2.typ].type);
+      if(!mfi)error("no such method");
+      else if(typtab[fieldtab[mfi].type].sort!=V_FNC)error("not a method");
+      else mret=typtab[fieldtab[mfi].type].type;
+    }
+    lval->sort=L_ONREG;
+    lval->idx=0;
+    lval->offset=0;
+    lval->typ=mret;
+    return 0;
   }
   else
   {
