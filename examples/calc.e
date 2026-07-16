@@ -212,7 +212,6 @@ method node.eval()
 func putval(x:double)
 {
   var k:int;
-  var e:int;
   var neg:int = 0;
   if(x!=x){putf("%f",x);return 0;}             /* nan */
   if(x<0.0){neg=1;x=0.0-x;}
@@ -237,10 +236,10 @@ func putval(x:double)
     putf("%f",x);
     return 0;
   }
-  e=0;
-  while(x>=10.0){x=x/10.0;e++;}
-  if(neg)putstr("-");
-  putf("%.6fe+%d",x,e);
+  /* lib/fmt's %e (which also renormalizes a mantissa whose rounding
+     carries past 9.999999, and pads the exponent to two digits) */
+  if(neg)x=0.0-x;
+  putf("%e",x);
   return 0;
 }
 

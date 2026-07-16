@@ -505,6 +505,19 @@ What turns a teaching compiler into something you'd build a project with:
     a timeout-bounded `fmtdemo` regression pins both formatting edges.
     External C variadic interop (`printf("%f",…)`) is unchanged and remains
     target-dependent — `putf` is the portable answer.
+  - ✅ **`%e` and `%g`** (dogfood-driven by calc's hand-rolled e-notation,
+    which it replaces): `%e` prints printf-style scientific notation (half-up
+    mantissa rounding with carry renormalization — 9.996 at `%.2e` is
+    `1.00e+01`, never `10.00e+00` — and a two-digit-minimum exponent);
+    `%g` implements significant-digit semantics with the printf form choice
+    (`%e` when the exponent is < -4 or ≥ the precision) and trailing-zero
+    stripping. Both verified byte-for-byte against C printf on ~30 cases
+    (signed zero, inf/nan, denormals, 3-digit exponents, widths/zero-pad
+    included) and byte-identical across all five backends (`fnorm`'s repeated
+    division is deterministic IEEE, x87 and big-endian softfloat alike). The
+    extended `fmtdemo` contract pins `sci:`/`gen:` lines; `calc`'s big-value
+    branch is now one `putf("%e", …)` call, which also fixed its latent
+    unrenormalized-carry wart.
   - v0 limits documented in the header: `%f`'s integer part is word-range;
     64-bit *integer* varargs are still rejected on i386; `nargreg`-capped
     calls on register targets. The output contract is pinned byte-for-byte by
@@ -854,8 +867,8 @@ What turns a teaching compiler into something you'd build a project with:
     around — methods returned `int` only (**since fixed: typed method
     returns**, see the language-gaps entry below — `calc`'s `eval()` is now
     the double-returning method it wanted to be), and `%f`'s word-bounded
-    integer part (a `%e` in `lib/fmt.e` would subsume calc's hand-rolled
-    e-notation — still open)
+    integer part (**since fixed**: `lib/fmt.e` now has `%e`, and calc uses
+    it — see the stdlib entry)
   - ✅ **Typed method returns + FP method arguments** (M6, dogfood-driven by
     calc): a method slot carries the return type — `func area:double;` or the
     original type-first `func double area;` (a latent piece of the 2003
