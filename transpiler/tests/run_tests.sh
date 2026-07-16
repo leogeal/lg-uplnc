@@ -100,7 +100,7 @@ fi
 
 if perl "$DRIVER" "-march=$DRVARCH" -o "$DRVSPACE/fmtdemo" \
         ../examples/fmtdemo.e ../lib/fmt.e >"$DRVSPACE/multi.out" 2>"$DRVSPACE/multi.err" \
-        && "$DRVSPACE/fmtdemo" >"$DRVSPACE/fmtdemo.out" \
+        && timeout 5 "$DRVSPACE/fmtdemo" >"$DRVSPACE/fmtdemo.out" \
         && grep -q '^int: 42 -7 0$' "$DRVSPACE/fmtdemo.out"; then
     ok "driver compiles and links multiple UPLNC sources"
 else
@@ -931,10 +931,13 @@ else
     else bad "cat.e build"; fi
     # lib/fmt.e (stdlib v0): fmtdemo prints the library's fixed output contract
     if FD=$(buildutil fmtdemo fmt); then
-        "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1
-        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\nflt: 1.500000 3.14 3\nfpad: [    -2.500] [000002.500] [0.062]\n' > "$TMPD/uplnc_fmtdemo.want"
-        cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want" \
-            && ok "fmtdemo.e matches the lib/fmt.e output contract" || bad "fmtdemo.e output"
+        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\nflt: 1.500000 3.14 3\nfpad: [    -2.500] [000002.500] [0.062]\nfedge: [-0.000000] [1.250000000000000000]\nfclamp: [1] [1.250000000000000000]\n' > "$TMPD/uplnc_fmtdemo.want"
+        if timeout 5 "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1 \
+                && cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want"; then
+            ok "fmtdemo.e matches the lib/fmt.e output contract"
+        else
+            bad "fmtdemo.e output or timeout"
+        fi
     else bad "fmtdemo.e + lib/fmt.e build"; fi
     if HD=$(buildutil hexdump fmt); then
         printf 'hello world\n' | "$HD" > "$TMPD/uplnc_hex1.out"

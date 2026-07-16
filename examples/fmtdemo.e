@@ -7,6 +7,7 @@
 func main()
 {
   var unsigned:u = 4294967295;
+  var double:z = 0.0;
   putf("int: %d %d %d\n",42,0-7,0);
   putf("pad: [%6d] [%06d] [%6d]\n",42,42,0-42);
   putf("unsigned: %u\n",u);
@@ -15,5 +16,9 @@ func main()
   putf("mix: %s=%d (%04x)\n","val",1000,1000);
   putf("flt: %f %.2f %.0f\n",1.5,3.14159,2.5);
   putf("fpad: [%10.3f] [%010.3f] [%.3f]\n",0.0-2.5,2.5,0.0625);
+  putf("fedge: [%f] [%.9999999999999999999f]\n",
+       (0.0-1.0)/(1.0/z),1.25);
+  putstr("fclamp: [");putfpad(1.25,0,' ',0-1);putstr("] [");
+  putfpad(1.25,0,' ',99);putstr("]\n");
   return 0;
 }

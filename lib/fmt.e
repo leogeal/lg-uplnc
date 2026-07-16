@@ -12,9 +12,10 @@
      %6d, %04x. A negative %d zero-pads after the sign (-0042) and
      space-pads before it (  -42), like printf. %s ignores the width (v0).
    %f takes an optional precision: %.2f, %8.3f, %010.3f. The default is six
-   fraction digits; %.0f prints no point. Rounding is half-up at the last
-   printed digit (printf rounds to nearest-even; this differs on exact
-   halves). nan and inf print as text.
+   fraction digits; %.0f prints no point, and larger values are capped at 18.
+   Rounding is half-up at the last printed digit (printf rounds to
+   nearest-even; this differs on exact halves). Signed zero keeps its sign;
+   nan and inf print as text.
 
    v0 limits, by design:
      - a %f argument's integer part must fit the target's signed word
@@ -106,12 +107,18 @@ func putfpad(x:double,w:int,pc:int,prec:int)
   var d:unsigned;
   var k:int;
   var n:int;
+  /* putf already bounds parsed precision, but putfpad is public too. Keep its
+     loop and width arithmetic bounded for direct callers. */
+  if(prec<0)prec=0;
+  if(prec>18)prec=18;
   if(x!=x)                       /* only NaN compares unequal to itself */
   {
     while(w>3){putchar(' ');w--;}
     return putstr("nan");
   }
-  if(x<0.0){neg=1;x=0.0-x;}
+  /* IEEE comparisons treat -0.0 as equal to +0.0. Its reciprocal retains the
+     sign as -inf, which lets fixed formatting preserve the leading minus. */
+  if((x<0.0)||((x==0.0)&&((1.0/x)<0.0))){neg=1;x=0.0-x;}
   if(x>1.7e308)
   {
     n=3+neg;
@@ -181,10 +188,15 @@ func putf(fmt:*char,...)
       prec=0;
       while((*fmt>='0')&&(*fmt<='9'))
       {
-        prec=prec*10+(*fmt-'0');
+        /* Saturate while parsing. Clamping only after the loop lets a long
+           field overflow negative and poison putfpad's width arithmetic. */
+        if(prec<18)
+        {
+          prec=prec*10+(*fmt-'0');
+          if(prec>18)prec=18;
+        }
         fmt++;
       }
-      if(prec>18)prec=18;   /* a double has no more decimal signal than that */
     }
     c=*fmt;
     if(c)fmt++;
