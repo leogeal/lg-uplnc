@@ -31,11 +31,13 @@ buildcalc() { # $1 = target, $2 = output binary
 # one FP-heavy calc line per backend: %f formatting and IEEE inf must agree
 # with the pinned host transcript byte-for-byte on every target
 checkcalc() { # $1 = target label, $2 = binary, $3 = runner prefix (may be "")
-    local got want
+    local got want rc
     got=$(printf 'x = 2.5\n3*(x-0.5)-1\n0.1+0.2\n1/0\n' | $3 "$2")
+    rc=$?
     want=$(printf '2.500000\n5\n0.300000\ninf\n')
-    [ "$got" = "$want" ] && ok "$1 calc evaluates FP identically" \
-                             || bad "$1 calc FP evaluation"
+    [ "$rc" = 0 ] && [ "$got" = "$want" ] \
+        && ok "$1 calc evaluates FP identically" \
+        || bad "$1 calc FP evaluation"
 }
 
 gatebenches() { # $1 = target whose toolchain/runner was proven above
@@ -1165,6 +1167,28 @@ else
         [ "$?" = 1 ] && grep -q 'line too long' "$TMPD/uplnc_calc_over.err" \
             && ok "calc.e diagnoses an overlong line and exits 1" \
             || bad "calc.e overlong line"
+        python3 -c "print('a='+'131'+'0'*152); print('a*a'); print('(a*a)/(a*a)'); print('2147483647')" \
+            | timeout 5 "$CALC" >"$TMPD/uplnc_calc_bounds.out" 2>/dev/null
+        rc=$?
+        printf '1.310000e+154\n1.716100e+308\n1\n2147483647\n' \
+            >"$TMPD/uplnc_calc_bounds.want"
+        [ "$rc" = 0 ] && cmp -s "$TMPD/uplnc_calc_bounds.out" "$TMPD/uplnc_calc_bounds.want" \
+            && ok "calc.e distinguishes finite extremes and exact integer bounds" \
+            || bad "calc.e numeric output bounds"
+        printf '1\0/0\n2+2\n' | timeout 5 "$CALC" \
+            >"$TMPD/uplnc_calc_nul.out" 2>"$TMPD/uplnc_calc_nul.err"
+        rc=$?
+        [ "$rc" = 1 ] && [ "$(cat "$TMPD/uplnc_calc_nul.out")" = 4 ] \
+            && grep -q 'calc:1: embedded NUL is not supported' "$TMPD/uplnc_calc_nul.err" \
+            && ok "calc.e rejects an embedded NUL and continues with the next line" \
+            || bad "calc.e embedded-NUL handling"
+        timeout 5 "$CALC" < "$TMPD" \
+            >"$TMPD/uplnc_calc_read.out" 2>"$TMPD/uplnc_calc_read.err"
+        rc=$?
+        [ "$rc" = 1 ] && [ ! -s "$TMPD/uplnc_calc_read.out" ] \
+            && grep -q 'calc: input read error' "$TMPD/uplnc_calc_read.err" \
+            && ok "calc.e reports an input read failure" \
+            || bad "calc.e input read failure"
     else
         bad "calc.e + lib/fmt.e build"
     fi

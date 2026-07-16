@@ -837,6 +837,9 @@ What turns a teaching compiler into something you'd build a project with:
     (integer fast path bounded to the smallest target word; e-notation above
     it, since `%f`'s integer part is word-bounded). Pinned session transcript
     + per-backend FP checks in `run_tests.sh` `[11]`.
+    A review follow-up made infinity detection exact, admitted the signed-word
+    maximum to integer output, and added explicit embedded-NUL and stream-read
+    error handling with focused regressions.
   - All build with the stage-0 tools; wc/cat/grep/sort/calc run on all **five**
     backends (grep's matcher and sort's three units are separately linked per
     target), while fmtdemo/hexdump print byte-identical output on all five.
