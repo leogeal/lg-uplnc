@@ -24,6 +24,16 @@ buildsort() { # $1 = target, $2 = output binary
         ../examples/sort.e ../examples/sort_lines.e ../examples/sort_order.e
 }
 
+gatebenches() { # $1 = target whose toolchain/runner was proven above
+    local arch="$1" log="$TMPD/uplnc_bench_$1.log"
+    if bash bench/bench.sh --target "$arch" --no-time --require-run >"$log" 2>&1; then
+        ok "$arch benchmark kernels compile, run, and self-check"
+    else
+        bad "$arch benchmark kernels"
+        tail -8 "$log" | sed 's/^/         /'
+    fi
+}
+
 echo "[1] transpile every UPLNC source without error"
 for f in tlangc.he codegen.he lpp1.e codegen.e langc.e autodyn.e grph.e; do
     if python3 uplnc2c.py "$SRC/$f" -I "$SRC/tlangc.he" -I "$SRC/codegen.he" \
@@ -597,6 +607,7 @@ else
     else
         bad "x86_64 multi-unit sort build"
     fi
+    gatebenches x86_64
 fi
 
 echo "[6b] x86_64 ABI: a UPLNC function preserves callee-saved regs for a C caller"
@@ -687,6 +698,7 @@ else
     else
         bad "i386 multi-unit sort build"
     fi
+    gatebenches i386
 fi
 
 echo "[8] arm64 backend: programs compile (-march=arm64), assemble + run"
@@ -745,6 +757,7 @@ else
     else
         bad "arm64 multi-unit sort build"
     fi
+    gatebenches arm64
 fi
 
 echo "[9] riscv64 backend: programs compile (-march=riscv64), assemble + run"
@@ -804,6 +817,7 @@ else
     else
         bad "riscv64 multi-unit sort build"
     fi
+    gatebenches riscv64
 fi
 
 echo "[10] mips64 backend: programs compile (-march=mips64), assemble + run"
@@ -869,6 +883,7 @@ else
     else
         bad "mips64 multi-unit sort build"
     fi
+    gatebenches mips64
 fi
 
 echo "[11] example utilities: examples/*.e build and run (M7 'proof it's real')"
@@ -1356,22 +1371,105 @@ DBGEOF
     ;;
 esac
 
-echo "[13] benchmark suite: kernels compile, run, and self-check (host)"
-case "$(uname -m)" in
-x86_64)
-    for b in sieve fib matmul strops mandel; do
-        if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_bench_$b" "bench/$b.e" \
-                >/dev/null 2>&1 && "$TMPD/uplnc_bench_$b" >/dev/null; then
-            ok "bench/$b.e checksum"
-        else
-            bad "bench/$b.e build or checksum"
-        fi
-    done
-    ;;
-*)
-    echo "  skip - host is not x86_64"
-    ;;
-esac
+echo "[13] benchmark harness + peephole assembly-shape regressions"
+if bash bench/bench.sh --time-runs 0 >"$TMPD/uplnc_bench_bad.out" \
+        2>"$TMPD/uplnc_bench_bad.err"; then
+    bad "benchmark harness rejects an invalid timing count"
+elif grep -q 'positive integer' "$TMPD/uplnc_bench_bad.err"; then
+    ok "benchmark harness rejects an invalid timing count"
+else
+    bad "benchmark harness invalid timing diagnostic"
+fi
+
+# Exercise the IR pass directly, including the arm64 case that valid source
+# currently avoids by allocating locals in full stack slots. Link the same four
+# generated units as stage-0, renaming langc's entry point so the harness owns
+# main while still using the compiler's real target global and peephole code.
+cat > "$TMPD/uplnc_peephole_unit.c" <<'PCEOF'
+#include "codegen.h"
+#ifdef main
+#undef main
+#endif
+extern int peephole();
+static void op(scode *c,int code,int arg,int reg)
+{
+  c->code=code;c->arg=arg;c->reg=reg;c->str=0;
+}
+int main(void)
+{
+  scode c[3];scodegen cg;
+  target.wordsize=8;target.stackslot=16;
+  cg.ncodeitems=3;cg.codeptr=3;cg.codes=c;
+
+  op(c+0,CD_MODSTK,-8,RG_A);op(c+1,CD_LOC,1,RG_A);
+  op(c+2,CD_MODSTK,-8,RG_A);peephole(&cg);
+  if((c[0].code!=CD_MODSTK)||(c[2].code!=CD_MODSTK)||(c[2].arg!=-8))return 1;
+
+  op(c+0,CD_MODSTK,-16,RG_A);op(c+1,CD_LOC,1,RG_A);
+  op(c+2,CD_MODSTK,-16,RG_A);peephole(&cg);
+  if((c[0].code!=CD_IGNORE)||(c[2].code!=CD_MODSTK)||(c[2].arg!=-32))return 2;
+
+  op(c+0,CD_STLW,-8,RG_A);op(c+1,CD_LOC,1,RG_A);
+  op(c+2,CD_LDLW,-8,RG_A);peephole(&cg);
+  if(c[2].code!=CD_IGNORE)return 3;
+
+  op(c+0,CD_STLW,-8,RG_A);op(c+1,CD_LOC,1,RG_A);
+  op(c+2,CD_LDLW,-8,RG_D);peephole(&cg);
+  if((c[2].code!=CD_MOVR)||(c[2].reg!=RG_D)||(c[2].arg!=RG_A))return 4;
+  return 0;
+}
+PCEOF
+if gcc -std=gnu89 -fsigned-char -w -Dmain=uplnc_langc_main -I build \
+        "$TMPD/uplnc_peephole_unit.c" build/langc.c build/codegen.c \
+        build/autodyn.c build/grph.c \
+        -o "$TMPD/uplnc_peephole_unit" \
+        && "$TMPD/uplnc_peephole_unit"; then
+    ok "peephole IR rules merge only safe stack pairs and forward same-slot loads"
+else
+    bad "peephole IR rule unit coverage"
+fi
+
+# The two declarations produce adjacent CD_MODSTK operations separated only by
+# -g markers. They must coalesce to one physical adjustment on both x86_64 and
+# arm64; these exact sizes also exercise arm64's physical-delta calculation.
+"$LPP" tests/progs/arith.e 2>/dev/null \
+    | "$LANGC" -march=x86_64 -g > "$TMPD/uplnc_peephole_x64.s" 2>/dev/null
+if [ "$(grep -c $'^\tsubq \$16, %rsp$' "$TMPD/uplnc_peephole_x64.s")" = 1 ] \
+        && ! grep -q $'^\tsubq \$8, %rsp$' "$TMPD/uplnc_peephole_x64.s"; then
+    ok "x86_64 coalesces adjacent frame adjustments across debug markers"
+else
+    bad "x86_64 modstk coalescing shape"
+fi
+"$LPP" tests/progs/arith.e 2>/dev/null \
+    | "$LANGC" -march=arm64 -g > "$TMPD/uplnc_peephole_arm64.s" 2>/dev/null
+if [ "$(grep -c $'^\tsub sp, sp, #32$' "$TMPD/uplnc_peephole_arm64.s")" = 1 ] \
+        && ! grep -q $'^\tsub sp, sp, #16$' "$TMPD/uplnc_peephole_arm64.s"; then
+    ok "arm64 coalesces only physically equivalent frame adjustments"
+else
+    bad "arm64 modstk coalescing shape"
+fi
+
+# Taking a's address prevents local promotion. The store in `a=40` and load in
+# the next statement are separated only by a CD_LOC under -g; forwarding should
+# preserve the store and eliminate the frame reload into the accumulator.
+cat > "$TMPD/uplnc_storeload.e" <<'PEEOF'
+func touch(p:*int){return 0;}
+func main()
+{
+  var int:a;
+  touch(&a);
+  a=40;
+  return a+2;
+}
+PEEOF
+"$LPP" "$TMPD/uplnc_storeload.e" 2>/dev/null \
+    | "$LANGC" -march=x86_64 -g > "$TMPD/uplnc_storeload.s" 2>/dev/null
+if grep -qE $'^\tmovq %rax, -[0-9]+\(%rbp\)$' "$TMPD/uplnc_storeload.s" \
+        && ! grep -qE $'^\tmovq -[0-9]+\(%rbp\), %rax$' "$TMPD/uplnc_storeload.s"; then
+    ok "same-slot store/load forwarding crosses debug markers safely"
+else
+    bad "store/load forwarding shape"
+fi
 
 echo
 echo "==== $pass passed, $fail failed ===="
