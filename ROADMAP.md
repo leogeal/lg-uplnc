@@ -513,8 +513,9 @@ What turns a teaching compiler into something you'd build a project with:
     (`%e` when the exponent is < -4 or ≥ the precision) and trailing-zero
     stripping. Both verified byte-for-byte against C printf on ~30 cases
     (signed zero, inf/nan, denormals, 3-digit exponents, widths/zero-pad
-    included) and byte-identical across all five backends (`fnorm`'s repeated
-    division is deterministic IEEE, x87 and big-endian softfloat alike). The
+    included) and byte-identical across all five backends. Follow-up: decimal
+    digits now come from a bounded exact binary64 conversion, avoiding the
+    high-precision drift of the original repeated normalization. The
     extended `fmtdemo` contract pins `sci:`/`gen:` lines; `calc`'s big-value
     branch is now one `putf("%e", …)` call, which also fixed its latent
     unrenormalized-carry wart.

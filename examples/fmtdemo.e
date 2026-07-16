@@ -23,5 +23,12 @@ func main()
   putf("sci: %e %.2e [%012.2e] %e\n",1.5,9.996,0.00025,0.0-42.125);
   putf("gen: %g %g %g %g",2.5,100.0,0.0001,0.00001);
   putf(" %.3g %g\n",123.456,1234567.0);
+  putstr("exact: ");
+  putepad(2.6029006362042504e180,0,' ',15);putchar(' ');
+  putgpad(8.4115121488831147e106,0,' ',15);putchar(' ');
+  putepad(4.9406564584124654e-324,0,' ',17);putchar(' ');
+  putgpad(1.7976931348623157e308,0,' ',18);putchar('\n');
+  putstr("half: ");putepad(1.25,0,' ',1);putchar(' ');
+  putgpad(1.25,0,' ',2);putchar('\n');
   return 0;
 }
