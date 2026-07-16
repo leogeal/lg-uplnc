@@ -500,6 +500,9 @@ What turns a teaching compiler into something you'd build a project with:
     plus `nan`/`inf`; the extended `fmtdemo` contract is byte-identical on
     all five backends (x87 i386 and big-endian mips64 included), and
     `tests/progs/vararg_fp.e` exercises the raw slot mechanism everywhere.
+    Precision parsing saturates at 18 without integer overflow, `putfpad`
+    defensively clamps direct callers, and signed zero prints with its minus;
+    a timeout-bounded `fmtdemo` regression pins both formatting edges.
     External C variadic interop (`printf("%f",…)`) is unchanged and remains
     target-dependent — `putf` is the portable answer.
   - v0 limits documented in the header: `%f`'s integer part is word-range;
