@@ -24,6 +24,20 @@ buildsort() { # $1 = target, $2 = output binary
         ../examples/sort.e ../examples/sort_lines.e ../examples/sort_order.e
 }
 
+buildcalc() { # $1 = target, $2 = output binary
+    perl "$DRIVER" "-march=$1" -o "$2" ../examples/calc.e ../lib/fmt.e
+}
+
+# one FP-heavy calc line per backend: %f formatting and IEEE inf must agree
+# with the pinned host transcript byte-for-byte on every target
+checkcalc() { # $1 = target label, $2 = binary, $3 = runner prefix (may be "")
+    local got want
+    got=$(printf 'x = 2.5\n3*(x-0.5)-1\n0.1+0.2\n1/0\n' | $3 "$2")
+    want=$(printf '2.500000\n5\n0.300000\ninf\n')
+    [ "$got" = "$want" ] && ok "$1 calc evaluates FP identically" \
+                             || bad "$1 calc FP evaluation"
+}
+
 gatebenches() { # $1 = target whose toolchain/runner was proven above
     local arch="$1" log="$TMPD/uplnc_bench_$1.log"
     if bash bench/bench.sh --target "$arch" --no-time --require-run >"$log" 2>&1; then
@@ -609,6 +623,12 @@ else
     else
         bad "x86_64 multi-unit sort build"
     fi
+    calcbin="$TMPD/uplnc_x64_calc"
+    if buildcalc x86_64 "$calcbin" 2>"$TMPD/uplnc_x64_calc.err"; then
+        checkcalc x86_64 "$calcbin" ""
+    else
+        bad "x86_64 calc build"
+    fi
     gatebenches x86_64
 fi
 
@@ -700,6 +720,12 @@ else
     else
         bad "i386 multi-unit sort build"
     fi
+    calcbin="$TMPD/uplnc_i386_calc"
+    if buildcalc i386 "$calcbin" 2>"$TMPD/uplnc_i386_calc.err"; then
+        checkcalc i386 "$calcbin" ""
+    else
+        bad "i386 calc build"
+    fi
     gatebenches i386
 fi
 
@@ -758,6 +784,12 @@ else
                                  || bad "arm64 multi-unit stable sort"
     else
         bad "arm64 multi-unit sort build"
+    fi
+    calcbin="$TMPD/uplnc_arm64_calc"
+    if buildcalc arm64 "$calcbin" 2>"$TMPD/uplnc_arm64_calc.err"; then
+        checkcalc arm64 "$calcbin" ""
+    else
+        bad "arm64 calc build"
     fi
     gatebenches arm64
 fi
@@ -818,6 +850,12 @@ else
                                  || bad "riscv64 multi-unit stable sort"
     else
         bad "riscv64 multi-unit sort build"
+    fi
+    calcbin="$TMPD/uplnc_riscv_calc"
+    if buildcalc riscv64 "$calcbin" 2>"$TMPD/uplnc_riscv_calc.err"; then
+        checkcalc riscv64 "$calcbin" ""
+    else
+        bad "riscv64 calc build"
     fi
     gatebenches riscv64
 fi
@@ -884,6 +922,12 @@ else
                                  || bad "mips64 multi-unit stable sort"
     else
         bad "mips64 multi-unit sort build"
+    fi
+    calcbin="$TMPD/uplnc_mips_calc"
+    if buildcalc mips64 "$calcbin" 2>"$TMPD/uplnc_mips_calc.err"; then
+        checkcalc mips64 "$calcbin" "$MIPSRUN"
+    else
+        bad "mips64 calc build"
     fi
     gatebenches mips64
 fi
@@ -1083,6 +1127,46 @@ else
             || bad "sort.e embedded-NUL handling"
     else
         bad "sort.e multi-unit build"
+    fi
+
+    # calc.e: expression interpreter (heap AST of struct nodes + methods, %f)
+    if CALC=$(buildutil calc fmt); then
+        printf '1+2*3\n(1+2)*3\n-4/8\nx = 2.5\nx*x\n3*(x-0.5)-1\n10/0\n-10/0\n0/0\n10000000000.0*3\n0.1+0.2\ny\n2+\n' \
+            > "$TMPD/uplnc_calc.in"
+        printf '7\n9\n-0.500000\n2.500000\n6.250000\n5\ninf\n-inf\nnan\n3.000000e+10\n0.300000\n' \
+            > "$TMPD/uplnc_calc.want"
+        printf 'calc:12: unset variable '"'"'y'"'"'\ncalc:13: parse error at column 3\n' \
+            > "$TMPD/uplnc_calc.werr"
+        timeout 5 "$CALC" < "$TMPD/uplnc_calc.in" \
+            > "$TMPD/uplnc_calc.out" 2> "$TMPD/uplnc_calc.err"
+        rc=$?
+        [ "$rc" = 1 ] && cmp -s "$TMPD/uplnc_calc.out" "$TMPD/uplnc_calc.want" \
+            && cmp -s "$TMPD/uplnc_calc.err" "$TMPD/uplnc_calc.werr" \
+            && ok "calc.e evaluates the pinned session (values, inf/nan, errors)" \
+            || bad "calc.e session transcript"
+        got=$(printf '1+2*3\n-(2.5+1.5)/2\nz=1.5\nz*z*z\n' | timeout 5 "$CALC" -n)
+        rc=$?
+        want=$(printf '7  (5 nodes)\n-2  (6 nodes)\n1.500000  (1 nodes)\n3.375000  (5 nodes)\n')
+        [ "$rc" = 0 ] && [ "$got" = "$want" ] \
+            && ok "calc.e -n reports method-computed node counts, exit 0" \
+            || bad "calc.e -n node counts"
+        timeout 5 "$CALC" -q </dev/null >/dev/null 2>"$TMPD/uplnc_calc_use.err"
+        [ "$?" = 2 ] && grep -q 'usage:' "$TMPD/uplnc_calc_use.err" \
+            && ok "calc.e rejects unknown options with usage and status 2" \
+            || bad "calc.e usage handling"
+        python3 -c "print('1+'*100+'1'); print('2*3')" | timeout 5 "$CALC" \
+            > "$TMPD/uplnc_calc_long.out" 2>/dev/null
+        [ "$?" = 0 ] && [ "$(tail -1 "$TMPD/uplnc_calc_long.out")" = 6 ] \
+            && [ "$(head -1 "$TMPD/uplnc_calc_long.out")" = 101 ] \
+            && ok "calc.e handles a 100-term expression and continues" \
+            || bad "calc.e long expression"
+        python3 -c "print('1+'*200+'1')" | timeout 5 "$CALC" \
+            >/dev/null 2>"$TMPD/uplnc_calc_over.err"
+        [ "$?" = 1 ] && grep -q 'line too long' "$TMPD/uplnc_calc_over.err" \
+            && ok "calc.e diagnoses an overlong line and exits 1" \
+            || bad "calc.e overlong line"
+    else
+        bad "calc.e + lib/fmt.e build"
     fi
 fi
 
