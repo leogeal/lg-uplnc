@@ -1005,7 +1005,7 @@ else
     else bad "cat.e build"; fi
     # lib/fmt.e (stdlib v0): fmtdemo prints the library's fixed output contract
     if FD=$(buildutil fmtdemo fmt); then
-        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\nflt: 1.500000 3.14 3\nfpad: [    -2.500] [000002.500] [0.062]\nfedge: [-0.000000] [1.250000000000000000]\nfclamp: [1] [1.250000000000000000]\nsci: 1.500000e+00 1.00e+01 [00002.50e-04] -4.212500e+01\ngen: 2.5 100 0.0001 1e-05 123 1.23457e+06\n' > "$TMPD/uplnc_fmtdemo.want"
+        printf 'int: 42 -7 0\npad: [    42] [000042] [   -42]\nunsigned: 4294967295\nhex: ff [0000beef] [    beef]\nstr: abc, char: xyz, pct: 100%%\nmix: val=1000 (03e8)\nflt: 1.500000 3.14 3\nfpad: [    -2.500] [000002.500] [0.062]\nfedge: [-0.000000] [1.250000000000000000]\nfclamp: [1] [1.250000000000000000]\nsci: 1.500000e+00 1.00e+01 [00002.50e-04] -4.212500e+01\ngen: 2.5 100 0.0001 1e-05 123 1.23457e+06\nexact: 2.602900636204250e+180 8.41151214888311e+106 4.94065645841246544e-324 1.79769313486231571e+308\nhalf: 1.3e+00 1.3\n' > "$TMPD/uplnc_fmtdemo.want"
         if timeout 5 "$FD" > "$TMPD/uplnc_fmtdemo.out" 2>&1 \
                 && cmp -s "$TMPD/uplnc_fmtdemo.out" "$TMPD/uplnc_fmtdemo.want"; then
             ok "fmtdemo.e matches the lib/fmt.e output contract"

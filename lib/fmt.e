@@ -158,18 +158,124 @@ func putfpad(x:double,w:int,pc:int,prec:int)
   return 0;
 }
 
-/* normalize a finite, positive x into [1,10); returns the decimal exponent.
-   Repeated multiply/divide is an approximation (each step rounds), but it is
-   deterministic IEEE arithmetic, identical on every backend. */
-func fnorm(px:*double)
+/* Exact binary64-to-decimal conversion for %e/%g. The decoded value is
+     mantissa * 2^k.
+   For k < 0 this is mantissa * 5^-k * 10^k; for k >= 0 it is an integer.
+   Base 10^8 keeps multiply-by-5 plus carry within unsigned 32-bit range on
+   i386. Binary64 needs at most 96 limbs / 767 decimal digits, so the fixed
+   bounds below cover every finite value without allocation. */
+func fbigmul(a:*unsigned,n:int,m:unsigned)
 {
-  var e:int = 0;
-  var x:double;
-  x=*px;
-  while(x>=10.0){x=x/10.0;e++;}
-  while(x<1.0){x=x*10.0;e--;}
-  *px=x;
-  return e;
+  var i:int;
+  var v,carry:unsigned;
+  carry=0;
+  for(i=0;i<n;i=i+1)
+  {
+    v=a[i]*m+carry;
+    a[i]=v%100000000;
+    carry=v/100000000;
+  }
+  if(carry)a[n++]=carry;
+  return n;
+}
+
+/* Divide a little-endian base-10^8 integer by ten and return the remainder. */
+func fbigdiv10(a:*unsigned,pn:*int)
+{
+  var i,n:int;
+  var v,carry:unsigned;
+  n=*pn;
+  carry=0;
+  i=n;
+  while(i)
+  {
+    i--;
+    v=carry*100000000+a[i];
+    a[i]=v/10;
+    carry=v%10;
+  }
+  while((n>1)&&(!a[n-1]))n--;
+  *pn=n;
+  return carry;
+}
+
+/* Consume a positive big integer into a most-significant-first digit string. */
+func fbigtext(a:*unsigned,n:int,out:*char)
+{
+  var i,j:int;
+  var c:char;
+  i=0;
+  while((n>1)||a[0])out[i++]='0'+fbigdiv10(a,&n);
+  for(j=0;j<i/2;j=j+1)
+  {
+    c=out[j];out[j]=out[i-j-1];out[i-j-1]=c;
+  }
+  out[i]=0;
+  return i;
+}
+
+/* Produce the exact finite positive value's decimal integer and exponent.
+   If out has len digits, x = out * 10^(exp-len+1). */
+func fexact(x:double,out:*char,pexp:*int)
+{
+  var limbs:[100]unsigned;
+  var bits,mant,hidden:unsigned long long;
+  var *unsigned long long:pbits;
+  var ef,k,q,n,i,len:int;
+  pbits=&x;
+  bits=*pbits;
+  hidden=1;hidden=hidden<<52;
+  ef=(bits>>52)&2047;
+  mant=bits&(hidden-1);
+  if(ef)
+  {
+    mant=mant|hidden;
+    k=ef-1075;
+  }
+  else k=0-1074;
+  n=0;
+  while(mant)
+  {
+    limbs[n++]=mant%100000000;
+    mant=mant/100000000;
+  }
+  q=0;
+  if(k>=0)for(i=0;i<k;i=i+1)n=fbigmul(limbs,n,2);
+  else
+  {
+    q=0-k;
+    for(i=0;i<q;i=i+1)n=fbigmul(limbs,n,5);
+  }
+  len=fbigtext(limbs,n,out);
+  *pexp=len-q-1;
+  return len;
+}
+
+/* Round a finite nonnegative binary64 value to p significant decimal digits.
+   The source digits are exact, so testing the first discarded digit implements
+   the documented half-up rule without a floating-point normalization error. */
+func fround(x:double,p:int,out:*char,pexp:*int)
+{
+  var exact:[800]char;
+  var len,e,i:int;
+  if(x==0.0)
+  {
+    for(i=0;i<p;i=i+1)out[i]='0';
+    out[p]=0;*pexp=0;return 0;
+  }
+  len=fexact(x,exact,&e);
+  for(i=0;i<p;i=i+1)
+  if(i<len)out[i]=exact[i];else out[i]='0';
+  if((p<len)&&(exact[p]>='5'))
+  {
+    i=p;
+    while(i&&(out[i-1]=='9')){out[i-1]='0';i--;}
+    if(i)out[i-1]++;
+    else{out[0]='1';e++;}
+  }
+  out[p]=0;
+  *pexp=e;
+  return 0;
 }
 
 /* scientific notation with prec fraction digits: [-]d.dddddde+XX, at least
@@ -177,9 +283,9 @@ func fnorm(px:*double)
    past 9.999... renormalizes to 1.000...e+(X+1) instead of printing 10.x. */
 func putepad(x:double,w:int,pc:int,prec:int)
 {
+  var sig:[20]char;
   var neg:int = 0;
   var e,ee,n,k:int;
-  var half:double;
   if(prec<0)prec=0;
   if(prec>18)prec=18;
   if(x!=x)
@@ -195,11 +301,7 @@ func putepad(x:double,w:int,pc:int,prec:int)
     if(neg)putchar('-');
     return putstr("inf");
   }
-  e=0;
-  if(x!=0.0)e=fnorm(&x);
-  half=0.5;
-  for(k=0;k<prec;k=k+1)half=half/10.0;
-  if(x+half>=10.0){x=x/10.0;e=e+1;}   /* the mantissa's rounding carries */
+  fround(x,prec+1,sig,&e);
   ee=e;if(ee<0)ee=0-ee;
   k=1;n=ee;while(n>9){k++;n=n/10;}     /* exponent digits, printed >= 2 */
   if(k<2)k=2;
@@ -208,7 +310,12 @@ func putepad(x:double,w:int,pc:int,prec:int)
   if(pc==' ')while(w>n){putchar(' ');w--;}
   if(neg)putchar('-');
   if(pc=='0')while(w>n){putchar('0');w--;}
-  putfpad(x,0,' ',prec);               /* single-digit mantissa, same rounding */
+  putchar(sig[0]);
+  if(prec)
+  {
+    putchar('.');
+    for(k=1;k<=prec;k=k+1)putchar(sig[k]);
+  }
   putchar('e');
   if(e<0)putchar('-');else putchar('+');
   if(ee<10)putchar('0');
@@ -222,9 +329,9 @@ func putepad(x:double,w:int,pc:int,prec:int)
 func putgpad(x:double,w:int,pc:int,prec:int)
 {
   var buf:[48]char;
+  var sig:[20]char;
   var neg:int = 0;
-  var e,ee,i,k,pt,d:int;
-  var half,frac:double;
+  var e,ee,i,k,pt:int;
   if(prec<1)prec=1;
   if(prec>18)prec=18;
   if(x!=x)
@@ -240,43 +347,18 @@ func putgpad(x:double,w:int,pc:int,prec:int)
     if(neg)putchar('-');
     return putstr("inf");
   }
-  if(x==0.0)
-  {
-    k=1+neg;
-    if(pc==' ')while(w>k){putchar(' ');w--;}
-    if(neg)putchar('-');
-    if(pc=='0')while(w>k){putchar('0');w--;}
-    putchar('0');
-    return 0;
-  }
-  e=fnorm(&x);
-  half=0.5;
-  for(k=1;k<prec;k=k+1)half=half/10.0;
-  if(x+half>=10.0){x=x/10.0;e=e+1;}
-  /* extract the prec significant digits of the rounded mantissa, once */
-  frac=x+half;
-  d=frac;                              /* leading digit, 1..9 */
-  var digs:[20]int;
-  digs[0]=d;
-  frac=frac-d;
-  for(k=1;k<prec;k=k+1)
-  {
-    frac=frac*10.0;
-    d=frac;
-    digs[k]=d;
-    frac=frac-d;
-  }
+  fround(x,prec,sig,&e);
   i=0;
   if((e<(0-4))||(e>=prec))
   {
     /* scientific form: d[.ddd]e+XX with the zeros stripped */
     k=prec;
-    while((k>1)&&(digs[k-1]==0))k--;
-    buf[i++]='0'+digs[0];
+    while((k>1)&&(sig[k-1]=='0'))k--;
+    buf[i++]=sig[0];
     if(k>1)
     {
       buf[i++]='.';
-      for(pt=1;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+      for(pt=1;pt<k;pt=pt+1)buf[i++]=sig[pt];
     }
     buf[i++]='e';
     if(e<0)buf[i++]='-';else buf[i++]='+';
@@ -288,14 +370,14 @@ func putgpad(x:double,w:int,pc:int,prec:int)
   {
     /* fixed form: the point sits after position e; strip fraction zeros */
     k=prec;
-    while((k>e+1)&&(digs[k-1]==0))k--;   /* never strip integer digits */
+    while((k>e+1)&&(sig[k-1]=='0'))k--;   /* never strip integer digits */
     if(e>=0)
     {
-      for(pt=0;pt<=e;pt=pt+1)buf[i++]='0'+digs[pt];
+      for(pt=0;pt<=e;pt=pt+1)buf[i++]=sig[pt];
       if(k>e+1)
       {
         buf[i++]='.';
-        for(pt=e+1;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+        for(pt=e+1;pt<k;pt=pt+1)buf[i++]=sig[pt];
       }
     }
     else
@@ -303,7 +385,7 @@ func putgpad(x:double,w:int,pc:int,prec:int)
       buf[i++]='0';
       buf[i++]='.';
       for(pt=0;pt<(0-e)-1;pt=pt+1)buf[i++]='0';
-      for(pt=0;pt<k;pt=pt+1)buf[i++]='0'+digs[pt];
+      for(pt=0;pt<k;pt=pt+1)buf[i++]=sig[pt];
     }
   }
   buf[i]=0;
