@@ -7,7 +7,8 @@ noted.
 
 Status legend: ✅ done · 🟡 in progress · ⏳ planned · 💭 idea
 
-Deep dives: bootstrap → [`BOOTSTRAP.md`](BOOTSTRAP.md); multi-target / multi-host
+Deep dives: bootstrap → [`BOOTSTRAP.md`](BOOTSTRAP.md); the planned IDE →
+[`IDE.md`](IDE.md); multi-target / multi-host
 → [`RETARGET.md`](RETARGET.md).
 
 ---
@@ -778,6 +779,14 @@ What turns a teaching compiler into something you'd build a project with:
   flags or environment. The test suite builds examples through the driver and
   pins separate compilation, multi-file linking, quiet/verbose behavior, error
   propagation, and path safety. Still open: a formatter and editor support
+  - ⏳ **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
+    design plan in [`IDE.md`](IDE.md). Full-screen Borland-style text UI
+    (ANSI cells, pull-down menus, F-keys), editing + building UPLNC and
+    other languages, with integrated debugging by driving `gdb --interpreter=mi`
+    over the DWARF that `-g` emits (PRs #101–#114). Would be the largest
+    UPLNC program yet and the ultimate M7 dogfood; the constraints it will
+    hit (15-char identifiers/mangles, the per-unit string pool, int-only
+    indirect-call returns) are recorded there as expected findings
 - 💭 Module/namespace system; package layout
 - ✅ Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array
