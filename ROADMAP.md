@@ -659,7 +659,7 @@ What turns a teaching compiler into something you'd build a project with:
     through it: `call *%r11` (x86_64, `%al`=0), `call *%ecx` (i386 cdecl),
     `blr x9` (arm64), `jalr t0` (riscv), and `jalr $25` on mips — which is
     exactly the `$t9` PIC convention that target already requires for direct
-    calls. Indirect calls take int/pointer args and return int/pointer;
+    calls. Indirect calls take int/pointer args and return int;
     FP args, more than `nargreg` args, and double returns through a pointer
     error cleanly. `fnptr`/`fnptr_nest` golden tests (calls through variables,
     `&f`, callbacks, composition `f(g(x))`, dispatch tables) on all five
@@ -778,15 +778,17 @@ What turns a teaching compiler into something you'd build a project with:
   Tool paths are discoverable relative to the repository and overridable by
   flags or environment. The test suite builds examples through the driver and
   pins separate compilation, multi-file linking, quiet/verbose behavior, error
-  propagation, and path safety. Still open: a formatter and editor support
+  propagation, and path safety. Still open: editor support
   - ⏳ **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
     design plan in [`IDE.md`](IDE.md). Full-screen Borland-style text UI
     (ANSI cells, pull-down menus, F-keys), editing + building UPLNC and
     other languages, with integrated debugging by driving `gdb --interpreter=mi`
-    over the DWARF that `-g` emits (PRs #101–#114). Would be the largest
-    UPLNC program yet and the ultimate M7 dogfood; the constraints it will
-    hit (15-char identifiers/mangles, the per-unit string pool, int-only
-    indirect-call returns) are recorded there as expected findings
+    over the DWARF that `-g` emits (PRs #101–#114). A narrow C portability shim
+    handles exact terminal restoration, C-width descriptor arrays/event polling,
+    and the dedicated inferior PTY. This would be the largest UPLNC program yet
+    and the ultimate M7 dogfood; the constraints it will hit (15-char
+    identifiers/mangles, the per-unit string pool, int-only indirect-call
+    returns) are recorded there as expected findings.
 - 💭 Module/namespace system; package layout
 - ✅ Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array
