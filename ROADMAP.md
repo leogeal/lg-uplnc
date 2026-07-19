@@ -778,7 +778,8 @@ What turns a teaching compiler into something you'd build a project with:
   Tool paths are discoverable relative to the repository and overridable by
   flags or environment. The test suite builds examples through the driver and
   pins separate compilation, multi-file linking, quiet/verbose behavior, error
-  propagation, and path safety. Still open: editor support
+  propagation, and path safety. Still open: a source formatter (uplncfmt),
+  and editor support
   - ⏳ **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
     design plan in [`IDE.md`](IDE.md). Full-screen Borland-style text UI
     (ANSI cells, pull-down menus, F-keys), editing + building UPLNC and
