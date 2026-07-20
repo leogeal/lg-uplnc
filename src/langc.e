@@ -3036,7 +3036,7 @@ func inittarget_elf()
   target.nsavereg=3;    /* RG_B/RG_C/RG_E free for spills (i386 ebx/esi/edi) */
   target.csrsave=0;     /* default: save regs are caller-saved (arm64/riscv/mips) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
-  target.nlocalreg=0;   /* register-rich targets override; i386/mips have none */
+  target.nlocalreg=0;   /* register-rich targets override; i386 has none */
   target.nnonleafreg=0; /* 64-bit targets override with free callee-saved regs */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment

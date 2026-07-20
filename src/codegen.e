@@ -392,8 +392,9 @@ func regspill(this:*scodegen)
     i=i+1;
   }
 }
-/* M5 promote-locals: leaf functions use free caller-saved RG_L0/RG_L1 with no
-   save cost. Profitable non-leaf candidates use callee-saved RG_N0/RG_N1. The
+/* M5 promote-locals: leaf functions use up to four free caller-saved RG_L
+   registers with no save cost. Profitable non-leaf candidates use up to four
+   callee-saved RG_N registers (targets may expose fewer of either class). The
    late pass reserves their save area by shifting every negative frame-relative
    reference; CD_STKENTER/LEAVE use the metadata below to allocate/save/restore.
    The front end marks candidates with CD_LOCAL(offset); address-taken locals
