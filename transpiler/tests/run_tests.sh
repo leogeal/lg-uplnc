@@ -234,6 +234,16 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "bad syntax diagnostic"
     fi
 
+    printf 'func main(){var == 1;}\n' > "$TMPD/uplnc_bad_local_init.e"
+    if "$LPP" "$TMPD/uplnc_bad_local_init.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_local_init.s" 2>"$TMPD/uplnc_bad_local_init.err"; then
+        bad "nameless local initializer exits nonzero"
+    elif grep -q 'expected name of variable' "$TMPD/uplnc_bad_local_init.err"; then
+        ok "nameless local initializer rejected without a store"
+    else
+        bad "nameless local initializer diagnostic"
+    fi
+
     printf "func main(){ return 'unterminated; }\n" > "$TMPD/uplnc_bad_char.e"
     timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_char.s" 2>"$TMPD/uplnc_bad_char.err" \
         < "$TMPD/uplnc_bad_char.e"
