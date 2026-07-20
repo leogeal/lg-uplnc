@@ -612,12 +612,13 @@ func cfi2(s:*char,a:int,b:int)
   return 0;
 }
 /* DWARF register number of the i-th non-leaf promotion save register
-   (RG_N0+i) on the current target: r14/r15, x19/x20, s1/s2, $16/$17. */
+   (RG_N0+i): r14/r15, x19..x22, s1..s4, $16..$19. riscv is non-contiguous
+   (s1 = x9, s2..s4 = x18..x20). */
 func dwfnsave(i:int)
 {
   if(target.arch==ARCH_X86_64)return 14+i;
   if(target.arch==ARCH_ARM64)return 19+i;
-  if(target.arch==ARCH_RISCV){if(i)return 18;return 9;}
+  if(target.arch==ARCH_RISCV){if(i)return 17+i;return 9;}
   return 16+i;   /* mips */
 }
 /* -g line info (M6): CD_LOC lowers to GNU-as `.file N "name"` / `.loc N line`
@@ -3766,7 +3767,7 @@ func icodegen()
 {
   /*fprintf(stderr,"icodegen()\n");*/
   locfname=0;nlocf=0;locfmax=0;
-  chkmem(regnames=calloc(9,sizeof(*char)));
+  chkmem(regnames=calloc(13,sizeof(*char)));
   if(target.arch==ARCH_ARM64)
   {
     /* x0 = accumulator (RG_A), x1 = 2nd operand (RG_D); x2/x3/x4 = the regspill
@@ -3778,8 +3779,12 @@ func icodegen()
     regnames[RG_E]="x4";
     regnames[RG_L0]="x11";   /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="x12";
+    regnames[RG_L2]="x13";
+    regnames[RG_L3]="x14";
     regnames[RG_N0]="x19";   /* promoted locals (non-leaf): callee-saved */
     regnames[RG_N1]="x20";
+    regnames[RG_N2]="x21";
+    regnames[RG_N3]="x22";
   }
   else if(target.arch==ARCH_RISCV)
   {
@@ -3793,8 +3798,12 @@ func icodegen()
     regnames[RG_E]="t3";
     regnames[RG_L0]="t4";    /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="t5";
+    regnames[RG_L2]="t6";
+    regnames[RG_L3]="a7";    /* dead after the entry spill in a leaf */
     regnames[RG_N0]="s1";    /* promoted locals (non-leaf): callee-saved */
     regnames[RG_N1]="s2";
+    regnames[RG_N2]="s3";
+    regnames[RG_N3]="s4";
   }
   else if(target.arch==ARCH_MIPS)
   {
@@ -3806,8 +3815,14 @@ func icodegen()
     regnames[RG_C]="$15";
     regnames[RG_D]="$3";
     regnames[RG_E]="$24";
+    regnames[RG_L0]="$8";    /* promoted locals (leaf): N64 $a4..$a7, dead */
+    regnames[RG_L1]="$9";    /* after the entry spill (a leaf makes no calls */
+    regnames[RG_L2]="$10";   /* and params are only read from their slots) */
+    regnames[RG_L3]="$11";
     regnames[RG_N0]="$16";   /* promoted locals (non-leaf): callee-saved */
     regnames[RG_N1]="$17";
+    regnames[RG_N2]="$18";
+    regnames[RG_N3]="$19";
   }
   else if(target.arch==ARCH_X86_64)
   {
@@ -3822,8 +3837,11 @@ func icodegen()
     regnames[RG_E]="%r13";
     regnames[RG_L0]="%r10";  /* promoted locals (leaf): free caller-saved */
     regnames[RG_L1]="%r11";
+    regnames[RG_L2]="%r8";   /* dead after the entry spill in a leaf; never */
+    regnames[RG_L3]="%r9";   /* touched by any op lowering */
     regnames[RG_N0]="%r14";  /* promoted locals (non-leaf): callee-saved */
-    regnames[RG_N1]="%r15";
+    regnames[RG_N1]="%r15";  /* (no more free callee-saved: rbx/r12/r13 are
+                                the regspill saves + the C-caller CSR set) */
   }
   else
   {

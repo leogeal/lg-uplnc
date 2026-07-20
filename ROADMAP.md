@@ -421,6 +421,27 @@ wins first:
     (`RG_L0`/`RG_L1`): `%r10`/`%r11` (x86_64), `x11`/`x12` (arm64), `t4`/`t5`
     (riscv); i386/mips have none free (`nlocalreg=0`, a no-op there). −48 of the
     compiler's own frame loads/stores on x86_64.
+    - ✅ **Widened to four leaf registers** (2026-07, bench-driven): `%r8`/`%r9`
+      (x86_64), `x13`/`x14` (arm64), `t6`+`a7` (riscv) — and **mips64 gains its
+      first leaf promotion** via `$8..$11`. The new registers are dead incoming
+      argument registers, which is safe precisely in a leaf: it makes no calls,
+      and parameters are only ever read from their entry-spill slots. Audited
+      free of every op lowering and each backend's ICALL scratch. Measured:
+      `matmul`'s frame references drop 41→31 with the hot k-loop's per-iteration
+      frame traffic halved (~10⁹ fewer memory ops per run); static size is
+      unchanged (promotion converts memory operands to register operands 1:1);
+      wall time on the x86_64 host is flat within a ±3% noise floor that was
+      *calibrated by timing byte-identical binaries* (mandel/fib "measured"
+      +3.2%/+2.1% with unchanged code — the honest bar every claimed win here
+      must clear).
+    - ✅ **Non-leaf N registers deliberately kept at two** after measuring: the
+      3rd/4th callee-saved promotions (`x21`/`x22`, `s3`/`s4`, `$18`/`$19` are
+      wired into the register file, `dwfnsave`, and the save machinery, but
+      `nnonleafreg` stays 2) added +2 static save/restore instructions per
+      barely-profitable promotion with no timing win above the noise floor —
+      promotion's static effect is 1:1 conversion plus pure save/restore
+      overhead, so only dynamic traffic can justify it, and nothing measurable
+      did. Raising the count later is a one-line change per target.
   - ✅ **Promote locals in non-leaf functions.** The same safety analysis now
     assigns up to two locals to free callee-saved registers: `%r14`/`%r15`
     (x86_64), `x19`/`x20` (arm64), `s1`/`s2` (riscv), and `$16`/`$17` (mips).

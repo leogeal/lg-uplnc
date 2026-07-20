@@ -201,9 +201,14 @@ func cg_print(this:*scodegen);
 #define RG_D 3
 #define RG_E 4   /* M5 regspill: 3rd save register (depth-2 spills) */
 #define RG_L0 5  /* M5 promote-locals: caller-saved regs holding promoted */
-#define RG_L1 6  /* locals in leaf functions (no save/restore needed) */
-#define RG_N0 7  /* M5 non-leaf promotion: callee-saved regs, preserved in */
-#define RG_N1 8  /* pass-reserved frame slots at function entry/exit */
+#define RG_L1 6  /* locals in leaf functions (no save/restore needed). */
+#define RG_L2 7  /* L2/L3 reuse dead incoming-argument registers where the */
+#define RG_L3 8  /* target has no other free caller-saved GPRs: safe in a */
+                 /* leaf (no calls; args are read once by the entry spill) */
+#define RG_N0 9  /* M5 non-leaf promotion: callee-saved regs, preserved in */
+#define RG_N1 10 /* pass-reserved frame slots at function entry/exit */
+#define RG_N2 11
+#define RG_N3 12
 
 func icodegen();
 func dcodegen();

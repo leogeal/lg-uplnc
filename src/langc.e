@@ -3078,7 +3078,7 @@ func inittgt_x86_64()
   target.stackslot=8;
   target.nargreg=6;    /* SysV: %rdi..%r9 */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
-  target.nlocalreg=2;  /* %r10/%r11: free caller-saved (leaf local promotion) */
+  target.nlocalreg=4;  /* %r10/%r11/%r8/%r9: caller-saved (leaf promotion) */
   target.nnonleafreg=2;/* %r14/%r15: free callee-saved (non-leaf promotion) */
   target.csrsave=1;    /* %rbx/%r12/%r13 are callee-saved -> save/restore them */
 }
@@ -3090,8 +3090,9 @@ func inittgt_arm64()
   target.stackslot=16; /* sp must stay 16-byte aligned -> push 16 per word */
   target.nargreg=6;    /* AAPCS64 has x0..x7, but we use 6 (as on x86_64) */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
-  target.nlocalreg=2;  /* x11/x12: free caller-saved (leaf local promotion) */
-  target.nnonleafreg=2;/* x19/x20: free callee-saved (non-leaf promotion) */
+  target.nlocalreg=4;  /* x11..x14: free caller-saved (leaf promotion) */
+  target.nnonleafreg=2;/* x19/x20 (x21/x22 wired but unused: the 3rd/4th
+                          promotions measured as static cost, no timing win) */
 }
 func inittgt_riscv()
 {
@@ -3103,8 +3104,8 @@ func inittgt_riscv()
   target.nargreg=8;    /* a0..a7 -- FP args share these, so 6 isn't enough */
   target.nsavereg=3;   /* RG_B/RG_C/RG_E are t1/t2/t3, distinct from t0 scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
-  target.nlocalreg=2;  /* t4/t5: free caller-saved (leaf local promotion) */
-  target.nnonleafreg=2;/* s1/s2: free callee-saved (non-leaf promotion) */
+  target.nlocalreg=4;  /* t4/t5/t6 + a7 (dead in a leaf): leaf promotion */
+  target.nnonleafreg=2;/* s1/s2 (s3/s4 wired but unused, see arm64 note) */
 }
 func inittarget_mips()
 {
@@ -3118,7 +3119,8 @@ func inittarget_mips()
   target.strictalign=1;/* ld/sd fault unless 8-aligned -> align all data to word */
   target.nsavereg=3;   /* RG_B/RG_C/RG_E are $14/$15/$24, distinct from scratch */
   target.directop=1;   /* op lowerings read the 2nd operand via r2nd() */
-  target.nnonleafreg=2;/* $16/$17: free callee-saved (non-leaf promotion) */
+  target.nlocalreg=4;  /* $8..$11 ($a4..$a7, dead in a leaf): leaf promotion */
+  target.nnonleafreg=2;/* $16/$17 ($18/$19 wired but unused, see arm64 note) */
 }
 func printlab(label:int)
 {
