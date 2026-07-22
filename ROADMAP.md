@@ -800,8 +800,9 @@ What turns a teaching compiler into something you'd build a project with:
   Tool paths are discoverable relative to the repository and overridable by
   flags or environment. The test suite builds examples through the driver and
   pins separate compilation, multi-file linking, quiet/verbose behavior, error
-  propagation, and path safety. Still open: a source formatter (uplncfmt),
-  and editor support
+  propagation, and path safety. A **source formatter** (`examples/uplncfmt.e`)
+  now exists — see the M7 examples below. Still open: editor support (the
+  planned Turbo-style IDE, [`IDE.md`](IDE.md))
   - ⏳ **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
     design plan in [`IDE.md`](IDE.md). Full-screen Borland-style text UI
     (ANSI cells, pull-down menus, F-keys), editing + building UPLNC and
@@ -890,6 +891,23 @@ What turns a teaching compiler into something you'd build a project with:
     A review follow-up made infinity detection exact, admitted the signed-word
     maximum to integer output, and added explicit embedded-NUL and stream-read
     error handling with focused regressions.
+  - ✅ `examples/uplncfmt.e` — the canonical **source formatter** (the tooling
+    item's other half), and a dogfood with a **verification unlike any other
+    example**: because `lpp1` discards exactly the whitespace it rearranges, a
+    correct formatting must compile to *byte-identical instructions*. It
+    reindents to two spaces per brace depth (braces counted only outside
+    strings, char literals, and comments — a single scan tracks that state),
+    strips trailing whitespace, pins `#`/`%%` directives to column zero, leaves
+    multi-line-comment interiors verbatim, and warns (exit 1) rather than
+    emitting a line past `lpp1`'s 158-byte limit. It is idempotent; reads
+    stdin or files; `-w` rewrites in place. **Proof:** formatting all ~140
+    `.e`/`.he` sources yields identical machine code (differences appear only
+    in langc's `#:` source-echo comments, discarded at assembly), and a
+    compiler *built from the fully reformatted `src/`* produces byte-identical
+    output on all five backends. `run_tests.sh` `[11]` pins reindentation,
+    idempotence, string/comment brace safety, the overlong-line warning,
+    error statuses, and the semantic-preservation sweep over the examples,
+    library, and the compiler's own units.
   - All build with the stage-0 tools; wc/cat/grep/sort/calc run on all **five**
     backends (grep's matcher and sort's three units are separately linked per
     target), while fmtdemo/hexdump print byte-identical output on all five.
