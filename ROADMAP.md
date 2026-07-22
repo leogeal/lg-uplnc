@@ -427,8 +427,9 @@ wins first:
       argument registers, which is safe precisely in a leaf: it makes no calls,
       and parameters are only ever read from their entry-spill slots. Audited
       free of every op lowering and each backend's ICALL scratch. Measured:
-      `matmul`'s frame references drop 41→31 with the hot k-loop's per-iteration
-      frame traffic halved (~10⁹ fewer memory ops per run); static size is
+      `matmul`'s frame references drop 41→31, eliminating all seven frame
+      accesses from each hot k-loop iteration (~365 million fewer per binary
+      execution at the benchmark's current settings); static size is
       unchanged (promotion converts memory operands to register operands 1:1);
       wall time on the x86_64 host is flat within a ±3% noise floor that was
       *calibrated by timing byte-identical binaries* (mandel/fib "measured"

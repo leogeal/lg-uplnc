@@ -234,6 +234,16 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "bad syntax diagnostic"
     fi
 
+    printf 'func main(){var == 1;}\n' > "$TMPD/uplnc_bad_local_init.e"
+    if "$LPP" "$TMPD/uplnc_bad_local_init.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_local_init.s" 2>"$TMPD/uplnc_bad_local_init.err"; then
+        bad "nameless local initializer exits nonzero"
+    elif grep -q 'expected name of variable' "$TMPD/uplnc_bad_local_init.err"; then
+        ok "nameless local initializer rejected without a store"
+    else
+        bad "nameless local initializer diagnostic"
+    fi
+
     printf "func main(){ return 'unterminated; }\n" > "$TMPD/uplnc_bad_char.e"
     timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_char.s" 2>"$TMPD/uplnc_bad_char.err" \
         < "$TMPD/uplnc_bad_char.e"
@@ -559,7 +569,7 @@ else
     bad "langc not built"
 fi
 
-echo "[5b] non-leaf promotion is ABI-safe and profitability-aware"
+echo "[5b] local promotion uses the target register budget and remains ABI-safe"
 if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
     for arch in x64 arm64 riscv mips; do
         case "$arch" in
@@ -573,7 +583,45 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
             "$LPP" "$src" 2>/dev/null \
                 | "$LANGC" "-march=$march" > "$TMPD/uplnc_nonleaf_${arch}_$name.s" 2>/dev/null
         done
+        "$LPP" tests/progs/leaf_promote4.e 2>/dev/null \
+            | "$LANGC" "-march=$march" > "$TMPD/uplnc_leaf4_$arch.s" 2>/dev/null
     done
+
+    if grep -Fq 'movq %rax, %r10' "$TMPD/uplnc_leaf4_x64.s" \
+            && grep -Fq 'movq %rax, %r11' "$TMPD/uplnc_leaf4_x64.s" \
+            && grep -Fq 'movq %rax, %r8' "$TMPD/uplnc_leaf4_x64.s" \
+            && grep -Fq 'movq %rax, %r9' "$TMPD/uplnc_leaf4_x64.s"; then
+        ok "x86_64 leaf promotion uses four caller-saved registers"
+    else
+        bad "x86_64 four-register leaf promotion"
+    fi
+
+    if grep -Fq 'mov x11, x0' "$TMPD/uplnc_leaf4_arm64.s" \
+            && grep -Fq 'mov x12, x0' "$TMPD/uplnc_leaf4_arm64.s" \
+            && grep -Fq 'mov x13, x0' "$TMPD/uplnc_leaf4_arm64.s" \
+            && grep -Fq 'mov x14, x0' "$TMPD/uplnc_leaf4_arm64.s"; then
+        ok "arm64 leaf promotion uses four caller-saved registers"
+    else
+        bad "arm64 four-register leaf promotion"
+    fi
+
+    if grep -Fq 'mv t4, a0' "$TMPD/uplnc_leaf4_riscv.s" \
+            && grep -Fq 'mv t5, a0' "$TMPD/uplnc_leaf4_riscv.s" \
+            && grep -Fq 'mv t6, a0' "$TMPD/uplnc_leaf4_riscv.s" \
+            && grep -Fq 'mv a7, a0' "$TMPD/uplnc_leaf4_riscv.s"; then
+        ok "riscv64 leaf promotion uses four caller-saved registers"
+    else
+        bad "riscv64 four-register leaf promotion"
+    fi
+
+    if grep -Fq 'move $8, $2' "$TMPD/uplnc_leaf4_mips.s" \
+            && grep -Fq 'move $9, $2' "$TMPD/uplnc_leaf4_mips.s" \
+            && grep -Fq 'move $10, $2' "$TMPD/uplnc_leaf4_mips.s" \
+            && grep -Fq 'move $11, $2' "$TMPD/uplnc_leaf4_mips.s"; then
+        ok "mips64 leaf promotion uses four caller-saved registers"
+    else
+        bad "mips64 four-register leaf promotion"
+    fi
 
     if grep -Fq 'movq %r14, -16(%rbp)' "$TMPD/uplnc_nonleaf_x64_promote.s" \
             && grep -Fq 'movq -16(%rbp), %r14' "$TMPD/uplnc_nonleaf_x64_promote.s" \

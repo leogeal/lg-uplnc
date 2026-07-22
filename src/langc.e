@@ -2282,7 +2282,7 @@ func dolocvar()
   lst=lptr=0;
   lpom=&lst;
   istyp=0;
-  wcnst=0;hasinit=0;
+  wcnst=0;hasinit=0;idx=0;
   while(amatch("const",5))wcnst=1;   /* M6: var const TYPE:name (local) */
   if(cbtype())
   {
@@ -2383,12 +2383,17 @@ func dolocvar()
        here and rejected on any later assignment. idx is that last variable. */
     inode=hier1();
     foldtree(inode);
-    prestemps(inode);
-    if(treetocode(inode,&ilv))rvalue(&ilv);
-    irt=ilv.typ;
-    convto(typ,irt);
-    ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
-    store(&ilv);
+    /* A malformed name-first declaration (for example `var == 1`) has no
+       symbol. Parse its initializer to stay synchronized, but emit no store. */
+    if(idx)
+    {
+      prestemps(inode);
+      if(treetocode(inode,&ilv))rvalue(&ilv);
+      irt=ilv.typ;
+      convto(typ,irt);
+      ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
+      store(&ilv);
+    }
     delenode(inode);
     blanks();
     if(ch()==',')
@@ -3036,7 +3041,7 @@ func inittarget_elf()
   target.nsavereg=3;    /* RG_B/RG_C/RG_E free for spills (i386 ebx/esi/edi) */
   target.csrsave=0;     /* default: save regs are caller-saved (arm64/riscv/mips) */
   target.directop=0;    /* backends opt in once their op lowerings use r2nd() */
-  target.nlocalreg=0;   /* register-rich targets override; i386/mips have none */
+  target.nlocalreg=0;   /* register-rich targets override; i386 has none */
   target.nnonleafreg=0; /* 64-bit targets override with free callee-saved regs */
 }
 /* round a data size/offset up to the alignment unit: a word on strict-alignment
