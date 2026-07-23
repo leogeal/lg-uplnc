@@ -297,6 +297,18 @@ func tempname(n:*char):*char
   return p;
 }
 
+/* A C `int` return arrives in the low 32 bits with an unspecified upper half
+   on x86_64/arm64, so mkstemp's -1 would not compare < 0 there. Recover the
+   signed value on every target: on 8-byte-int targets shift the low half up
+   and arithmetically back down; on i386 the value is already exact. (The
+   nonzero-means-failure calls need no such care -- an unextended nonzero is
+   still nonzero.) */
+func cint(v:int)
+{
+  if(sizeof(int)==4)return v;
+  return (v<<32)>>32;
+}
+
 /* Atomically replace n only after a complete, flushed temporary file exists.
    realpath keeps -w on a symlink operating on its target, as fopen did. */
 func fmtwrite(n:*char)
@@ -323,7 +335,7 @@ func fmtwrite(n:*char)
     free(real);
     return 0;
   }
-  fd=mkstemp(tmp);
+  fd=cint(mkstemp(tmp));
   if(fd<0)
   {
     fprintf(stderr,"uplncfmt: cannot create temporary file for %s\n",n);
