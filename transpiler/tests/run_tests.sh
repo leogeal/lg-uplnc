@@ -1299,6 +1299,15 @@ else
         cmp -s "$TMPD/uplnc_fmt_orig.s" "$TMPD/uplnc_fmt_fmtd.s" \
             && ok "uplncfmt preserves semantics with braces in strings/comments" \
             || bad "uplncfmt string/comment brace handling"
+        # replacement-text braces on directives do not belong to the current
+        # source location and must not shift the following top-level code
+        printf '#define OPEN {\nfunc h()\n{\nreturn 0;\n}\n' > "$TMPD/uplnc_fmt_directive.e"
+        printf '#define OPEN {\nfunc h()\n{\n  return 0;\n}\n' > "$TMPD/uplnc_fmt_directive.want"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_directive.e" \
+            > "$TMPD/uplnc_fmt_directive.out" 2>/dev/null
+        cmp -s "$TMPD/uplnc_fmt_directive.out" "$TMPD/uplnc_fmt_directive.want" \
+            && ok "uplncfmt ignores braces in directive replacement text" \
+            || bad "uplncfmt directive brace handling"
         # the flagship: formatting real sources compiles to byte-identical
         # instructions. -w rewrites a copy beside the original so any relative
         # #include (grep_match.he) still resolves; the compiler's own units and
@@ -1330,6 +1339,33 @@ else
         [ "$?" = 1 ] && grep -q 'exceeds 158 bytes' "$TMPD/uplnc_fmt_long.err" \
             && ok "uplncfmt warns and exits 1 on an over-long formatted line" \
             || bad "uplncfmt overlong-line warning"
+        # Physical lines are not capped by an internal scratch buffer. The
+        # warning is expected, but every byte must survive, especially with -w.
+        python3 -c 'print("x"*5000)' > "$TMPD/uplnc_fmt_verylong.e"
+        cp "$TMPD/uplnc_fmt_verylong.e" "$TMPD/uplnc_fmt_verylong.want"
+        timeout 5 "$FMT" -w "$TMPD/uplnc_fmt_verylong.e" 2>/dev/null
+        [ "$?" = 1 ] && cmp -s "$TMPD/uplnc_fmt_verylong.e" "$TMPD/uplnc_fmt_verylong.want" \
+            && ok "uplncfmt -w preserves physical lines beyond 4095 bytes" \
+            || bad "uplncfmt physical-line preservation"
+        # Atomic replacement retains mode bits and follows a symlink rather
+        # than replacing the link itself.
+        printf 'func z()\n{\nreturn 0;\n}\n' > "$TMPD/uplnc_fmt_mode.e"
+        chmod 755 "$TMPD/uplnc_fmt_mode.e"
+        ln -s "$TMPD/uplnc_fmt_mode.e" "$TMPD/uplnc_fmt_link.e"
+        timeout 5 "$FMT" -w "$TMPD/uplnc_fmt_link.e" 2>/dev/null
+        fmt_rc=$?
+        mode=$(stat -c %a "$TMPD/uplnc_fmt_mode.e")
+        [ "$fmt_rc" = 0 ] && [ -L "$TMPD/uplnc_fmt_link.e" ] && [ "$mode" = 755 ] \
+            && grep -q '^  return 0;$' "$TMPD/uplnc_fmt_mode.e" \
+            && ok "uplncfmt -w preserves modes and symlink identity" \
+            || bad "uplncfmt atomic replacement metadata"
+        # Buffered output failures must be visible to scripts.
+        if [ -e /dev/full ]; then
+            timeout 5 "$FMT" "$TMPD/uplnc_fmt_want.e" > /dev/full 2>"$TMPD/uplnc_fmt_full.err"
+            [ "$?" = 2 ] && grep -q 'write error' "$TMPD/uplnc_fmt_full.err" \
+                && ok "uplncfmt reports output write failures" \
+                || bad "uplncfmt output failure status"
+        fi
         # usage/error statuses
         timeout 5 "$FMT" -z </dev/null >/dev/null 2>&1; [ "$?" = 2 ] \
             && ok "uplncfmt rejects unknown options (status 2)" || bad "uplncfmt usage"

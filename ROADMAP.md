@@ -900,11 +900,12 @@ What turns a teaching compiler into something you'd build a project with:
     strips trailing whitespace, pins `#`/`%%` directives to column zero, leaves
     multi-line-comment interiors verbatim, and warns (exit 1) rather than
     emitting a line past `lpp1`'s 158-byte limit. It is idempotent; reads
-    stdin or files; `-w` rewrites in place. **Proof:** formatting all ~140
+    stdin or files; `-w` rewrites atomically. **Proof:** formatting all ~140
     `.e`/`.he` sources yields identical machine code (differences appear only
     in langc's `#:` source-echo comments, discarded at assembly), and a
     compiler *built from the fully reformatted `src/`* produces byte-identical
-    output on all five backends. `run_tests.sh` `[11]` pins reindentation,
+    output on all five backends. The replacement preserves mode bits and
+    symlink identity. `run_tests.sh` `[11]` pins reindentation,
     idempotence, string/comment brace safety, the overlong-line warning,
     error statuses, and the semantic-preservation sweep over the examples,
     library, and the compiler's own units.
