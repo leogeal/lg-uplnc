@@ -1268,6 +1268,76 @@ else
     else
         bad "calc.e + lib/fmt.e build"
     fi
+
+    # uplncfmt.e: the source formatter. Its correctness bar is unique -- a
+    # formatted source must compile to the SAME instructions, since lpp1
+    # discards exactly the whitespace it rearranges. langc echoes each source
+    # line as a `#:` assembler comment (reflecting the reindentation), so the
+    # semantic-preservation check compares the emitted code with those echo
+    # comments stripped.
+    if FMT=$(buildutil uplncfmt); then
+        # basic reindentation + idempotence, on a deliberately messy input
+        printf 'func f()\n{\nvar int:x;\n    if(x){\n  x=1;\n      }\nreturn x;\n}\n' \
+            > "$TMPD/uplnc_fmt_in.e"
+        printf 'func f()\n{\n  var int:x;\n  if(x){\n    x=1;\n  }\n  return x;\n}\n' \
+            > "$TMPD/uplnc_fmt_want.e"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_in.e" > "$TMPD/uplnc_fmt_out.e" 2>/dev/null
+        cmp -s "$TMPD/uplnc_fmt_out.e" "$TMPD/uplnc_fmt_want.e" \
+            && ok "uplncfmt reindents to canonical two-space depth" \
+            || bad "uplncfmt reindentation"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_out.e" > "$TMPD/uplnc_fmt_out2.e" 2>/dev/null
+        cmp -s "$TMPD/uplnc_fmt_out.e" "$TMPD/uplnc_fmt_out2.e" \
+            && ok "uplncfmt is idempotent" || bad "uplncfmt idempotence"
+        # braces inside strings/char-literals/comments must not move indentation
+        printf 'func g(t:*char)\n{\nif(t[0]=='"'"'{'"'"'){\nt="a{b}c";   /* } { */\nreturn 0;\n}\nreturn 1;\n}\n' \
+            > "$TMPD/uplnc_fmt_tricky.e"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_tricky.e" > "$TMPD/uplnc_fmt_tricky.out" 2>/dev/null
+        "$LPP" "$TMPD/uplnc_fmt_tricky.e" 2>/dev/null | "$LANGC" -march=x86_64 2>/dev/null \
+            | grep -v '^#' > "$TMPD/uplnc_fmt_orig.s"
+        "$LPP" "$TMPD/uplnc_fmt_tricky.out" 2>/dev/null | "$LANGC" -march=x86_64 2>/dev/null \
+            | grep -v '^#' > "$TMPD/uplnc_fmt_fmtd.s"
+        cmp -s "$TMPD/uplnc_fmt_orig.s" "$TMPD/uplnc_fmt_fmtd.s" \
+            && ok "uplncfmt preserves semantics with braces in strings/comments" \
+            || bad "uplncfmt string/comment brace handling"
+        # the flagship: formatting real sources compiles to byte-identical
+        # instructions. -w rewrites a copy beside the original so any relative
+        # #include (grep_match.he) still resolves; the compiler's own units and
+        # a macro-using multi-unit example are the sharpest cases.
+        fmt_bad=0
+        fmtdir="$TMPD/uplnc_fmt_src"
+        mkdir -p "$fmtdir"
+        cp ../examples/*.e ../examples/*.he ../lib/*.e ../lib/*.he ../src/*.e ../src/*.he "$fmtdir/" 2>/dev/null
+        for u in wc.e cat.e grep_match.e grep_match.he sort_lines.e fmt.e langc.e codegen.e lpp1.e; do
+            [ -f "$fmtdir/$u" ] && timeout 15 "$FMT" -w "$fmtdir/$u" 2>/dev/null
+        done
+        for u in wc.e cat.e grep_match.e sort_lines.e fmt.e langc.e codegen.e lpp1.e; do
+            case "$u" in wc.e|cat.e|grep_match.e) o="../examples/$u";;
+                         sort_lines.e) o="../examples/$u";;
+                         fmt.e) o="../lib/$u";; *) o="../src/$u";; esac
+            "$LPP" "$o" 2>/dev/null | "$LANGC" -march=x86_64 2>/dev/null \
+                | grep -v '^#' > "$TMPD/uplnc_fmt_ua.s"
+            "$LPP" "$fmtdir/$u" 2>/dev/null | "$LANGC" -march=x86_64 2>/dev/null \
+                | grep -v '^#' > "$TMPD/uplnc_fmt_ub.s"
+            cmp -s "$TMPD/uplnc_fmt_ua.s" "$TMPD/uplnc_fmt_ub.s" || { fmt_bad=1; echo "         $u differs"; }
+        done
+        [ "$fmt_bad" = 0 ] \
+            && ok "uplncfmt formats examples, lib, and the compiler without changing code" \
+            || bad "uplncfmt semantic preservation on real sources"
+        # a line that overflows 158 bytes after formatting warns and exits 1
+        printf 'func f()\n{\n  var int:%s;\n}\n' "$(python3 -c 'print("x"*155)')" \
+            > "$TMPD/uplnc_fmt_long.e"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_long.e" >/dev/null 2>"$TMPD/uplnc_fmt_long.err"
+        [ "$?" = 1 ] && grep -q 'exceeds 158 bytes' "$TMPD/uplnc_fmt_long.err" \
+            && ok "uplncfmt warns and exits 1 on an over-long formatted line" \
+            || bad "uplncfmt overlong-line warning"
+        # usage/error statuses
+        timeout 5 "$FMT" -z </dev/null >/dev/null 2>&1; [ "$?" = 2 ] \
+            && ok "uplncfmt rejects unknown options (status 2)" || bad "uplncfmt usage"
+        timeout 5 "$FMT" "$TMPD/uplnc_fmt_absent.e" >/dev/null 2>&1; [ "$?" = 2 ] \
+            && ok "uplncfmt reports a missing file (status 2)" || bad "uplncfmt missing file"
+    else
+        bad "uplncfmt.e build"
+    fi
 fi
 
 echo "[12] -g debug info: .file/.loc line tables, with machine code unchanged"
