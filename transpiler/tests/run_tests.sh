@@ -1359,6 +1359,22 @@ else
             && grep -q '^  return 0;$' "$TMPD/uplnc_fmt_mode.e" \
             && ok "uplncfmt -w preserves modes and symlink identity" \
             || bad "uplncfmt atomic replacement metadata"
+        # A failed temp-file creation must be diagnosed as such (mkstemp's C
+        # `int` -1 is unextended on 64-bit-word targets; cint() recovers the
+        # sign so the fd<0 check fires and the message is accurate) and the
+        # original file left byte-for-byte intact.
+        mkdir -p "$TMPD/uplnc_fmt_rodir"
+        printf 'func q()\n{\nreturn 1;\n}\n' > "$TMPD/uplnc_fmt_rodir/f.e"
+        cp "$TMPD/uplnc_fmt_rodir/f.e" "$TMPD/uplnc_fmt_rodir_orig"
+        chmod 555 "$TMPD/uplnc_fmt_rodir"
+        timeout 5 "$FMT" -w "$TMPD/uplnc_fmt_rodir/f.e" 2>"$TMPD/uplnc_fmt_rodir.err"
+        fmt_rc=$?
+        chmod 755 "$TMPD/uplnc_fmt_rodir"
+        [ "$fmt_rc" = 2 ] \
+            && grep -q 'cannot create temporary file' "$TMPD/uplnc_fmt_rodir.err" \
+            && cmp -s "$TMPD/uplnc_fmt_rodir/f.e" "$TMPD/uplnc_fmt_rodir_orig" \
+            && ok "uplncfmt diagnoses a failed temp file and keeps the original" \
+            || bad "uplncfmt temp-file failure handling"
         # Buffered output failures must be visible to scripts.
         if [ -e /dev/full ]; then
             timeout 5 "$FMT" "$TMPD/uplnc_fmt_want.e" > /dev/full 2>"$TMPD/uplnc_fmt_full.err"
