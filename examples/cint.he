@@ -1,0 +1,10 @@
+/* Recover a signed C `int` return from the low 32 bits of a UPLNC word.
+   The upper bits are not part of the C return value and may be unspecified.
+   Reconstructing INT_MIN as -2147483647-1 keeps every intermediate in range. */
+func cint(v:int)
+{
+  var int:low;
+  low=v&2147483647;
+  if((v>>31)&1)return low-2147483647-1;
+  return low;
+}
