@@ -18,6 +18,8 @@
 
    Exit status: 0 clean, 1 with warnings, 2 on usage or I/O errors. */
 
+#include "cint.he"
+
 func malloc(n:int);
 func realloc(p:int,n:int);
 func free(p:int);
@@ -295,18 +297,6 @@ func tempname(n:*char):*char
   j=0;while(s[j]){p[i+j]=s[j];j++;}
   p[i+j]=0;
   return p;
-}
-
-/* A C `int` return arrives in the low 32 bits with an unspecified upper half
-   on x86_64/arm64, so mkstemp's -1 would not compare < 0 there. Recover the
-   signed value on every target: on 8-byte-int targets shift the low half up
-   and arithmetically back down; on i386 the value is already exact. (The
-   nonzero-means-failure calls need no such care -- an unextended nonzero is
-   still nonzero.) */
-func cint(v:int)
-{
-  if(sizeof(int)==4)return v;
-  return (v<<32)>>32;
 }
 
 /* Atomically replace n only after a complete, flushed temporary file exists.
