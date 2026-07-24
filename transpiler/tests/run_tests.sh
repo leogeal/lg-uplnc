@@ -1676,6 +1676,132 @@ DBGEOF
             bad "gdb parameter/global metadata"
         fi
     fi
+
+    # debug part 3: register-promoted locals carry DW_OP_reg locations (they
+    # used to be "optimized out"), and the CU carries DW_AT_comp_dir. leafsum's
+    # s/i live in caller-saved leaf registers; outersum's acc/i live in the
+    # callee-saved non-leaf registers, which inner reuses for its own k/t -- so
+    # reading outersum's values from inside inner forces the debugger through
+    # the prologue's .cfi_offset save slots.
+    cat > "$TMPD/uplnc_dbg3.e" <<'DBGEOF'
+func leafsum(n:int)
+{
+  var int:i,s;
+  s=0;
+  i=1;
+  while(i<=n)
+  {
+    s=s+i;
+    i=i+1;
+  }
+  return s;
+}
+func inner(v:int)
+{
+  var int:k,t;
+  t=0;
+  k=0;
+  while(k<v)
+  {
+    t=t+leafsum(k);
+    k=k+1;
+  }
+  return t+v;
+}
+func outersum(n:int)
+{
+  var int:i,acc;
+  acc=0;
+  i=0;
+  while(i<n)
+  {
+    acc=acc+inner(i);
+    i=i+1;
+  }
+  return acc;
+}
+func main()
+{
+  var int:r;
+  r=leafsum(10)+outersum(4);
+  if(r==66)return 42;
+  return 1;
+}
+DBGEOF
+    if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_dbg3_bin" \
+            "$TMPD/uplnc_dbg3.e" >/dev/null 2>&1 \
+            && "$TMPD/uplnc_dbg3_bin"; [ $? = 42 ]; then
+        ok "debug-part3 test binary builds and runs (42)"
+    else
+        bad "debug-part3 build/run"
+    fi
+    if command -v readelf >/dev/null; then
+        readelf --debug-dump=info "$TMPD/uplnc_dbg3_bin" \
+            > "$TMPD/uplnc_dbg3.info" 2>/dev/null
+        if grep -q 'DW_OP_reg10' "$TMPD/uplnc_dbg3.info" \
+                && grep -q 'DW_OP_reg14' "$TMPD/uplnc_dbg3.info" \
+                && grep -q 'DW_AT_comp_dir' "$TMPD/uplnc_dbg3.info"; then
+            ok "-g promoted locals get DW_OP_reg locations; CU gets comp_dir"
+        else
+            bad "-g register-location/comp_dir DIEs"
+        fi
+    fi
+    if command -v gdb >/dev/null; then
+        # Stop 1: leafsum(10) from main (its first call): s=55, i=11 from the
+        # live leaf registers. Stop 2: the 4th arrival at inner's return is
+        # inner(3): t=4, k=3 from inner's own registers, then outersum's
+        # acc=4, i=3 recovered from the CFI save slots under them.
+        gdb -batch -q \
+            -ex 'break uplnc_dbg3.e:11' -ex run -ex 'print s' -ex 'print i' \
+            -ex 'delete' \
+            -ex 'break uplnc_dbg3.e:23' -ex 'ignore 2 3' -ex continue \
+            -ex 'print t' -ex 'print k' \
+            -ex 'frame 1' -ex 'print acc' -ex 'print i' \
+            "$TMPD/uplnc_dbg3_bin" > "$TMPD/uplnc_dbg3.gdb" 2>/dev/null
+        if grep -q '^\$1 = 55$' "$TMPD/uplnc_dbg3.gdb" \
+                && grep -q '^\$2 = 11$' "$TMPD/uplnc_dbg3.gdb" \
+                && grep -q '^\$3 = 4$' "$TMPD/uplnc_dbg3.gdb" \
+                && grep -q '^\$4 = 3$' "$TMPD/uplnc_dbg3.gdb" \
+                && grep -q '^\$5 = 4$' "$TMPD/uplnc_dbg3.gdb" \
+                && grep -q '^\$6 = 3$' "$TMPD/uplnc_dbg3.gdb" \
+                && ! grep -q 'optimized out' "$TMPD/uplnc_dbg3.gdb"; then
+            ok "gdb prints promoted locals, including an outer frame's via CFI"
+        else
+            bad "gdb promoted-local register locations"
+        fi
+        # comp_dir end to end: compile with a relative source path, then make
+        # gdb resolve the source from an unrelated working directory.
+        ( cd "$TMPD" && perl "$DRIVER" -march=x86_64 -g -o uplnc_dbg3_rel \
+            uplnc_dbg3.e ) >/dev/null 2>&1
+        ( cd / && gdb -batch -q -ex 'break uplnc_dbg3.e:11' -ex run \
+            -ex 'info source' "$TMPD/uplnc_dbg3_rel" ) \
+            > "$TMPD/uplnc_dbg3_rel.gdb" 2>/dev/null
+        if grep -q 'Located in.*/uplnc_dbg3\.e' "$TMPD/uplnc_dbg3_rel.gdb"; then
+            ok "comp_dir resolves a relative-path build from another directory"
+        else
+            bad "comp_dir source resolution"
+        fi
+    fi
+    # The same DIEs on the cross backends, checked in the emitted assembly
+    # (toolchain-free): each variable location is a 1-byte exprloc whose
+    # operand is DW_OP_reg0+n = 80+n for that target's leaf/non-leaf registers.
+    while read -r xarch leafb nonleafb; do
+        "$TDIR/build/lpp1" "$TMPD/uplnc_dbg3.e" 2>/dev/null \
+            | "$TDIR/build/langc" -march="$xarch" -g \
+            > "$TMPD/uplnc_dbg3_$xarch.s" 2>/dev/null
+        if grep -A1 '\.uleb128 1$' "$TMPD/uplnc_dbg3_$xarch.s" \
+                | grep -q "\.byte $leafb\$" \
+                && grep -A1 '\.uleb128 1$' "$TMPD/uplnc_dbg3_$xarch.s" \
+                | grep -q "\.byte $nonleafb\$"; then
+            ok "$xarch -g promoted locals get DW_OP_reg (bytes $leafb/$nonleafb)"
+        else
+            bad "$xarch -g register-location DIEs"
+        fi
+    done <<'XREGEOF'
+arm64 91 99
+riscv64 109 89
+mips64 88 96
+XREGEOF
     ;;
 *)
     echo "  skip - host is not x86_64"

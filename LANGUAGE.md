@@ -693,13 +693,18 @@ With `-g` a DWARF debugger can set breakpoints by file and line, step by
 statement, produce call-stack backtraces with parameter values, and evaluate
 variables: parameters, locals, and defined globals are typed (including
 structure members, pointers, and arrays), so `print`, `info locals`, and
-`ptype` work. Two accuracy rules are deliberate: a local that the optimizer
-promoted into a register is reported without a location (the debugger says it
-is optimized out rather than showing a stale frame slot), and block-scoped
-locals appear as plain function-level variables, so two block locals sharing a
-name are both listed. Line and file attribution follows the preprocessor's
-line markers across `#include`, and separately compiled `-g` units link with
-each unit's line table intact.
+`ptype` work. A local that the optimizer promoted into a register carries a
+location naming that register, which is exact for the whole function body
+(promotion assigns one register for the function's lifetime); the callee-saved
+registers used in non-leaf functions are covered by unwind annotations, so a
+promoted variable in an outer frame is read from its save slot even when the
+current frame reuses the same register. The compile unit records the compile-
+time working directory (`DW_AT_comp_dir`), so sources named by relative paths
+are found from any directory the debugger runs in. One accuracy rule is
+deliberate: block-scoped locals appear as plain function-level variables, so
+two block locals sharing a name are both listed. Line and file attribution
+follows the preprocessor's line markers across `#include`, and separately
+compiled `-g` units link with each unit's line table intact.
 
 ## 13. Undefined and Unspecified Behavior
 

@@ -584,6 +584,19 @@ What turns a teaching compiler into something you'd build a project with:
     CI too; the strip-diff `[12]` equality gate covers the new output on all
     five backends. Remaining ideas: lexical-block scoping for shadowed block
     locals, and location lists for promoted locals
+  - ✅ **Part 3: register locations for promoted locals + `comp_dir`** —
+    promoted locals are no longer `<optimized out>`: the promotion pass
+    records each promoted offset's register, and `dbgvar` emits a one-byte
+    `DW_OP_reg0+n` exprloc (`dwpromreg` maps every RG_L/RG_N slot to its
+    DWARF number on all four promoting backends; i386 promotes nothing). No
+    location lists needed: promotion assigns one register for the whole
+    function body, and part 2's `.cfi_offset` on the non-leaf saves already
+    lets the debugger recover an outer frame's promoted values even when the
+    inner frame reuses the same callee-saved registers (gdb-verified:
+    `frame 1; print acc` reads the save slot, not the live register). The CU
+    also gains `DW_AT_comp_dir` (compile-time `getcwd`), so relative-path
+    builds resolve their sources from any debugger working directory.
+    Remaining idea: lexical-block scoping for shadowed block locals
 - ✅ ternary `?:` operator (was parsed but "to be implemented"; now codegen'd
   via `ct_COND`, dogfooded in the compiler's own source)
 - 🟡 Language gaps:
