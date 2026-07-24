@@ -402,18 +402,29 @@ func regspill(this:*scodegen)
 #define PROMLOC_MAX 512
 var prom_nreg:int;
 var prom_shift:int;
-/* -g: which frame offsets were register-promoted by the LAST cg_print, and by
-   how much the surviving negative offsets were shifted -- langc's DWARF
-   variable emitter (dumpfndbg) asks after each function: a promoted local gets
-   no location (honest "optimized out"), a memory local gets its post-shift
-   frame offset. */
+/* -g: which frame offsets were register-promoted by the LAST cg_print, into
+   which register, and by how much the surviving negative offsets were
+   shifted -- langc's DWARF variable emitter (dumpfndbg) asks after each
+   function: a promoted local gets a DW_OP_reg location naming its register
+   (debug part 3; the whole live range is in that one register, so no
+   location list is needed), a memory local gets its post-shift frame
+   offset. */
 var prom_offlist:[PROMLOC_MAX]int;
+var prom_reglist:[PROMLOC_MAX]int;
 var prom_noff:int;
 func dbgpromoted(off:int)
 {
   var int:i;
   for(i=0;i<prom_noff;i++)if(prom_offlist[i]==off)return 1;
   return 0;
+}
+/* DWARF register number holding promoted frame offset off, or -1 */
+func dbgpromreg(off:int)
+{
+  var int:i;
+  for(i=0;i<prom_noff;i++)
+  if(prom_offlist[i]==off)return dwpromreg(prom_reglist[i]);
+  return 0-1;
 }
 func dbgpromshift()
 {
@@ -519,7 +530,12 @@ func promote_locals(this:*scodegen)
   {
     taken=0;
     for(j=0;j<prom_noff;j++)if(prom_offlist[j]==cand[i])taken=1;
-    if(!taken){prom_offlist[prom_noff]=cand[i];prom_noff=prom_noff+1;}
+    if(!taken)
+    {
+      prom_offlist[prom_noff]=cand[i];
+      prom_reglist[prom_noff]=creg[i];
+      prom_noff=prom_noff+1;
+    }
   }
   for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
   {
@@ -612,15 +628,37 @@ func cfi2(s:*char,a:int,b:int)
   ot(".cfi_");outstr(s);outstr(" ");outdec(a);outstr(", ");outdec(b);nl();
   return 0;
 }
-/* DWARF register number of the i-th non-leaf promotion save register
-   (RG_N0+i): r14/r15, x19..x22, s1..s4, $16..$19. riscv is non-contiguous
-   (s1 = x9, s2..s4 = x18..x20). */
+/* DWARF register number of promotion register r (an RG_L/RG_N index), or -1
+   if this target has none there. Non-leaf saves (RG_N0+i): r14/r15, x19..x22,
+   s1..s4, $16..$19; riscv is non-contiguous (s1 = x9, s2..s4 = x18..x20).
+   Leaf registers (RG_L0+i): r10/r11/r8/r9, x11..x14, t4/t5/t6/a7 (x29..x31,
+   x17), $8..$11. All are below 32, so a variable DIE can use the one-byte
+   DW_OP_reg0+n form. */
+func dwpromreg(r:int)
+{
+  var int:i;
+  if(r>=RG_N0)
+  {
+    i=r-RG_N0;
+    if(target.arch==ARCH_X86_64)return 14+i;
+    if(target.arch==ARCH_ARM64)return 19+i;
+    if(target.arch==ARCH_RISCV){if(i)return 17+i;return 9;}
+    if(target.arch==ARCH_MIPS)return 16+i;
+    return 0-1;
+  }
+  if(r>=RG_L0)
+  {
+    i=r-RG_L0;
+    if(target.arch==ARCH_X86_64){if(i==0)return 10;if(i==1)return 11;if(i==2)return 8;return 9;}
+    if(target.arch==ARCH_ARM64)return 11+i;
+    if(target.arch==ARCH_RISCV){if(i==3)return 17;return 29+i;}
+    if(target.arch==ARCH_MIPS)return 8+i;
+  }
+  return 0-1;
+}
 func dwfnsave(i:int)
 {
-  if(target.arch==ARCH_X86_64)return 14+i;
-  if(target.arch==ARCH_ARM64)return 19+i;
-  if(target.arch==ARCH_RISCV){if(i)return 17+i;return 9;}
-  return 16+i;   /* mips */
+  return dwpromreg(RG_N0+i);
 }
 /* -g line info (M6): CD_LOC lowers to GNU-as `.file N "name"` / `.loc N line`
    directives, which make the assembler build the DWARF .debug_line table --

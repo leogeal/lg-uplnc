@@ -1350,8 +1350,11 @@ func domethod()
    (emitted by dumpdbgtail, when all types are known). Variables use
    DW_OP_fbreg against a frame base of DW_OP_breg<frame reg>, i.e. the same
    frame-pointer-relative offsets the generated code uses; register-promoted
-   locals get a DIE without location (gdb reports them "optimized out" rather
-   than showing a stale frame slot). Block-scoped locals are harvested by
+   locals get a DW_OP_reg location naming their register (debug part 3 --
+   exact for the whole body, since promotion assigns one register for the
+   function's lifetime, and outer-frame reads recover saved non-leaf
+   registers through the prologue's .cfi_offset). Block-scoped locals are
+   harvested by
    ssymtabcut into dbgloclst; they get plain variable DIEs, not lexical
    blocks, so two block locals sharing one name are both listed. */
 func dbglocadd(nm:*char,typ:int,off:int)
@@ -1394,12 +1397,14 @@ func dab(at:int,form:int){duleb(at);duleb(form);}
    line-marker file -- is only known once parsing has started). */
 func dumpdbghdr(hasline:int)
 {
+  var [4096]char:cwd;
   ot(".section .debug_abbrev");nl();
   outstr(".Ldebug_abbrev0");col();nl();
   duleb(1);duleb(17);dbyte(1);            /* compile_unit, has children */
   dab(37,8);                              /* producer, string */
   dab(19,11);                             /* language, data1 */
   dab(3,8);                               /* name, string */
+  dab(27,8);                              /* comp_dir, string */
   dab(17,1);                              /* low_pc, addr */
   dab(18,6);                              /* high_pc, data4 length */
   dab(16,23);                             /* stmt_list, sec_offset */
@@ -1446,7 +1451,7 @@ func dumpdbghdr(hasline:int)
   duleb(14);duleb(24);dbyte(0);            /* unspecified_parameters (...) */
   dbyte(0);dbyte(0);
   duleb(15);duleb(17);dbyte(1);            /* compile_unit without stmt_list */
-  dab(37,8);dab(19,11);dab(3,8);
+  dab(37,8);dab(19,11);dab(3,8);dab(27,8);
   dab(17,1);dab(18,6);
   dbyte(0);dbyte(0);
   dbyte(0);                               /* end of abbreviations */
@@ -1461,6 +1466,10 @@ func dumpdbghdr(hasline:int)
   dstrz("UPLNC langc");
   dbyte(1);                               /* DW_LANG_C89 */
   dstrz(dbgmain);
+  /* comp_dir lets the debugger resolve relative source names in .debug_line
+     and the CU name from any working directory */
+  if(!getcwd(cwd,4096))cwd[0]=0;
+  dstrz(cwd);
   if(target.wordsize==8){ot(".8byte .Ltext0");nl();}
   else{ot(".4byte .Ltext0");nl();}
   ot(".4byte .Letext0-.Ltext0");nl();
@@ -1472,13 +1481,22 @@ func dumpdbghdr(hasline:int)
    holds the function-scope names; block locals come from dbgloclst. */
 func dbgvar(nm:*char,typ:int,off:int,ispar:int)
 {
-  var int:shifted;
+  var int:shifted,r;
   if(!an(nm[0]))return 0;                 /* internal names like `0sret` */
   if(dbgpromoted(off))
   {
-    duleb(5);                             /* variable, no location */
+    r=dbgpromreg(off);
+    if(r<0)
+    {
+      duleb(5);                           /* no known register: no location */
+      dstrz(nm);
+      dref(typ);
+      return 0;
+    }
+    if(ispar)duleb(3);else duleb(4);
     dstrz(nm);
     dref(typ);
+    duleb(1);dbyte(80+r);                 /* exprloc: DW_OP_reg0+r */
     return 0;
   }
   shifted=off;
