@@ -167,6 +167,7 @@
 #define CD_BYTECONV 156 /* accumulator low byte -> word; arg=1 sign, 0 zero */
 #define CD_LOC     157 /* -g: arg=line, str=file -> .file/.loc, no code; arg is a LINE so never add it to promframeop */
 #define CD_PARAM   158 /* promote-locals marker after the arg spills: promotable parameter at arg(fp); if promoted, becomes its register init load */
+#define CD_PROMSTART 159 /* -g: label after parameter spills/promotion loads; parameter locations start here */
 #define FCMP_EQ 0
 #define FCMP_NE 1
 #define FCMP_GT 2

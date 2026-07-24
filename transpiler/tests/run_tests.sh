@@ -585,6 +585,8 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         done
         "$LPP" tests/progs/leaf_promote4.e 2>/dev/null \
             | "$LANGC" "-march=$march" > "$TMPD/uplnc_leaf4_$arch.s" 2>/dev/null
+        "$LPP" tests/progs/param_promote.e 2>/dev/null \
+            | "$LANGC" "-march=$march" > "$TMPD/uplnc_param_$arch.s" 2>/dev/null
     done
 
     if grep -Fq 'movq %rax, %r10' "$TMPD/uplnc_leaf4_x64.s" \
@@ -594,6 +596,27 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         ok "x86_64 leaf promotion uses four caller-saved registers"
     else
         bad "x86_64 four-register leaf promotion"
+    fi
+
+    awk '/^switchp:$/ { inside=1 }
+         inside && /^forp:$/ { exit }
+         inside { print }' \
+        "$TMPD/uplnc_param_x64.s" > "$TMPD/uplnc_param_x64_switch.s"
+    awk '/^forp:$/ { inside=1 }
+         inside && /^dop:$/ { exit }
+         inside { print }' \
+        "$TMPD/uplnc_param_x64.s" > "$TMPD/uplnc_param_x64_for.s"
+    awk '/^dop:$/ { inside=1 }
+         inside && /^main:$/ { exit }
+         inside { print }' \
+        "$TMPD/uplnc_param_x64.s" > "$TMPD/uplnc_param_x64_do.s"
+    if grep -Fq 'movq -8(%rbp), %r10' "$TMPD/uplnc_param_x64.s" \
+            && ! grep -Fq 'movq -8(%rbp), %r10' "$TMPD/uplnc_param_x64_switch.s" \
+            && grep -Fq 'movq -8(%rbp), %r10' "$TMPD/uplnc_param_x64_for.s" \
+            && grep -Fq 'movq -8(%rbp), %r10' "$TMPD/uplnc_param_x64_do.s"; then
+        ok "only real loop forms qualify parameter promotion"
+    else
+        bad "parameter-promotion loop classification"
     fi
 
     if grep -Fq 'mov x11, x0' "$TMPD/uplnc_leaf4_arm64.s" \
@@ -1443,6 +1466,7 @@ indbg { next }
 /^\t\.file / { next }
 /^\.LFB[0-9]+:$/ { next }
 /^\.LFE[0-9]+:$/ { next }
+/^\.LPS[0-9]+:$/ { next }
 /^\.Ltext0:$/ { next }
 /^\.Letext0:$/ { next }
 { print }
@@ -1753,6 +1777,18 @@ DBGEOF
     else
         bad "debug-part3 build/run"
     fi
+
+    # Build this shared fixture independently of optional inspection tools:
+    # the GDB check must not acquire a hidden readelf dependency.
+    cp tests/progs/param_promote.e "$TMPD/uplnc_pprom.e"
+    if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_pprom_bin" \
+            "$TMPD/uplnc_pprom.e" >/dev/null 2>&1 \
+            && "$TMPD/uplnc_pprom_bin"; [ $? = 42 ]; then
+        ok "parameter-promotion -g test binary builds and runs (42)"
+    else
+        bad "parameter-promotion -g build/run"
+    fi
+
     if command -v readelf >/dev/null; then
         readelf --debug-dump=info "$TMPD/uplnc_dbg3_bin" \
             > "$TMPD/uplnc_dbg3.info" 2>/dev/null
@@ -1802,25 +1838,21 @@ DBGEOF
         fi
 
         # M5 parameter promotion: sgcd's loop-used parameters live in leaf
-        # registers, and their formal-parameter DIEs carry the register
-        # locations (a -> L0/r10, b -> L1/r11; sgcd has no locals to
-        # displace them).
-        cp tests/progs/param_promote.e "$TMPD/uplnc_pprom.e"
-        if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_pprom_bin" \
-                "$TMPD/uplnc_pprom.e" >/dev/null 2>&1 \
-                && "$TMPD/uplnc_pprom_bin"; [ $? = 42 ]; then
-            readelf --debug-dump=info "$TMPD/uplnc_pprom_bin" \
-                > "$TMPD/uplnc_pprom.info" 2>/dev/null
-            if grep -A3 'DW_AT_name.*: a$' "$TMPD/uplnc_pprom.info" \
-                    | grep -q 'DW_OP_reg10' \
-                    && grep -A3 'DW_AT_name.*: b$' "$TMPD/uplnc_pprom.info" \
-                       | grep -q 'DW_OP_reg11'; then
-                ok "-g promoted parameters carry register locations"
-            else
-                bad "-g promoted-parameter DIEs"
-            fi
+        # registers after their entry loads. The DIEs name those registers and
+        # start their validity at the post-prologue label, not at machine entry.
+        readelf --debug-dump=info "$TMPD/uplnc_pprom_bin" \
+            > "$TMPD/uplnc_pprom.info" 2>/dev/null
+        if grep -A4 'DW_AT_name.*: a$' "$TMPD/uplnc_pprom.info" \
+                | grep -q 'DW_OP_reg10' \
+                && grep -A4 'DW_AT_name.*: a$' "$TMPD/uplnc_pprom.info" \
+                   | grep -q 'DW_AT_start_scope' \
+                && grep -A4 'DW_AT_name.*: b$' "$TMPD/uplnc_pprom.info" \
+                   | grep -q 'DW_OP_reg11' \
+                && grep -A4 'DW_AT_name.*: b$' "$TMPD/uplnc_pprom.info" \
+                   | grep -q 'DW_AT_start_scope'; then
+            ok "-g promoted parameters carry scoped register locations"
         else
-            bad "parameter-promotion -g build/run"
+            bad "-g promoted-parameter DIEs"
         fi
     fi
     if command -v gdb >/dev/null; then
