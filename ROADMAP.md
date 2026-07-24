@@ -443,6 +443,28 @@ wins first:
       promotion's static effect is 1:1 conversion plus pure save/restore
       overhead, so only dynamic traffic can justify it, and nothing measurable
       did. Raising the count later is a one-line change per target.
+    - ✅ **Parameter promotion (leaf, loop-gated)** (2026-07): a parameter with
+      a use inside a *loop* (a backward-jump span in the CD stream) is promoted
+      like a local — `CD_PARAM` markers sit after the prologue's argument
+      spills, and a promoted parameter's marker becomes its entry load
+      (slot → register), which keeps the dead-argument-register reuse safe:
+      every incoming value is in memory before any promotion register is
+      written. Locals are assigned first so a parameter never displaces a hot
+      loop local. Measurement drove every gate: static-count-only promotion
+      regressed the self-compile ~+1% (short branchy leaves like `issigned`
+      promoted straight-line uses whose spilled slots read back at
+      store-forwarding speed — the entry load repaid nothing), so straight-line
+      uses do not qualify; non-leaf parameters stay in memory entirely (the
+      compiler's recursive tree-walkers exit early far more often than static
+      counts suggest, and the save+load costs every call what the long path
+      only sometimes repays). Result: a subtractive-gcd hot-param loop runs
+      **−39%** on native x86_64; the self-compile executes −1.7% dynamic
+      instructions (qemu-measured — native wall deltas for this binary pair
+      sit inside the ±1.5–3% code-layout noise floor the bench work
+      established); the six changed compiler functions are exactly its string
+      workhorses (`strcp`/`strid`/`streq`/`strlen1`/`sleblen`/`numgt`).
+      Promoted parameters keep exact debug info: their formal-parameter DIEs
+      carry the register location (part-3 machinery, `promid`-keyed).
   - ✅ **Promote locals in non-leaf functions.** The same safety analysis now
     assigns up to two locals to free callee-saved registers: `%r14`/`%r15`
     (x86_64), `x19`/`x20` (arm64), `s1`/`s2` (riscv), and `$16`/`$17` (mips).
