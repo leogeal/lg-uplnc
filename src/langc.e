@@ -175,7 +175,8 @@ func ssymtabcut(p:*ssymtab,w:**ssymlist)
     n=i->next;
     /* -g: the DWARF variable DIEs are written at function end, but this local
        dies with its block scope -- harvest what the DIE needs first. */
-    if(g_debug&&(i->sym.sort==S_VARL))dbglocadd(i->sym.name,i->sym.type,i->sym.offset);
+    if(g_debug&&(i->sym.sort==S_VARL))
+    dbglocadd(i->sym.name,i->sym.type,i->sym.offset,i->sym.promid);
     i->sym.done();   /* release the symbol's nmlst, as ssymtabfree does */
     free(i);
   }
@@ -231,6 +232,7 @@ var dbgmain:[FILESIZE]char; /* -g: the unit's first marker file = DWARF CU name 
 var g_cu:int;         /* -g: CU header + abbrev table already emitted */
 var dbgloclst:*sdbgloc; /* -g: block locals harvested at scope exit (per fn) */
 var ndbgloc,adbgloc:int;
+var g_promid:int;    /* unique identity for each promotable local in a function */
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
 var g_stmtclosed:int; /* the current statement consumed its ; or closing } */
@@ -1350,14 +1352,14 @@ func domethod()
    (emitted by dumpdbgtail, when all types are known). Variables use
    DW_OP_fbreg against a frame base of DW_OP_breg<frame reg>, i.e. the same
    frame-pointer-relative offsets the generated code uses; register-promoted
-   locals get a DW_OP_reg location naming their register (debug part 3 --
-   exact for the whole body, since promotion assigns one register for the
-   function's lifetime, and outer-frame reads recover saved non-leaf
-   registers through the prologue's .cfi_offset). Block-scoped locals are
+   locals get a DW_OP_reg location naming their register (debug part 3).
+   Promotion identities distinguish block locals whose lifetimes reuse the
+   same frame offset; outer-frame reads recover saved non-leaf registers
+   through the prologue's .cfi_offset. Block-scoped locals are
    harvested by
    ssymtabcut into dbgloclst; they get plain variable DIEs, not lexical
    blocks, so two block locals sharing one name are both listed. */
-func dbglocadd(nm:*char,typ:int,off:int)
+func dbglocadd(nm:*char,typ:int,off:int,promid:int)
 {
   if(ndbgloc>=adbgloc)
   {
@@ -1367,6 +1369,7 @@ func dbglocadd(nm:*char,typ:int,off:int)
   strcp(dbgloclst[ndbgloc].name,nm);
   dbgloclst[ndbgloc].typ=typ;
   dbgloclst[ndbgloc].off=off;
+  dbgloclst[ndbgloc].promid=promid;
   ndbgloc++;
 }
 func dbyte(n:int){ot(".byte ");outdec(n);nl();}
@@ -1479,20 +1482,13 @@ func dumpdbghdr(hasline:int)
 /* Subprogram + parameter/variable DIEs for the function just flushed. gp is
    its symbol and fnum its .LFB/.LFE label number. Called while locsymtab still
    holds the function-scope names; block locals come from dbgloclst. */
-func dbgvar(nm:*char,typ:int,off:int,ispar:int)
+func dbgvar(nm:*char,typ:int,off:int,ispar:int,promid:int)
 {
   var int:shifted,r;
   if(!an(nm[0]))return 0;                 /* internal names like `0sret` */
-  if(dbgpromoted(off))
+  r=dbgpromreg(promid);
+  if(r>=0)
   {
-    r=dbgpromreg(off);
-    if(r<0)
-    {
-      duleb(5);                           /* no known register: no location */
-      dstrz(nm);
-      dref(typ);
-      return 0;
-    }
     if(ispar)duleb(3);else duleb(4);
     dstrz(nm);
     dref(typ);
@@ -1527,13 +1523,13 @@ func dumpfndbg(gp:*ssym,fnum:int)
      covers stack-passed parameters, whose positive offsets look like locals. */
   for(q=locsymtab.lst;q;q=q->next)
   if((q->sym.sort==S_VARL)&&q->sym.ispar)
-  dbgvar(q->sym.name,q->sym.type,q->sym.offset,1);
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,1,q->sym.promid);
   if(gp->isva)duleb(14);                  /* DW_TAG_unspecified_parameters */
   for(q=locsymtab.lst;q;q=q->next)
   if((q->sym.sort==S_VARL)&&(!q->sym.ispar))
-  dbgvar(q->sym.name,q->sym.type,q->sym.offset,0);
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,0,q->sym.promid);
   for(i=0;i<ndbgloc;i++)                  /* block locals live here now */
-  dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0);
+  dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0,dbgloclst[i].promid);
   dbyte(0);                               /* end of subprogram children */
   ol(target.dir_text);
   return 0;
@@ -1869,6 +1865,7 @@ func dofunc()
   cg_init(&codeg);
   ccg=&codeg;
   ndbgloc=0;   /* -g: fresh block-local harvest for this function */
+  g_promid=0;
   if(gp->dfd)error("this function was already defined");
   gp->dfd=1;
   ol(target.dir_text);
@@ -2187,7 +2184,8 @@ func prestemps(node:*enode)
    accumulator and push it -- used to pass &dst as a struct-return sret pointer. */
 func pushaddr(lval:*elval)
 {
-  if(lval->idx&&(lval->idx->sort==S_VARL))zlea(lval->idx->offset+lval->offset);
+  if(lval->idx&&(lval->idx->sort==S_VARL))
+  zlea(lval->idx->offset+lval->offset,lval->idx->promid);
   else if(lval->idx&&(lval->idx->sort==S_VARG))zlda(lval->idx->name,lval->offset);
   else error("cannot take the address of the struct-return target");
   zpush();
@@ -2371,9 +2369,13 @@ func dolocvar()
     idx->line=cline;        /* the unused-variable warning cites this line */
     strcp(idx->wfile,cfile);
     if(wcnst)idx->cnst=1;   /* M6 const */
-    /* mark int/pointer scalars for leaf-function register promotion; the marker
-       (frame offset) is matched against CD_LDLW/STLW and CD_LEA in the post-pass */
-    if((typ==T_INT)||(typ==T_UINT)||is64(typ)||(typtab[typ].sort==V_PTR))zlocal(Zsp-k);
+    /* Give every promotable scalar a stable identity. Frame offsets are reused
+       across block scopes, so offset alone cannot identify later accesses. */
+    if((typ==T_INT)||(typ==T_UINT)||is64(typ)||(typtab[typ].sort==V_PTR))
+    {
+      idx->promid=++g_promid;
+      zlocal(Zsp-k,idx->promid);
+    }
     Zsp=modstk(Zsp-k);
   }
   /*  while(symname(sname))
@@ -2652,7 +2654,7 @@ func doswitch()
   if(rt==T_DOUBLE)zf2i();   /* switch on a double: truncate to int */
   k=roundup(gettsize(T_INT));k=slotup(k);
   voff=Zsp-k;
-  zstlw(voff);
+  zstlw(voff,0);
   Zsp=modstk(voff);
   /* break -> endlab (restores sp to thesp); continue -> enclosing loop's continue */
   if(wqptr>0)cont=wqloop[wqptr-1];
@@ -2694,7 +2696,7 @@ func doswitch()
   Zsp=voff;                 /* runtime sp here is voff (entry subtracted to it) */
   for(i=0;i<ncase;i=i+1)
   {
-    zldlw(voff);
+    zldlw(voff,0);
     zpush();
     zldn(cval[i]);
     zpop();
@@ -3461,7 +3463,7 @@ func treetocode(node:*enode,lval:*elval)
     else if(node->leaf.vid==L_VAST)
     {
       if(!g_vaoff)error("vastart() outside a variadic function");
-      zlea(g_vaoff);              /* address of the first variadic argument */
+      zlea(g_vaoff,0);            /* address of the first variadic argument */
       lval->sort=L_ONREG;
       lval->idx=0;
       lval->offset=0;
@@ -4310,7 +4312,7 @@ func ct_ADDRDIR(node:*enode,lval:*elval)
       outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp), %eax");
       nl();*/
-      zlea(lval->idx->offset+lval->offset);
+      zlea(lval->idx->offset+lval->offset,lval->idx->promid);
     }
     else if(lval->idx->sort==S_FUNC)
     {
@@ -4359,7 +4361,7 @@ func ct_ADDR(node:*enode,lval:*elval)
       outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp), %eax");
       nl();*/
-      zlea(lval->idx->offset+lval->offset);
+      zlea(lval->idx->offset+lval->offset,lval->idx->promid);
     }
     else if(lval->idx->sort==S_FUNC)
     {
@@ -4833,7 +4835,7 @@ func store(lval:*elval)
       zstlw64(lval->idx->offset+lval->offset);
       else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
        typtab[lval->typ].sort==V_PTR)
-      zstlw(lval->idx->offset+lval->offset);
+      zstlw(lval->idx->offset+lval->offset,lval->idx->promid);
       else if((lval->typ==T_CHAR)||(lval->typ==T_UCHAR))
       /*ot("movb %al, ");*/
       zstlb(lval->idx->offset+lval->offset);
@@ -5002,7 +5004,7 @@ func getmem(lval:*elval)
     }
     else if(lval->idx->sort==S_VARL)
     {
-      zldlw(lval->idx->offset+lval->offset);
+      zldlw(lval->idx->offset+lval->offset,lval->idx->promid);
       /*outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp), %eax");
       nl();*/
@@ -5028,7 +5030,7 @@ func getmem(lval:*elval)
     }
     else if(lval->idx->sort==S_VARL)
     {
-      zlea(lval->idx->offset+lval->offset);
+      zlea(lval->idx->offset+lval->offset,lval->idx->promid);
       /*ot("leal ");
       outdec(lval->idx->offset+lval->offset);
       outasm("(%ebp), %eax");nl();*/

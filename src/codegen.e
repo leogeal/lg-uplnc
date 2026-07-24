@@ -300,7 +300,8 @@ func peephole(this:*scodegen)
       j=i+1;
       while((j<n)&&noemit(this->codes[j].code))j=j+1;
       if((j<n)&&(this->codes[j].code==CD_LDLW)
-         &&(this->codes[j].arg==this->codes[i].arg))
+         &&(this->codes[j].arg==this->codes[i].arg)
+         &&(this->codes[j].promid==this->codes[i].promid))
       {
         if(this->codes[j].reg==RG_A)this->codes[j].code=CD_IGNORE;
         else{this->codes[j].code=CD_MOVR;this->codes[j].arg=RG_A;}
@@ -397,33 +398,29 @@ func regspill(this:*scodegen)
    callee-saved RG_N registers (targets may expose fewer of either class). The
    late pass reserves their save area by shifting every negative frame-relative
    reference; CD_STKENTER/LEAVE use the metadata below to allocate/save/restore.
-   The front end marks candidates with CD_LOCAL(offset); address-taken locals
-   (matching CD_LEA) stay in memory. Reused frame slots share one register. */
+   The front end gives each candidate and its accesses a stable promotion
+   identity; address-taken locals stay in memory. Reused frame slots may share
+   one register, but their operations remain tied to the correct source local. */
 #define PROMLOC_MAX 512
 var prom_nreg:int;
 var prom_shift:int;
-/* -g: which frame offsets were register-promoted by the LAST cg_print, into
-   which register, and by how much the surviving negative offsets were
+/* -g: which source-local identities were register-promoted by the LAST
+   cg_print, into which register, and by how much surviving negative offsets were
    shifted -- langc's DWARF variable emitter (dumpfndbg) asks after each
    function: a promoted local gets a DW_OP_reg location naming its register
    (debug part 3; the whole live range is in that one register, so no
    location list is needed), a memory local gets its post-shift frame
    offset. */
-var prom_offlist:[PROMLOC_MAX]int;
+var prom_idlist:[PROMLOC_MAX]int;
 var prom_reglist:[PROMLOC_MAX]int;
 var prom_noff:int;
-func dbgpromoted(off:int)
+/* DWARF register number holding source-local identity promid, or -1 */
+func dbgpromreg(promid:int)
 {
   var int:i;
-  for(i=0;i<prom_noff;i++)if(prom_offlist[i]==off)return 1;
-  return 0;
-}
-/* DWARF register number holding promoted frame offset off, or -1 */
-func dbgpromreg(off:int)
-{
-  var int:i;
+  if(!promid)return 0-1;
   for(i=0;i<prom_noff;i++)
-  if(prom_offlist[i]==off)return dwpromreg(prom_reglist[i]);
+  if(prom_idlist[i]==promid)return dwpromreg(prom_reglist[i]);
   return 0-1;
 }
 func dbgpromshift()
@@ -452,15 +449,16 @@ func promframeop(c:int)
 func promote_locals(this:*scodegen)
 {
   var int:i;var int:n;var int:c;var int:o;var int:leaf;
-  var int:ncand;var int:nlea;var int:nused;var int:r;var int:j;var int:taken;
+  var int:ncand;var int:nused;var int:r;var int:j;var int:id;
   var int:nreg;var int:rbase;var int:reserve;var int:align;
   var int:nleave;var int:slot;var int:best;var int:score;var int:bestscore;
   var [PROMLOC_MAX]int:cand;   /* candidate local offsets (from CD_LOCAL)     */
+  var [PROMLOC_MAX]int:cid;    /* unique source-local identity                */
   var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or -1        */
   var [PROMLOC_MAX]int:uses;   /* frame loads/stores avoided by promotion     */
-  var [PROMLOC_MAX]int:lea;    /* address-taken offsets (from CD_LEA)         */
+  var [PROMLOC_MAX]int:ctaken; /* this exact source local had its address used */
   n=this->codeptr;prom_nreg=0;prom_shift=0;prom_noff=0;
-  leaf=1;ncand=0;nlea=0;nleave=0;
+  leaf=1;ncand=0;nleave=0;
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
     c=this->codes[i].code;
@@ -469,21 +467,28 @@ func promote_locals(this:*scodegen)
     else if(c==CD_LOCAL)
     {
       if(ncand<PROMLOC_MAX)
-      {cand[ncand]=this->codes[i].arg;creg[ncand]=0-1;uses[ncand]=0;ncand=ncand+1;}
+      {
+        cand[ncand]=this->codes[i].arg;
+        cid[ncand]=this->codes[i].promid;
+        creg[ncand]=0-1;uses[ncand]=0;ctaken[ncand]=0;
+        ncand=ncand+1;
+      }
       this->codes[i].code=CD_IGNORE;
     }
-    else if(c==CD_LEA)
-    {if(nlea<PROMLOC_MAX){lea[nlea]=this->codes[i].arg;nlea=nlea+1;}}
   }
   if(leaf){nreg=target.nlocalreg;rbase=RG_L0;}
   else{nreg=target.nnonleafreg;rbase=RG_N0;}
   /* On overflow, or where this target has no register in the needed ABI class,
      leave every local in memory. Markers are already safely stripped. */
-  if((nreg==0)||(nlea>=PROMLOC_MAX)||(ncand>=PROMLOC_MAX))return;
-  for(i=0;i<ncand;i++)         /* count the memory references each would save */
+  if((nreg==0)||(ncand>=PROMLOC_MAX))return;
+  for(i=0;i<ncand;i++)         /* inspect only operations for this source local */
   for(j=0;j<n;j++)
-  if(((this->codes[j].code==CD_LDLW)||(this->codes[j].code==CD_STLW))
-    &&(this->codes[j].arg==cand[i]))uses[i]=uses[i]+1;
+  if(this->codes[j].promid==cid[i])
+  {
+    if(this->codes[j].code==CD_LEA)ctaken[i]=1;
+    else if((this->codes[j].code==CD_LDLW)||(this->codes[j].code==CD_STLW))
+    uses[i]=uses[i]+1;
+  }
   nused=0;
   if(leaf)
   {
@@ -492,9 +497,7 @@ func promote_locals(this:*scodegen)
     for(i=0;i<ncand;i++)
     {
       o=cand[i];
-      taken=0;
-      for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
-      if(taken)continue;
+      if(ctaken[i])continue;
       r=0-1;                   /* a reused frame slot keeps its register      */
       for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
       if(r>=0){creg[i]=r;continue;}
@@ -513,38 +516,36 @@ func promote_locals(this:*scodegen)
       {
         if(creg[i]>=0)continue;
         o=cand[i];
-        taken=0;
-        for(j=0;j<nlea;j++)if(lea[j]==o)taken=1;
-        if(taken)continue;
-        score=uses[i]-1-nleave;
+        if(ctaken[i])continue;
+        /* Disjoint locals that reuse one frame offset can share one saved
+           register, so rank the offset by their combined identity-safe uses. */
+        score=0;
+        for(j=0;j<ncand;j++)
+        if((cand[j]==o)&&(!ctaken[j]))score=score+uses[j];
+        score=score-1-nleave;
         if(score>bestscore){best=i;bestscore=score;}
       }
       if(best<0)break;
       o=cand[best];r=rbase+nused;
-      for(j=0;j<ncand;j++)if(cand[j]==o)creg[j]=r;
+      for(j=0;j<ncand;j++)if((cand[j]==o)&&(!ctaken[j]))creg[j]=r;
       nused=nused+1;
     }
   }
-  for(i=0;i<ncand;i++)        /* record the distinct promoted offsets for -g */
+  for(i=0;i<ncand;i++)        /* record every promoted source identity for -g */
   if(creg[i]>=0)
   {
-    taken=0;
-    for(j=0;j<prom_noff;j++)if(prom_offlist[j]==cand[i])taken=1;
-    if(!taken)
-    {
-      prom_offlist[prom_noff]=cand[i];
-      prom_reglist[prom_noff]=creg[i];
-      prom_noff=prom_noff+1;
-    }
+    prom_idlist[prom_noff]=cid[i];
+    prom_reglist[prom_noff]=creg[i];
+    prom_noff=prom_noff+1;
   }
   for(i=0;i<n;i++)            /* pass 3: rewrite promoted local accesses      */
   {
     c=this->codes[i].code;
     if((c==CD_LDLW)||(c==CD_STLW))
     {
-      o=this->codes[i].arg;
+      id=this->codes[i].promid;
       r=0-1;
-      for(j=0;j<ncand;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
+      for(j=0;j<ncand;j++)if((cid[j]==id)&&(creg[j]>=0))r=creg[j];
       if(r>=0)
       {
         if(c==CD_LDLW){this->codes[i].code=CD_MOVR;this->codes[i].arg=r;}  /* mov R->dst */
@@ -592,6 +593,7 @@ func cg_insert(*scodegen this,*scode s)
   d->code=s->code;
   d->arg=s->arg;
   d->reg=s->reg;
+  d->promid=s->promid;
   if(s->str)
   d->str=strdyn(s->str);
   else
@@ -673,10 +675,25 @@ var nlocf:int;
 var locfmax:int;
 func outgasstr(s:*char)
 {
+  var int:c;
   while(*s)
   {
-    if((*s==92)||(*s=='"'))outbyte(92);
-    outbyte(*s++);
+    c=*s++;
+    if(c<0)c=c+256;
+    if((c>=32)&&(c<=126))
+    {
+      if((c==92)||(c=='"'))outbyte(92);
+      outbyte(c);
+    }
+    else
+    {
+      /* Fixed-width octal cannot terminate the quoted GAS directive or absorb
+         a following digit. It also preserves arbitrary non-ASCII path bytes. */
+      outbyte(92);
+      outbyte('0'+((c>>6)&3));
+      outbyte('0'+((c>>3)&7));
+      outbyte('0'+(c&7));
+    }
   }
 }
 func cdloc(this:*scode)
@@ -2998,6 +3015,7 @@ func cd_init(*scode:this)
   this->code=0;
   this->arg=0;
   this->reg=RG_A;
+  this->promid=0;
   this->str=0;
 }
 func cd_done(this:*scode)
@@ -3644,12 +3662,13 @@ func zlda(*char:name,int offset)
   cd->str=strdyn(name);
   cd->arg=offset;
 }
-func zlea(offset:int)
+func zlea(offset:int,promid:int)
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LEA;
   cd->arg=offset;
+  cd->promid=promid;
 }
 func zstow(*char:name,offset:int)
 {
@@ -3667,12 +3686,13 @@ func zstob(*char:name,offset:int)
   cd->str=strdyn(name);
   cd->arg=offset;
 }
-func zstlw(int offset)
+func zstlw(offset:int,promid:int)
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_STLW;
   cd->arg=offset;
+  cd->promid=promid;
 }
 func zstlb(int offset)
 {
@@ -3718,12 +3738,13 @@ func zldb(*char:name,int offset)
   cd->str=strdyn(name);
   cd->arg=offset;
 }
-func zldlw(int offset)
+func zldlw(offset:int,promid:int)
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LDLW;
   cd->arg=offset;
+  cd->promid=promid;
 }
 func zldlb(int offset)
 {
@@ -3757,12 +3778,13 @@ func zlbrbu(offset:int)
   cd->code=CD_LBRBU;
   cd->arg=offset;
 }
-func zlocal(int offset)   /* M5: mark a word-size scalar body local for promote_locals */
+func zlocal(offset:int,promid:int) /* mark a word-size scalar body local */
 {
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LOCAL;
   cd->arg=offset;
+  cd->promid=promid;
 }
 func zstow2(int offset)
 {

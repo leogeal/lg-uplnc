@@ -64,6 +64,7 @@ struct ssym{
   int wused; /* referenced at least once (unused-variable warning); params start 1 */
   [FILESIZE]char wfile; /* declaration file for deferred unused-variable warnings */
   int ispar; /* -g: declared parameter (do not infer this from its frame offset) */
+  int promid; /* source-local identity used by register promotion and -g */
   func init;
   func done;
 };
@@ -131,6 +132,7 @@ struct sdbgloc{
   [NAMESIZE]char name;
   int typ;
   int off;
+  int promid;
 };
 
 #define litstksz 30000
