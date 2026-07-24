@@ -179,6 +179,7 @@ struct scode
   int code;
   int arg;
   int reg;
+  int promid; /* source-local identity; 0 for temporaries/non-local operations */
   *char str;
 };
 #define NCODEITEMS 150
