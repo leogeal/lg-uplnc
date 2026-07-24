@@ -1800,8 +1800,43 @@ DBGEOF
         else
             bad "-g reused-slot debug test build/run"
         fi
+
+        # M5 parameter promotion: sgcd's loop-used parameters live in leaf
+        # registers, and their formal-parameter DIEs carry the register
+        # locations (a -> L0/r10, b -> L1/r11; sgcd has no locals to
+        # displace them).
+        cp tests/progs/param_promote.e "$TMPD/uplnc_pprom.e"
+        if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_pprom_bin" \
+                "$TMPD/uplnc_pprom.e" >/dev/null 2>&1 \
+                && "$TMPD/uplnc_pprom_bin"; [ $? = 42 ]; then
+            readelf --debug-dump=info "$TMPD/uplnc_pprom_bin" \
+                > "$TMPD/uplnc_pprom.info" 2>/dev/null
+            if grep -A3 'DW_AT_name.*: a$' "$TMPD/uplnc_pprom.info" \
+                    | grep -q 'DW_OP_reg10' \
+                    && grep -A3 'DW_AT_name.*: b$' "$TMPD/uplnc_pprom.info" \
+                       | grep -q 'DW_OP_reg11'; then
+                ok "-g promoted parameters carry register locations"
+            else
+                bad "-g promoted-parameter DIEs"
+            fi
+        else
+            bad "parameter-promotion -g build/run"
+        fi
     fi
     if command -v gdb >/dev/null; then
+        # Promoted parameters print their exact register values (they had
+        # frame locations before parameter promotion; the values are the
+        # unmodified arguments at the first loop test).
+        gdb -batch -q -ex 'break uplnc_pprom.e:11' -ex run \
+            -ex 'print a' -ex 'print b' \
+            "$TMPD/uplnc_pprom_bin" > "$TMPD/uplnc_pprom.gdb" 2>/dev/null
+        if grep -q '^\$1 = 1071$' "$TMPD/uplnc_pprom.gdb" \
+                && grep -q '^\$2 = 462$' "$TMPD/uplnc_pprom.gdb" \
+                && ! grep -q 'optimized out' "$TMPD/uplnc_pprom.gdb"; then
+            ok "gdb prints promoted parameters from their registers"
+        else
+            bad "gdb promoted-parameter values"
+        fi
         # Stop 1: leafsum(10) from main (its first call): s=55, i=11 from the
         # live leaf registers. Stop 2: the 4th arrival at inner's return is
         # inner(3): t=4, k=3 from inner's own registers, then outersum's

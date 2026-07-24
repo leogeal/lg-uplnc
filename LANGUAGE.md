@@ -693,9 +693,10 @@ With `-g` a DWARF debugger can set breakpoints by file and line, step by
 statement, produce call-stack backtraces with parameter values, and evaluate
 variables: parameters, locals, and defined globals are typed (including
 structure members, pointers, and arrays), so `print`, `info locals`, and
-`ptype` work. A local that the optimizer promoted into a register carries a
-location naming that register, which is exact for the whole function body
-(promotion assigns one register for the function's lifetime); the callee-saved
+`ptype` work. A local or parameter that the optimizer promoted into a register
+carries a location naming that register, which is exact for the whole function
+body (promotion assigns one register for the function's lifetime, and a
+promoted parameter is loaded into it during the prologue); the callee-saved
 registers used in non-leaf functions are covered by unwind annotations, so a
 promoted variable in an outer frame is read from its save slot even when the
 current frame reuses the same register. The compile unit records the compile-

@@ -1990,6 +1990,24 @@ func dofunc()
     csrslot=Zsp;
     savecsr(csrslot);
   }
+  /* Word-scalar parameters (the receiver included) are promotion candidates,
+     like body locals. The marker sits after every argument spill above, so a
+     promoted parameter's entry load reads its already-written slot -- also
+     what makes reusing dead argument registers as leaf registers safe. A
+     variadic function's named params stay in memory: they anchor the register
+     save area that vastart() walks. Internal names (`0sret`) stay put too. */
+  if(!isva)
+  {
+    var *ssymlist:pq;
+    for(pq=locsymtab.lst;pq;pq=pq->next)
+    if((pq->sym.sort==S_VARL)&&pq->sym.ispar&&an(pq->sym.name[0])
+      &&((pq->sym.type==T_INT)||(pq->sym.type==T_UINT)||is64(pq->sym.type)
+        ||(typtab[pq->sym.type].sort==V_PTR)))
+    {
+      pq->sym.promid=++g_promid;
+      zparam(pq->sym.offset,pq->sym.promid);
+    }
+  }
   statemen();
   /* unused-variable warnings: body locals never referenced after declaration.
      Parameters and 'this' are pre-marked used; hidden temps/sret start with a

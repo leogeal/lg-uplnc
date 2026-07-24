@@ -209,11 +209,11 @@ func ispureload(code:int)
    Eliminated items become CD_IGNORE (lowered to nothing), so indices are
    stable and a single forward pass suffices. */
 /* ops that lower to no machine instruction: safe to hop when matching
-   adjacent instructions (CD_LOC emits only debug directives; CD_LOCAL is a
-   promote-locals marker stripped before lowering) */
+   adjacent instructions (CD_LOC emits only debug directives; CD_LOCAL and
+   CD_PARAM are promote-locals markers stripped before lowering) */
 func noemit(c:int)
 {
-  return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_LOCAL);
+  return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_LOCAL)||(c==CD_PARAM);
 }
 /* the PHYSICAL stack-pointer delta a CD_MODSTK with argument k lowers to on
    the current target: exact on every backend except arm64, whose lowering
@@ -400,7 +400,13 @@ func regspill(this:*scodegen)
    reference; CD_STKENTER/LEAVE use the metadata below to allocate/save/restore.
    The front end gives each candidate and its accesses a stable promotion
    identity; address-taken locals stay in memory. Reused frame slots may share
-   one register, but their operations remain tied to the correct source local. */
+   one register, but their operations remain tied to the correct source local.
+   Parameters are candidates too (CD_PARAM, placed after the prologue's
+   argument spills): a promoted parameter costs one extra load at entry -- its
+   marker becomes that load, slot -> register -- so it must save at least two
+   frame accesses to profit. The load reads the already-spilled slot, so leaf
+   registers that double as argument registers stay safe: every incoming value
+   is in memory before any promotion register is written. */
 #define PROMLOC_MAX 512
 var prom_nreg:int;
 var prom_shift:int;
@@ -452,25 +458,36 @@ func promote_locals(this:*scodegen)
   var int:ncand;var int:nused;var int:r;var int:j;var int:id;
   var int:nreg;var int:rbase;var int:reserve;var int:align;
   var int:nleave;var int:slot;var int:best;var int:score;var int:bestscore;
+  var int:k;var int:nspan;
   var [PROMLOC_MAX]int:cand;   /* candidate local offsets (from CD_LOCAL)     */
   var [PROMLOC_MAX]int:cid;    /* unique source-local identity                */
   var [PROMLOC_MAX]int:creg;   /* the register assigned to each, or -1        */
   var [PROMLOC_MAX]int:uses;   /* frame loads/stores avoided by promotion     */
+  var [PROMLOC_MAX]int:luse;   /* uses inside a loop body (see spans below)   */
   var [PROMLOC_MAX]int:ctaken; /* this exact source local had its address used */
+  var [PROMLOC_MAX]int:cpar;   /* candidate is a parameter (entry load needed) */
+  var [PROMLOC_MAX]int:cpos;   /* a parameter's marker index = its load site   */
+  var [PROMLOC_MAX]int:spans;  /* loop bodies: label position ...             */
+  var [PROMLOC_MAX]int:spane;  /* ... to the backward jump that targets it    */
+  var int:nlab;
+  var [PROMLOC_MAX]int:labarg; /* labels seen so far, for backward-jump tests */
+  var [PROMLOC_MAX]int:labpos;
   n=this->codeptr;prom_nreg=0;prom_shift=0;prom_noff=0;
-  leaf=1;ncand=0;nleave=0;
+  leaf=1;ncand=0;nleave=0;nspan=0;nlab=0;
   for(i=0;i<n;i++)             /* pass 1: collect, strip markers, find leaf   */
   {
     c=this->codes[i].code;
     if((c==CD_ZCALL)||(c==CD_ICALL))leaf=0;
     else if(c==CD_STKLEAVE)nleave=nleave+1;
-    else if(c==CD_LOCAL)
+    else if((c==CD_LOCAL)||(c==CD_PARAM))
     {
       if(ncand<PROMLOC_MAX)
       {
         cand[ncand]=this->codes[i].arg;
         cid[ncand]=this->codes[i].promid;
-        creg[ncand]=0-1;uses[ncand]=0;ctaken[ncand]=0;
+        creg[ncand]=0-1;uses[ncand]=0;luse[ncand]=0;ctaken[ncand]=0;
+        cpar[ncand]=0;cpos[ncand]=0;
+        if(c==CD_PARAM){cpar[ncand]=1;cpos[ncand]=i;}
         ncand=ncand+1;
       }
       this->codes[i].code=CD_IGNORE;
@@ -481,25 +498,76 @@ func promote_locals(this:*scodegen)
   /* On overflow, or where this target has no register in the needed ABI class,
      leave every local in memory. Markers are already safely stripped. */
   if((nreg==0)||(ncand>=PROMLOC_MAX))return;
+  if(leaf)
+  {
+    /* Loop spans, needed only to qualify leaf parameters (below): a jump to
+       an already-seen label closes a loop; the span between them is a loop
+       body, the dynamic multiplier static use counts cannot see. Confined to
+       leaf functions, which are small, so the scan stays cheap; non-leaf
+       functions never promote parameters. */
+    var int:haspar;
+    haspar=0;
+    for(i=0;i<ncand;i++)if(cpar[i])haspar=1;
+    if(haspar)
+    {
+      for(i=0;i<n;i++)
+      {
+        c=this->codes[i].code;
+        if(c==CD_LAB)
+        {
+          if(nlab<PROMLOC_MAX){labarg[nlab]=this->codes[i].arg;labpos[nlab]=i;nlab=nlab+1;}
+        }
+        else if((c==CD_JUMP)||(c==CD_TESTJUMP)||(c==CD_TESTNEJUMP)
+          ||(c==CD_TESTJUMP64)||(c==CD_TESTNEJUMP64))
+        {
+          /* only labels recorded so far match: backward by construction */
+          for(j=nlab-1;j>=0;j=j-1)
+          if(labarg[j]==this->codes[i].arg)
+          {
+            if(nspan<PROMLOC_MAX){spans[nspan]=labpos[j];spane[nspan]=i;nspan=nspan+1;}
+            break;
+          }
+        }
+      }
+    }
+  }
   for(i=0;i<ncand;i++)         /* inspect only operations for this source local */
   for(j=0;j<n;j++)
   if(this->codes[j].promid==cid[i])
   {
     if(this->codes[j].code==CD_LEA)ctaken[i]=1;
     else if((this->codes[j].code==CD_LDLW)||(this->codes[j].code==CD_STLW))
-    uses[i]=uses[i]+1;
+    {
+      uses[i]=uses[i]+1;
+      for(k=0;k<nspan;k++)
+      if((spans[k]<=j)&&(j<=spane[k])){luse[i]=luse[i]+1;break;}
+    }
   }
   nused=0;
   if(leaf)
   {
     /* Leaf promotion has no preservation cost; retain its declaration-order
-       assignment so this profitability change cannot perturb that path. */
+       assignment so this profitability change cannot perturb that path.
+       Locals are assigned first (both passes below): a parameter must never
+       displace a loop local from the register file -- a hot loop's locals
+       are the historical winners, and a parameter that misses out only
+       keeps its frame slot. */
+    var int:pass;
+    for(pass=0;pass<2;pass++)
     for(i=0;i<ncand;i++)
     {
+      if(cpar[i]!=pass)continue;
       o=cand[i];
       if(ctaken[i])continue;
+      /* A parameter pays for its entry load every call. Straight-line uses
+         repay ~nothing (a frame slot freshly written by the argument spill
+         reads back at store-forwarding speed -- measured ~+1% self-compile
+         when short branchy leaves promoted on static counts alone), so a
+         parameter must have a use inside a loop, where each iteration
+         repays the load again. */
+      if(cpar[i]&&(luse[i]==0))continue;
       r=0-1;                   /* a reused frame slot keeps its register      */
-      for(j=0;j<i;j++)if((cand[j]==o)&&(creg[j]>=0))r=creg[j];
+      for(j=0;j<ncand;j++)if((j!=i)&&(cand[j]==o)&&(creg[j]>=0))r=creg[j];
       if(r>=0){creg[i]=r;continue;}
       if(nused<nreg){creg[i]=rbase+nused;nused=nused+1;}
     }
@@ -517,6 +585,12 @@ func promote_locals(this:*scodegen)
         if(creg[i]>=0)continue;
         o=cand[i];
         if(ctaken[i])continue;
+        /* Parameters stay in memory in non-leaf functions: the compiler's
+           own recursive tree-walkers exit early far more often than their
+           static use counts suggest, so the entry load plus save/restore
+           cost every call what the long path only sometimes repays
+           (measured: ~+1% self-compile). Leaf loops keep the win. */
+        if(cpar[i])continue;
         /* Disjoint locals that reuse one frame offset can share one saved
            register, so rank the offset by their combined identity-safe uses. */
         score=0;
@@ -552,6 +626,18 @@ func promote_locals(this:*scodegen)
         else{this->codes[i].code=CD_MOVR;this->codes[i].reg=r;this->codes[i].arg=RG_A;} /* mov acc->R */
       }
     }
+  }
+  /* A promoted parameter's marker becomes its entry load, slot -> register.
+     This runs after pass 3 so the load itself is not rewritten into a register
+     move, and before the shift below so a negative slot offset moves with the
+     rest of the frame. Unpromoted markers stay CD_IGNORE. */
+  for(i=0;i<ncand;i++)
+  if(cpar[i]&&(creg[i]>=0))
+  {
+    this->codes[cpos[i]].code=CD_LDLW;
+    this->codes[cpos[i]].arg=cand[i];
+    this->codes[cpos[i]].reg=creg[i];
+    this->codes[cpos[i]].promid=0;   /* plain frame load, never re-promoted */
   }
   if((!leaf)&&nused)
   {
@@ -3783,6 +3869,15 @@ func zlocal(offset:int,promid:int) /* mark a word-size scalar body local */
   var *scode:cd;
   cd=cg_getitem(ccg);
   cd->code=CD_LOCAL;
+  cd->arg=offset;
+  cd->promid=promid;
+}
+func zparam(offset:int,promid:int) /* mark a promotable parameter; the marker
+                                      doubles as its entry-load site */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_PARAM;
   cd->arg=offset;
   cd->promid=promid;
 }
