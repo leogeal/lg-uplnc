@@ -1501,6 +1501,24 @@ else
     bad "-g assembler filename escaping"
 fi
 
+# comp_dir is also a quoted GAS string. A newline in the working directory
+# must remain data rather than terminating the directive and injecting syntax.
+DBGCTRL="$TMPD/uplnc_dbg_ctrl"$'\n'"dir"
+mkdir "$DBGCTRL"
+cp "$TMPD/uplnc_dbg.e" "$DBGCTRL/main.e"
+if (cd "$DBGCTRL" \
+        && "$TDIR/build/lpp1" main.e 2>/dev/null \
+           | "$TDIR/build/langc" -march="$DRVARCH" -g \
+             > "$TMPD/uplnc_dbg_ctrl.s" 2>"$TMPD/uplnc_dbg_ctrl.err") \
+        && grep -Fq '\012' "$TMPD/uplnc_dbg_ctrl.s" \
+        && cc -c -o "$TMPD/uplnc_dbg_ctrl.o" "$TMPD/uplnc_dbg_ctrl.s" \
+              2>>"$TMPD/uplnc_dbg_ctrl.err" \
+        && ! grep -q 'unterminated string' "$TMPD/uplnc_dbg_ctrl.err"; then
+    ok "-g escapes control bytes in comp_dir assembler strings"
+else
+    bad "-g comp_dir control-byte escaping"
+fi
+
 # sequential includes may reference more files than the nesting depth; every
 # distinct file must retain its own DWARF number.
 i=0
@@ -1745,6 +1763,43 @@ DBGEOF
         else
             bad "-g register-location/comp_dir DIEs"
         fi
+
+        # Sequential block scopes reuse frame slots. The later double is not a
+        # promotion candidate and must not inherit the earlier int's register.
+        cat > "$TMPD/uplnc_dbg_alias.e" <<'DBGEOF'
+func main()
+{
+  if(1)
+  {
+    var int:a;
+    a=7;
+    if(a!=7)return 1;
+  }
+  if(1)
+  {
+    var double:d;
+    d=2.5;
+    if(d==2.5)return 42;
+  }
+  return 1;
+}
+DBGEOF
+        if perl "$DRIVER" -march=x86_64 -g -o "$TMPD/uplnc_dbg_alias_bin" \
+                "$TMPD/uplnc_dbg_alias.e" >/dev/null 2>&1 \
+                && "$TMPD/uplnc_dbg_alias_bin"; [ $? = 42 ]; then
+            readelf --debug-dump=info "$TMPD/uplnc_dbg_alias_bin" \
+                > "$TMPD/uplnc_dbg_alias.info" 2>/dev/null
+            if grep -A3 'DW_AT_name.*: a$' "$TMPD/uplnc_dbg_alias.info" \
+                    | grep -q 'DW_OP_reg10' \
+                    && grep -A3 'DW_AT_name.*: d$' "$TMPD/uplnc_dbg_alias.info" \
+                       | grep -q 'DW_OP_fbreg'; then
+                ok "-g keeps reused frame slots tied to the correct source local"
+            else
+                bad "-g reused-slot variable location"
+            fi
+        else
+            bad "-g reused-slot debug test build/run"
+        fi
     fi
     if command -v gdb >/dev/null; then
         # Stop 1: leafsum(10) from main (its first call): s=55, i=11 from the
@@ -1830,7 +1885,7 @@ cat > "$TMPD/uplnc_peephole_unit.c" <<'PCEOF'
 extern int peephole();
 static void op(scode *c,int code,int arg,int reg)
 {
-  c->code=code;c->arg=arg;c->reg=reg;c->str=0;
+  c->code=code;c->arg=arg;c->reg=reg;c->promid=0;c->str=0;
 }
 int main(void)
 {
@@ -1853,6 +1908,10 @@ int main(void)
   op(c+0,CD_STLW,-8,RG_A);op(c+1,CD_LOC,1,RG_A);
   op(c+2,CD_LDLW,-8,RG_D);peephole(&cg);
   if((c[2].code!=CD_MOVR)||(c[2].reg!=RG_D)||(c[2].arg!=RG_A))return 4;
+
+  op(c+0,CD_STLW,-8,RG_A);op(c+1,CD_LOC,1,RG_A);
+  op(c+2,CD_LDLW,-8,RG_A);c[0].promid=1;c[2].promid=2;peephole(&cg);
+  if(c[2].code!=CD_LDLW)return 5;
   return 0;
 }
 PCEOF
