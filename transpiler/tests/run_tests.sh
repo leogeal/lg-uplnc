@@ -1508,7 +1508,7 @@ mkdir "$DBGCTRL"
 cp "$TMPD/uplnc_dbg.e" "$DBGCTRL/main.e"
 if (cd "$DBGCTRL" \
         && "$TDIR/build/lpp1" main.e 2>/dev/null \
-           | "$TDIR/build/langc" -march=x86_64 -g \
+           | "$TDIR/build/langc" -march="$DRVARCH" -g \
              > "$TMPD/uplnc_dbg_ctrl.s" 2>"$TMPD/uplnc_dbg_ctrl.err") \
         && grep -Fq '\012' "$TMPD/uplnc_dbg_ctrl.s" \
         && cc -c -o "$TMPD/uplnc_dbg_ctrl.o" "$TMPD/uplnc_dbg_ctrl.s" \
