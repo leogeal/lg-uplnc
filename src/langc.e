@@ -1457,6 +1457,10 @@ func dumpdbghdr(hasline:int)
   dab(37,8);dab(19,11);dab(3,8);dab(27,8);
   dab(17,1);dab(18,6);
   dbyte(0);dbyte(0);
+  duleb(16);duleb(5);dbyte(0);             /* formal_parameter after prologue */
+  dab(3,8);dab(73,19);dab(2,24);
+  dab(44,6);                               /* start_scope, data4 */
+  dbyte(0);dbyte(0);
   dbyte(0);                               /* end of abbreviations */
   ot(".section .debug_info");nl();
   outstr(".Lcu0");col();nl();
@@ -1482,27 +1486,35 @@ func dumpdbghdr(hasline:int)
 /* Subprogram + parameter/variable DIEs for the function just flushed. gp is
    its symbol and fnum its .LFB/.LFE label number. Called while locsymtab still
    holds the function-scope names; block locals come from dbgloclst. */
-func dbgvar(nm:*char,typ:int,off:int,ispar:int,promid:int)
+func dbgvar(nm:*char,typ:int,off:int,ispar:int,promid:int,fnum:int)
 {
   var int:shifted,r;
   if(!an(nm[0]))return 0;                 /* internal names like `0sret` */
   r=dbgpromreg(promid);
   if(r>=0)
   {
-    if(ispar)duleb(3);else duleb(4);
+    if(ispar)duleb(16);else duleb(4);
     dstrz(nm);
     dref(typ);
     duleb(1);dbyte(80+r);                 /* exprloc: DW_OP_reg0+r */
+    if(ispar)
+    {
+      ot(".4byte .LPS");outdec(fnum);outstr("-.LFB");outdec(fnum);nl();
+    }
     return 0;
   }
   shifted=off;
   if(off<0)shifted=off+dbgpromshift();    /* non-leaf save area moved us down */
-  if(ispar)duleb(3);else duleb(4);
+  if(ispar)duleb(16);else duleb(4);
   dstrz(nm);
   dref(typ);
   duleb(1+sleblen(shifted));              /* exprloc: DW_OP_fbreg <sleb> */
   dbyte(145);
   dsleb(shifted);
+  if(ispar)
+  {
+    ot(".4byte .LPS");outdec(fnum);outstr("-.LFB");outdec(fnum);nl();
+  }
   return 0;
 }
 func dumpfndbg(gp:*ssym,fnum:int)
@@ -1523,13 +1535,13 @@ func dumpfndbg(gp:*ssym,fnum:int)
      covers stack-passed parameters, whose positive offsets look like locals. */
   for(q=locsymtab.lst;q;q=q->next)
   if((q->sym.sort==S_VARL)&&q->sym.ispar)
-  dbgvar(q->sym.name,q->sym.type,q->sym.offset,1,q->sym.promid);
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,1,q->sym.promid,fnum);
   if(gp->isva)duleb(14);                  /* DW_TAG_unspecified_parameters */
   for(q=locsymtab.lst;q;q=q->next)
   if((q->sym.sort==S_VARL)&&(!q->sym.ispar))
-  dbgvar(q->sym.name,q->sym.type,q->sym.offset,0,q->sym.promid);
+  dbgvar(q->sym.name,q->sym.type,q->sym.offset,0,q->sym.promid,fnum);
   for(i=0;i<ndbgloc;i++)                  /* block locals live here now */
-  dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0,dbgloclst[i].promid);
+  dbgvar(dbgloclst[i].name,dbgloclst[i].typ,dbgloclst[i].off,0,dbgloclst[i].promid,fnum);
   dbyte(0);                               /* end of subprogram children */
   ol(target.dir_text);
   return 0;
@@ -2008,6 +2020,9 @@ func dofunc()
       zparam(pq->sym.offset,pq->sym.promid);
     }
   }
+  /* Parameter frame/register locations become valid only after the frame,
+     argument spills, and any promoted-parameter entry loads are complete. */
+  if(g_debug)zpromstart(nfunc);
   statemen();
   /* unused-variable warnings: body locals never referenced after declaration.
      Parameters and 'this' are pre-marked used; hidden temps/sret start with a
@@ -2527,7 +2542,7 @@ func dofor()
   /*printlab(theloop);
   col();
   nl();*/
-  clab(theloop);
+  clooplab(theloop);
   ct=expressi();/* i<N */
   branchzero(ct,thelab);
   ns();
@@ -2587,7 +2602,7 @@ func dodo()
   /*printlab(theloop);
   col();
   nl();*/
-  clab(theloop);
+  clooplab(theloop);
   statemen();
   Zsp=modstk(thesp);
   if(!amatch("while",5)){
@@ -2627,7 +2642,7 @@ func dowhile()
   /*printlab(theloop);
   col();
   nl();*/
-  clab(theloop);
+  clooplab(theloop);
   test(thelab);
   statemen();
   Zsp=modstk(thesp);

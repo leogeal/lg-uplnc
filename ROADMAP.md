@@ -444,9 +444,10 @@ wins first:
       overhead, so only dynamic traffic can justify it, and nothing measurable
       did. Raising the count later is a one-line change per target.
     - ✅ **Parameter promotion (leaf, loop-gated)** (2026-07): a parameter with
-      a use inside a *loop* (a backward-jump span in the CD stream) is promoted
-      like a local — `CD_PARAM` markers sit after the prologue's argument
-      spills, and a promoted parameter's marker becomes its entry load
+      a use inside a *loop* is promoted like a local. Real loop-header labels
+      are explicitly marked in the CD stream, so backward switch-dispatch
+      branches do not qualify. `CD_PARAM` markers sit after the prologue's
+      argument spills, and a promoted parameter's marker becomes its entry load
       (slot → register), which keeps the dead-argument-register reuse safe:
       every incoming value is in memory before any promotion register is
       written. Locals are assigned first so a parameter never displaces a hot
@@ -463,8 +464,9 @@ wins first:
       sit inside the ±1.5–3% code-layout noise floor the bench work
       established); the six changed compiler functions are exactly its string
       workhorses (`strcp`/`strid`/`streq`/`strlen1`/`sleblen`/`numgt`).
-      Promoted parameters keep exact debug info: their formal-parameter DIEs
-      carry the register location (part-3 machinery, `promid`-keyed).
+      Promoted parameters keep exact body debug info: their formal-parameter
+      DIEs carry the register location plus `DW_AT_start_scope` at the
+      post-prologue load boundary (part-3 machinery, `promid`-keyed).
   - ✅ **Promote locals in non-leaf functions.** The same safety analysis now
     assigns up to two locals to free callee-saved registers: `%r14`/`%r15`
     (x86_64), `x19`/`x20` (arm64), `s1`/`s2` (riscv), and `$16`/`$17` (mips).
@@ -612,9 +614,10 @@ What turns a teaching compiler into something you'd build a project with:
     `DW_OP_reg0+n` exprloc (`dwpromreg` maps every RG_L/RG_N slot to its
     DWARF number on all four promoting backends; i386 promotes nothing). No
     location lists needed: promotion assigns one register for the whole
-    function body, and part 2's `.cfi_offset` on the non-leaf saves already
-    lets the debugger recover an outer frame's promoted values even when the
-    inner frame reuses the same callee-saved registers (gdb-verified:
+    function body; parameter DIEs begin at a post-prologue scope label, after
+    their frame/register locations become valid. Part 2's `.cfi_offset` on the
+    non-leaf saves already lets the debugger recover an outer frame's promoted
+    values even when the inner frame reuses the same callee-saved registers (gdb-verified:
     `frame 1; print acc` reads the save slot, not the live register). The CU
     also gains `DW_AT_comp_dir` (compile-time `getcwd`), so relative-path
     builds resolve their sources from any debugger working directory.

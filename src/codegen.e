@@ -209,11 +209,12 @@ func ispureload(code:int)
    Eliminated items become CD_IGNORE (lowered to nothing), so indices are
    stable and a single forward pass suffices. */
 /* ops that lower to no machine instruction: safe to hop when matching
-   adjacent instructions (CD_LOC emits only debug directives; CD_LOCAL and
-   CD_PARAM are promote-locals markers stripped before lowering) */
+   adjacent instructions (CD_LOC/CD_PROMSTART emit only debug metadata;
+   CD_LOCAL and CD_PARAM are promote-locals markers stripped before lowering) */
 func noemit(c:int)
 {
-  return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_LOCAL)||(c==CD_PARAM);
+  return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_PROMSTART)
+    ||(c==CD_LOCAL)||(c==CD_PARAM);
 }
 /* the PHYSICAL stack-pointer delta a CD_MODSTK with argument k lowers to on
    the current target: exact on every backend except arm64, whose lowering
@@ -500,11 +501,12 @@ func promote_locals(this:*scodegen)
   if((nreg==0)||(ncand>=PROMLOC_MAX))return;
   if(leaf)
   {
-    /* Loop spans, needed only to qualify leaf parameters (below): a jump to
-       an already-seen label closes a loop; the span between them is a loop
-       body, the dynamic multiplier static use counts cannot see. Confined to
-       leaf functions, which are small, so the scan stays cheap; non-leaf
-       functions never promote parameters. */
+    /* Loop spans, needed only to qualify leaf parameters (below): the front
+       end marks real loop-header labels with promid, so switch dispatch and
+       other backward control flow cannot masquerade as loops. A jump to an
+       already-seen marked label closes the span. Confined to leaf functions,
+       which are small, so the scan stays cheap; non-leaf functions never
+       promote parameters. */
     var int:haspar;
     haspar=0;
     for(i=0;i<ncand;i++)if(cpar[i])haspar=1;
@@ -513,7 +515,7 @@ func promote_locals(this:*scodegen)
       for(i=0;i<n;i++)
       {
         c=this->codes[i].code;
-        if(c==CD_LAB)
+        if((c==CD_LAB)&&this->codes[i].promid)
         {
           if(nlab<PROMLOC_MAX){labarg[nlab]=this->codes[i].arg;labpos[nlab]=i;nlab=nlab+1;}
         }
@@ -807,6 +809,11 @@ func cdloc(this:*scode)
 func cd_write(*scode:this)
 {
   if(this->code==CD_LOC){cdloc(this);return;}
+  if(this->code==CD_PROMSTART)
+  {
+    outstr(".LPS");outdec(this->arg);col();nl();
+    return;
+  }
   if(target.arch==ARCH_X86_64)cd_write_x86_64(this);
   else if(target.arch==ARCH_ARM64)cd_write_arm64(this);
   else if(target.arch==ARCH_RISCV)cd_write_riscv(this);
@@ -3707,6 +3714,14 @@ func clab(int label)
   cd->code=CD_LAB;
   cd->arg=label;
 }
+func clooplab(label:int) /* label that starts a real source-language loop */
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_LAB;
+  cd->arg=label;
+  cd->promid=1;
+}
 func cloadlita(offs:int)
 {
   var *scode:cd;
@@ -3731,6 +3746,13 @@ func zloc(line:int,fname:*char)
   cd->code=CD_LOC;
   cd->arg=line;
   cd->str=strdyn(fname);
+}
+func zpromstart(fnum:int)
+{
+  var *scode:cd;
+  cd=cg_getitem(ccg);
+  cd->code=CD_PROMSTART;
+  cd->arg=fnum;
 }
 func zldnw(idx:int,s:*char)  /* wide 64-bit literal: pool index + its text */
 {
