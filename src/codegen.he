@@ -5,12 +5,12 @@
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
-  
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -207,7 +207,7 @@ func cg_print(this:*scodegen);
 #define RG_L1 6  /* locals in leaf functions (no save/restore needed). */
 #define RG_L2 7  /* L2/L3 reuse dead incoming-argument registers where the */
 #define RG_L3 8  /* target has no other free caller-saved GPRs: safe in a */
-                 /* leaf (no calls; args are read once by the entry spill) */
+/* leaf (no calls; args are read once by the entry spill) */
 #define RG_N0 9  /* M5 non-leaf promotion: callee-saved regs, preserved in */
 #define RG_N1 10 /* pass-reserved frame slots at function entry/exit */
 #define RG_N2 11

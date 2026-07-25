@@ -58,7 +58,7 @@ func grep_matchhere(re:*char,text:*char,icase:int)
   n=grep_atomlen(re);
   if(re[n]=='*')return grep_matchstar(re,re+n+1,text,icase);
   if(grep_atommatch(re,*text,icase))
-    return grep_matchhere(re+n,text+1,icase);
+  return grep_matchhere(re+n,text+1,icase);
   return 0;
 }
 

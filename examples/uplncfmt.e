@@ -171,7 +171,7 @@ func emitrest(from:int,ind:int,out:*int)
   if(ind+(end-from)>MAXLINE)
   {
     fprintf(stderr,"uplncfmt:%s:%d: line exceeds %d bytes after formatting\n",
-      lname,lno,MAXLINE);
+    lname,lno,MAXLINE);
     warned=1;
   }
   return 0;
@@ -196,7 +196,7 @@ func fmtstream(out:*int)
     wascmt=incmt;
     lead=leadwidth();
     isdir=(!wascmt)&&(lead<linelen)&&
-      ((lineb[lead]=='#')||(lineb[lead]=='%'));
+    ((lineb[lead]=='#')||(lineb[lead]=='%'));
     scanline(!isdir);
     if(wascmt)
     {

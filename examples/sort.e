@@ -32,13 +32,13 @@ func sort_report(name:*char,rc:int,lineno:int)
 {
   if(rc==SORT_NOMEM)fprintf(stderr,"sort: out of memory\n");
   else if(rc==SORT_TOOLONG)
-    fprintf(stderr,"sort: %s:%d: line too long\n",name,lineno);
+  fprintf(stderr,"sort: %s:%d: line too long\n",name,lineno);
   else if(rc==SORT_TOOMANY)
-    fprintf(stderr,"sort: too many input lines\n");
+  fprintf(stderr,"sort: too many input lines\n");
   else if(rc==SORT_READERR)
-    fprintf(stderr,"sort: %s: read error\n",name);
+  fprintf(stderr,"sort: %s: read error\n",name);
   else if(rc==SORT_NULBYTE)
-    fprintf(stderr,"sort: %s:%d: embedded NUL is not supported\n",name,lineno);
+  fprintf(stderr,"sort: %s:%d: embedded NUL is not supported\n",name,lineno);
   return 0;
 }
 
