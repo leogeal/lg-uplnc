@@ -291,6 +291,68 @@ BADEOF
         bad "array initializer layout"
     fi
 
+    # A wide literal is a target-word int on 64-bit targets and may initialize
+    # pointers there. The same source must be rejected for a 32-bit pointer.
+    cat > "$TMPD/uplnc_wide_ptr_init.e" <<'WIDEPTR'
+var *int:wp = 4294967296;
+var [1]*int:wpa = {4294967296};
+func main(){return 0;}
+WIDEPTR
+    wide_ptr_ok=1
+    for arch in x86_64 arm64 riscv64 mips64; do
+        if ! "$LPP" "$TMPD/uplnc_wide_ptr_init.e" 2>/dev/null \
+                | "$LANGC" "-march=$arch" > "$TMPD/uplnc_wide_ptr_$arch.s" 2>/dev/null \
+                || ! grep -A1 '^wp:' "$TMPD/uplnc_wide_ptr_$arch.s" | grep -q '\.quad 4294967296' \
+                || ! grep -A1 '^wpa:' "$TMPD/uplnc_wide_ptr_$arch.s" | grep -q '\.quad 4294967296'; then
+            wide_ptr_ok=0
+            break
+        fi
+    done
+    [ "$wide_ptr_ok" = 1 ] \
+        && ok "wide pointer initializers compile on 64-bit targets" \
+        || bad "wide pointer initializers on 64-bit targets"
+
+    if "$LPP" "$TMPD/uplnc_wide_ptr_init.e" 2>/dev/null \
+            | "$LANGC" -march=i386 > /dev/null 2>"$TMPD/uplnc_wide_ptr_i386.err"; then
+        bad "wide pointer initializers reject on i386"
+    elif grep -q 'pointer initializer does not fit the target word' \
+            "$TMPD/uplnc_wide_ptr_i386.err"; then
+        ok "wide pointer initializers reject on i386"
+    else
+        bad "wide pointer initializer i386 diagnostic"
+    fi
+
+    printf 'var [1]char:a = {4294967296};\nfunc main(){return 0;}\n' \
+        > "$TMPD/uplnc_wide_byte_init.e"
+    if "$LPP" "$TMPD/uplnc_wide_byte_init.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_wide_byte_init.s" \
+                2>"$TMPD/uplnc_wide_byte_init.err"; then
+        bad "wide byte initializer rejects before assembly"
+    elif grep -q 'initializer does not fit a char' "$TMPD/uplnc_wide_byte_init.err" \
+            && ! grep -q '\.byte 4294967296' "$TMPD/uplnc_wide_byte_init.s"; then
+        ok "wide byte initializer rejects before assembly"
+    else
+        bad "wide byte initializer diagnostic"
+    fi
+
+    cat > "$TMPD/uplnc_empty_arrinit.e" <<'EMPTYINIT'
+var [1]int:g = {};
+func main()
+{
+  var [1]int:l = {};
+  return 0;
+}
+EMPTYINIT
+    if "$LPP" "$TMPD/uplnc_empty_arrinit.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > /dev/null 2>"$TMPD/uplnc_empty_arrinit.err"; then
+        bad "empty array initializer lists reject cleanly"
+    elif [ "$(grep -c 'an empty initializer list' "$TMPD/uplnc_empty_arrinit.err")" = 2 ] \
+            && ! grep -qE "wrong expression|missing ';'" "$TMPD/uplnc_empty_arrinit.err"; then
+        ok "empty array initializer lists reject cleanly"
+    else
+        bad "empty array initializer list diagnostics"
+    fi
+
     printf "func main(){ return 'unterminated; }\n" > "$TMPD/uplnc_bad_char.e"
     timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_char.s" 2>"$TMPD/uplnc_bad_char.err" \
         < "$TMPD/uplnc_bad_char.e"
