@@ -799,7 +799,8 @@ UPLNC is C-like but is not C. Version 0 does not include, among other things:
 - C declarator syntax, casts, typed function pointers, or function types;
 - compound assignments, `goto`, labels outside `switch`, or inline assembly;
 - `static`, `register`, `volatile`, `restrict`, or transitive const types;
-- designated, aggregate, or multiple-declarator initializers;
+- designated or nested aggregate initializers, or separately initialized
+  declarators in one declaration;
 - by-value structure parameters or the platform C structure ABI;
 - function-like macros, conditional preprocessing, or `//` comments;
 - exceptions, dynamic dispatch, generics, modules, or namespaces.

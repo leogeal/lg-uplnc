@@ -1180,6 +1180,12 @@ func gichk(typ:int)
   if(typtab[typ].sort==V_PTR)
   {
     if((gickind==GI_VAL)||(gickind==GI_SLIT))return 1;
+    if(gickind==GI_WIDE)
+    {
+      if(target.wordsize==8)return 1;
+      error("pointer initializer does not fit the target word");
+      return 0;
+    }
     error("a pointer initializer needs an integer or a string literal");
     return 0;
   }
@@ -1192,7 +1198,7 @@ func gichk(typ:int)
   else if((gickind==GI_WIDE)&&!is64(typ)&&(target.wordsize<8))
   {error("initializer does not fit a 32-bit int");return 0;}
   else if(((typ==T_CHAR)||(typ==T_UCHAR))
-   &&((gicval<(0-128))||(gicval>255)))
+   &&((gickind==GI_WIDE)||(gicval<(0-128))||(gicval>255)))
   {error("initializer does not fit a char");return 0;}
   return 1;
 }
@@ -1220,6 +1226,7 @@ func doginit(idx:*ssym,typ:int)
     {error("an array initializer needs { } or a string literal");junk();return;}
     if((typtab[elem].sort==V_ARR)||(typtab[elem].sort==V_STR))
     {error("nested array and struct initializers are not supported");junk();return;}
+    if(match("}")){error("an empty initializer list");return;}
     start=ngai;gaiadd(0);
     count=0;
     while(1)
@@ -1237,7 +1244,6 @@ func doginit(idx:*ssym,typ:int)
       blanks();
       if(match("}"))break;   /* allow a trailing comma */
     }
-    if(!count){error("an empty initializer list");return;}
     gainit[start]=count;    /* remaining elements are zero-filled at emission */
     if(idx){idx->ginit=GI_ARR;idx->offset=start;}
     return;
@@ -2560,39 +2566,43 @@ func dolocvar()
       }
       else
       {
-        icnt=0;
-        while(1)
+        if(match("}"))error("an empty initializer list");
+        else
         {
-          inode=hier1();
-          foldtree(inode);
-          if(icnt>=typtab[typ].dim)
+          icnt=0;
+          while(1)
           {
-            error("too many initializer elements for the array");
+            inode=hier1();
+            foldtree(inode);
+            if(icnt>=typtab[typ].dim)
+            {
+              error("too many initializer elements for the array");
+              delenode(inode);
+              junk();
+              break;
+            }
+            if(idx&&inode)
+            {
+              prestemps(inode);
+              if(treetocode(inode,&ilv))rvalue(&ilv);
+              irt=ilv.typ;
+              convto(ielem,irt);
+              ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
+              strcp(ilv.name,idx->name);
+              store(&ilv);
+            }
             delenode(inode);
-            junk();
-            break;
+            icnt++;
+            if(match("}"))break;
+            if(!match(","))
+            {
+              error("',' or '}' expected in the initializer list");
+              junk();
+              break;
+            }
+            blanks();
+            if(match("}"))break;   /* allow a trailing comma */
           }
-          if(idx&&inode)
-          {
-            prestemps(inode);
-            if(treetocode(inode,&ilv))rvalue(&ilv);
-            irt=ilv.typ;
-            convto(ielem,irt);
-            ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
-            strcp(ilv.name,idx->name);
-            store(&ilv);
-          }
-          delenode(inode);
-          icnt++;
-          if(match("}"))break;
-          if(!match(","))
-          {
-            error("',' or '}' expected in the initializer list");
-            junk();
-            break;
-          }
-          blanks();
-          if(match("}"))break;   /* allow a trailing comma */
         }
       }
     }
