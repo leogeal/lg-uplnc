@@ -83,8 +83,9 @@ func slurp(fp:*int)
   return 1;
 }
 
-/* Point lineb at the next line in src and replace its newline with NUL.
-   linelen, not the terminator, remains authoritative for embedded NUL bytes. */
+/* Point lineb at the next line in src, normalize CRLF to LF, and replace the
+   line ending with NUL. linelen, not the terminator, remains authoritative for
+   embedded NUL bytes. */
 func nextline()
 {
   var c:int;
@@ -97,6 +98,7 @@ func nextline()
     if(c==10)break;
     linelen++;
   }
+  if((c==10)&&linelen&&(lineb[linelen-1]==13))linelen--;
   lineb[linelen]=0;
   return 1;
 }
