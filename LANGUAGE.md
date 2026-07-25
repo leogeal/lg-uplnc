@@ -263,7 +263,11 @@ variable-declaration = "var" { variable-qualifier }
                        [ "=" initializer ] ";" ;
 variable-qualifier   = "extern" | "const" ;
 declarator-list      = identifier { "," identifier } ;
-initializer          = assignment-expression ;
+initializer          = assignment-expression
+                     | string-literal
+                     | "{" initializer-element { "," initializer-element }
+                       [ "," ] "}" ;
+initializer-element  = assignment-expression ;
 ```
 
 `extern` is valid only at file scope and declares storage defined elsewhere.
@@ -280,13 +284,27 @@ var a,b:int = 42;
 
 Split declarations when more than one object needs an initializer.
 
-A local initializer may be any expression assignable to the declared type and
-is evaluated at the declaration point. A global initializer must reduce to an
-integer constant, one 64-bit integer literal, or one floating-point literal
-(optionally negated). Integer globals cannot use floating literals. `float` and
-`double` globals require a floating literal such as `1.0`. Global arrays and
-structures cannot be initialized in version 0. An `extern` declaration cannot
-have an initializer.
+A scalar local initializer may be any expression assignable to the declared
+type and is evaluated at the declaration point. A scalar global initializer
+must reduce to an integer constant, one 64-bit integer literal, or one
+floating-point literal (optionally negated). Integer globals cannot use
+floating literals. `float` and `double` globals require a floating literal
+such as `1.0`. A pointer global may be initialized with an integer (normally
+`0`) or with a string literal, whose address it receives. An `extern`
+declaration cannot have an initializer.
+
+A one-dimensional array takes a brace-enclosed element list (a trailing comma
+is permitted), or, when its element type is `char` or `unsigned char`, a
+string literal, which stores the bytes and the terminating NUL — the array
+must be large enough for them. A brace list may not exceed the array
+dimension. Element rules follow the scalar rules per element; a `*char`
+element also accepts a string literal. Initialized global arrays are laid
+down statically, and elements beyond the list are zero. A *local* array
+initializer instead stores exactly the listed elements (each may be any
+expression) or the string's bytes at the declaration point; local elements
+beyond the list (or beyond the string's NUL) remain indeterminate — a local
+initializer costs exactly the stores it writes. Arrays of arrays and
+structures cannot be initialized in version 0.
 
 `const` allows initialization and rejects later direct assignment or increment
 through that declared name. It is shallow: it does not make pointees immutable,

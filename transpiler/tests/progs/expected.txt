@@ -64,6 +64,7 @@ nonleaf_profit 42
 nonleaf_cold 42
 promote_alias 42
 param_promote 42
+initarr 42
 enum 42
 switch 42
 ptrret 42

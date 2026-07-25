@@ -708,6 +708,24 @@ What turns a teaching compiler into something you'd build a project with:
     locals, constant `.data`/`.rodata` emission for globals, last-declarator
     rule, `const` enforcement) does the rest. `init_namefirst` golden test on
     all five backends.
+  - ✅ **Array and string initializers** — `var [N]T:a = {e1, e2, ...};` and
+    `var [N]char:s = "text";` (both declaration forms). Globals lay elements
+    down statically via a new `gainit` element table (`GI_ARR`; `GI_STR` for
+    the byte copy of a string), reusing the scalar constant classifier per
+    element — including string-literal elements for `*char` tables
+    (`GI_SLIT`: `.quad .L<stlab>+off` pool addresses, also usable on scalar
+    pointer globals) — with the unlisted tail `.zero`-filled and `const`
+    tables in `.rodata`. Byte elements emit `.byte` (endian-safe, verified on
+    big-endian mips64); `char` values are range-checked. Locals store the
+    listed elements (each any expression, via the existing `getmem`/`store`
+    offset machinery) or the string's bytes + NUL at the declaration point;
+    unlisted local elements deliberately stay uninitialized — the documented
+    rule is "a local initializer costs exactly the stores it writes". Nested
+    arrays and structs still reject cleanly; every misuse has its own
+    diagnostic (pinned in `[4b]`). Golden `initarr.e` on all five backends;
+    the compiler itself uses no aggregate initializers, so all five
+    fixpoints stay byte-identical. Follow-up idea: `[]` dimension inference
+    from the initializer.
   - ✅ **Function pointers** — a bare function name (or `&f`) is now a value:
     its address, loaded like a global's (`CD_LDA`). Any expression can be
     *called*: variables, parameters (callbacks — `apply(f,x){return f(x);}`),
