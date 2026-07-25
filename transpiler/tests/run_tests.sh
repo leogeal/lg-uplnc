@@ -1464,6 +1464,36 @@ else
         [ "$fmt_bad" = 0 ] \
             && ok "uplncfmt formats examples, lib, and the compiler without changing code" \
             || bad "uplncfmt semantic preservation on real sources"
+        # -l check mode lists exactly the files whose formatting would change
+        # (byte equality against the input); canonical files stay silent.
+        printf 'func a()\n{\nreturn 1;\n}\n' > "$TMPD/uplnc_fmt_needs.e"
+        printf 'func a()\n{\n  return 1;\n}\n' > "$TMPD/uplnc_fmt_canon.e"
+        lout=$(timeout 5 "$FMT" -l "$TMPD/uplnc_fmt_needs.e" "$TMPD/uplnc_fmt_canon.e" 2>/dev/null)
+        lrc=$?
+        if [ "$lrc" = 1 ] && [ "$lout" = "$TMPD/uplnc_fmt_needs.e" ] \
+                && timeout 5 "$FMT" -l "$TMPD/uplnc_fmt_canon.e" >/dev/null 2>&1; then
+            ok "uplncfmt -l lists exactly the files needing formatting"
+        else
+            bad "uplncfmt -l check mode"
+        fi
+        # The format gate: every tracked source file is canonical. Input
+        # fixtures are excluded on principle -- fuzz corpus files and
+        # pp_input.e are byte-exact test inputs, not source to style.
+        if command -v git >/dev/null \
+                && git -C .. rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            gfiles=$(git -C .. ls-files '*.e' '*.he' \
+                | grep -v '^transpiler/fuzz/corpus/' \
+                | grep -v '^transpiler/tests/pp_input\.e$' \
+                | sed 's|^|../|')
+            gout=$(timeout 60 "$FMT" -l $gfiles 2>/dev/null)
+            if [ "$?" = 0 ] && [ -z "$gout" ]; then
+                ok "format gate: every tracked source is canonically formatted"
+            else
+                bad "format gate: run uplncfmt -w on: $(echo $gout | tr '\n' ' ')"
+            fi
+        else
+            echo "  skip - format gate needs a git checkout"
+        fi
         # a line that overflows 158 bytes after formatting warns and exits 1
         printf 'func f()\n{\n  var int:%s;\n}\n' "$(python3 -c 'print("x"*155)')" \
             > "$TMPD/uplnc_fmt_long.e"

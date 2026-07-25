@@ -5,12 +5,12 @@
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
-  
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -47,7 +47,7 @@ func cg_getitem(this :*scodegen)
     /*fprintf(stderr,"ncodeitems=%d, reallocating\n",
     this->ncodeitems);*/
     chkmem(this->codes=realloc(this->codes,
-                 this->ncodeitems*sizeof(scode)));
+    this->ncodeitems*sizeof(scode)));
   }
   cd_init(this->codes+this->codeptr);
   return this->codes+this->codeptr++;
@@ -184,8 +184,8 @@ func mipsu2f(src:*char,dst:*char)
 func is2ndop(code:int)
 {
   return ((code>=CD_ADD2REGS)&&(code<=CD_UGT))
-       ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS)
-       ||(code==CD_UDIV2REGS)||(code==CD_UMOD2REGS);
+  ||(code==CD_MUL2REGS)||(code==CD_DIV2REGS)||(code==CD_MOD2REGS)
+  ||(code==CD_UDIV2REGS)||(code==CD_UMOD2REGS);
 }
 /* the i-th regspill save register (i = nesting depth among open register saves).
    Each maps, per backend, to a register clear of RG_A/RG_D and of every op's
@@ -202,7 +202,7 @@ func ispureload(code:int)
      %rax nor %rdx -- so the value can be commuted past a saved left operand.
      Deliberately excludes CD_LBR* (those dereference %rax). */
   return (code==CD_LDLIT)||(code==CD_LDN)||(code==CD_LDA)||(code==CD_LEA)
-       ||(code==CD_LDW)||(code==CD_LDB)||(code==CD_LDLW)||(code==CD_LDLB);
+  ||(code==CD_LDW)||(code==CD_LDB)||(code==CD_LDLW)||(code==CD_LDLB);
 }
 /* M5 peephole optimizer: target-neutral rewrites over the CD_* stream, run just
    before lowering, so both backends (and both self-host fixpoints) benefit.
@@ -214,7 +214,7 @@ func ispureload(code:int)
 func noemit(c:int)
 {
   return (c==CD_IGNORE)||(c==CD_LOC)||(c==CD_PROMSTART)
-    ||(c==CD_LOCAL)||(c==CD_PARAM);
+  ||(c==CD_LOCAL)||(c==CD_PARAM);
 }
 /* the PHYSICAL stack-pointer delta a CD_MODSTK with argument k lowers to on
    the current target: exact on every backend except arm64, whose lowering
@@ -246,8 +246,8 @@ func peephole(this:*scodegen)
          <load X> ; PUSH ; <load Y> ; POP  ==>  <load X -> 2nd> ; <load Y>
                    PUSH ; <load Y> ; POP   ==>  MOVAD ; <load Y>            */
     if((i+2<n)&&(this->codes[i].code==CD_PUSH)
-       &&ispureload(this->codes[i+1].code)
-       &&(this->codes[i+2].code==CD_POP))
+    &&ispureload(this->codes[i+1].code)
+    &&(this->codes[i+2].code==CD_POP))
     {
       if((i>0)&&ispureload(this->codes[i-1].code))
       {
@@ -280,8 +280,8 @@ func peephole(this:*scodegen)
       j=i+1;
       while((j<n)&&noemit(this->codes[j].code))j=j+1;
       if((j<n)&&(this->codes[j].code==CD_MODSTK)
-         &&(modstkphys(this->codes[i].arg)+modstkphys(this->codes[j].arg)
-            ==modstkphys(this->codes[i].arg+this->codes[j].arg)))
+      &&(modstkphys(this->codes[i].arg)+modstkphys(this->codes[j].arg)
+      ==modstkphys(this->codes[i].arg+this->codes[j].arg)))
       {
         this->codes[j].arg=this->codes[i].arg+this->codes[j].arg;
         this->codes[i].code=CD_IGNORE;
@@ -301,8 +301,8 @@ func peephole(this:*scodegen)
       j=i+1;
       while((j<n)&&noemit(this->codes[j].code))j=j+1;
       if((j<n)&&(this->codes[j].code==CD_LDLW)
-         &&(this->codes[j].arg==this->codes[i].arg)
-         &&(this->codes[j].promid==this->codes[i].promid))
+      &&(this->codes[j].arg==this->codes[i].arg)
+      &&(this->codes[j].promid==this->codes[i].promid))
       {
         if(this->codes[j].reg==RG_A)this->codes[j].code=CD_IGNORE;
         else{this->codes[j].code=CD_MOVR;this->codes[j].arg=RG_A;}
@@ -446,12 +446,12 @@ func dwframe()
 func promframeop(c:int)
 {
   return (c==CD_LEA)||(c==CD_STLW)||(c==CD_STLB)
-      ||(c==CD_LDLW)||(c==CD_LDLB)||(c==CD_LDLBU)
-      ||(c==CD_FLDLOC)||(c==CD_FSTLOC)
-      ||(c==CD_FLDLOCS)||(c==CD_FSTLOCS)
-      ||(c==CD_SARGINT)||(c==CD_SARGFP)
-      ||(c==CD_SAVECSR)||(c==CD_RESTCSR)
-      ||(c==CD_LDLW64)||(c==CD_STLW64);
+  ||(c==CD_LDLW)||(c==CD_LDLB)||(c==CD_LDLBU)
+  ||(c==CD_FLDLOC)||(c==CD_FSTLOC)
+  ||(c==CD_FLDLOCS)||(c==CD_FSTLOCS)
+  ||(c==CD_SARGINT)||(c==CD_SARGFP)
+  ||(c==CD_SAVECSR)||(c==CD_RESTCSR)
+  ||(c==CD_LDLW64)||(c==CD_STLW64);
 }
 func promote_locals(this:*scodegen)
 {
@@ -520,7 +520,7 @@ func promote_locals(this:*scodegen)
           if(nlab<PROMLOC_MAX){labarg[nlab]=this->codes[i].arg;labpos[nlab]=i;nlab=nlab+1;}
         }
         else if((c==CD_JUMP)||(c==CD_TESTJUMP)||(c==CD_TESTNEJUMP)
-          ||(c==CD_TESTJUMP64)||(c==CD_TESTNEJUMP64))
+        ||(c==CD_TESTJUMP64)||(c==CD_TESTNEJUMP64))
         {
           /* only labels recorded so far match: backward by construction */
           for(j=nlab-1;j>=0;j=j-1)
@@ -975,16 +975,16 @@ func cd_write_x86_64(*scode:this)
   else if(this->code==CD_MUL2REGS){ot("imulq ");outstr(r2nd(this));nl();}
   else if(this->code==CD_DIV2REGS)              /* left/right; %rcx=divisor, %rdx scratch */
   {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
-   ol("cqto");ol("idivq %rcx");}
+    ol("cqto");ol("idivq %rcx");}
   else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %rdx */
   {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
-   ol("cqto");ol("idivq %rcx");ol("movq %rdx, %rax");}
+    ol("cqto");ol("idivq %rcx");ol("movq %rdx, %rax");}
   else if(this->code==CD_UDIV2REGS)             /* unsigned left/right */
   {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
-   ol("xorq %rdx, %rdx");ol("divq %rcx");}
+    ol("xorq %rdx, %rdx");ol("divq %rcx");}
   else if(this->code==CD_UMOD2REGS)             /* unsigned left%right */
   {movins("xchgq ","%rax",r2nd(this));movins("movq ",r2nd(this),"%rcx");
-   ol("xorq %rdx, %rdx");ol("divq %rcx");ol("movq %rdx, %rax");}
+    ol("xorq %rdx, %rdx");ol("divq %rcx");ol("movq %rdx, %rax");}
   else if(this->code==CD_STKENTER)
   {
     var int:i;
@@ -1037,7 +1037,7 @@ func cd_write_x86_64(*scode:this)
     {
       if(this->arg<3)
       while(this->arg--)
-        ol("incq %rax");
+      ol("incq %rax");
       else
       {
         ot("addq $");
@@ -1053,7 +1053,7 @@ func cd_write_x86_64(*scode:this)
     {
       if(this->arg<3)
       while(this->arg--)
-        ol("decq %rax");
+      ol("decq %rax");
       else
       {
         ot("subq $");
@@ -1444,16 +1444,16 @@ func xdivc_x86_64(k:int)
   var int:l;
   if(k==1)return ;
   if(!k){
-  error("division by zero");
-  return ;
+    error("division by zero");
+    return ;
   }
   l=1;
   while(l<15)if(k==(1<<l)){
-  ot("sarq $");
-  outdec(l);
-  outstr(", %rax");
-  nl();
-  return ;
+    ot("sarq $");
+    outdec(l);
+    outstr(", %rax");
+    nl();
+    return ;
   }
   else
   l++;
@@ -1474,7 +1474,7 @@ func xmulreg_x86_64(k:int,s:*char)
     nl();
   }
   else
-    {
+  {
     l=1;
     while(l<15)if(k==(1<<l)){
       ot("salq $");
@@ -1485,8 +1485,8 @@ func xmulreg_x86_64(k:int,s:*char)
       return ;
     }
     else
-      l++;
-    }
+    l++;
+  }
   ot("imulq $");
   outdec(k);
   outstr(", ");
@@ -2039,7 +2039,7 @@ func cd_write_riscv(*scode:this)
   else if(this->code==CD_RET){ol("ret");cfi("restore_state");}
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("la ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
-   if(this->arg)addimm_riscv(regnames[this->reg],regnames[this->reg],this->arg);}
+    if(this->arg)addimm_riscv(regnames[this->reg],regnames[this->reg],this->arg);}
   else if(this->code==CD_LDN)
   {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
   else if(this->code==CD_LDNW)   /* wide literal: the li macro takes any 64-bit value */
@@ -2327,7 +2327,7 @@ func cd_write_mips(*scode:this)
   else if(this->code==CD_RET){ol("jr $ra");cfi("restore_state");}
   else if(this->code==CD_LDLIT)   /* address of string-literal pool + offset */
   {ot("dla ");outstr(regnames[this->reg]);outstr(", ");printlab(stlab);nl();
-   if(this->arg)addimm_mips(regnames[this->reg],regnames[this->reg],this->arg);}
+    if(this->arg)addimm_mips(regnames[this->reg],regnames[this->reg],this->arg);}
   else if(this->code==CD_LDN)
   {ot("li ");outstr(regnames[this->reg]);outstr(", ");outdec(this->arg);nl();}
   else if(this->code==CD_LDNW)   /* wide literal: dli builds any 64-bit value */
@@ -2494,16 +2494,16 @@ func cd_write_i386(*scode:this)
   else if(this->code==CD_MUL2REGS){ot("imull ");outstr(r2nd(this));nl();}
   else if(this->code==CD_DIV2REGS)              /* left/right; %ecx=divisor, %edx scratch */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
-   ol("cltd");ol("idivl %ecx");}
+    ol("cltd");ol("idivl %ecx");}
   else if(this->code==CD_MOD2REGS)              /* left%right; remainder ends in %edx */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
-   ol("cltd");ol("idivl %ecx");ol("movl %edx, %eax");}
+    ol("cltd");ol("idivl %ecx");ol("movl %edx, %eax");}
   else if(this->code==CD_UDIV2REGS)             /* unsigned left/right */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
-   ol("xorl %edx, %edx");ol("divl %ecx");}
+    ol("xorl %edx, %edx");ol("divl %ecx");}
   else if(this->code==CD_UMOD2REGS)             /* unsigned left%right */
   {movins("xchgl ","%eax",r2nd(this));movins("movl ",r2nd(this),"%ecx");
-   ol("xorl %edx, %edx");ol("divl %ecx");ol("movl %edx, %eax");}
+    ol("xorl %edx, %edx");ol("divl %ecx");ol("movl %edx, %eax");}
   /* ---- i386 64-bit long long: value in %edx:%eax, left operand on the stack -- */
   else if(this->code==CD_LDN64)
   {
@@ -2536,7 +2536,7 @@ func cd_write_i386(*scode:this)
   {ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
   else if(this->code==CD_SUB64)
   {ol("negl %eax");ol("adcl $0, %edx");ol("negl %edx");
-   ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
+    ol("addl (%esp), %eax");ol("adcl 4(%esp), %edx");ol("addl $8, %esp");}
   else if(this->code==CD_NEG64)
   {ol("negl %eax");ol("adcl $0, %edx");ol("negl %edx");}
   else if(this->code==CD_LNOT64)
@@ -2661,7 +2661,7 @@ func cd_write_i386(*scode:this)
     {
       if(this->arg<3)
       while(this->arg--)
-        ol("incl %eax");
+      ol("incl %eax");
       else
       {
         ot("addl $");
@@ -2677,7 +2677,7 @@ func cd_write_i386(*scode:this)
     {
       if(this->arg<3)
       while(this->arg--)
-        ol("decl %eax");
+      ol("decl %eax");
       else
       {
         ot("subl $");
@@ -2997,10 +2997,10 @@ func cd_write_i386(*scode:this)
   {ol("fildll (%esp)");ol("addl $8, %esp");}
   else if(this->code==CD_ULL2F)    /* unsigned 64-bit %edx:%eax -> x87 double */
   {ol("pushl %edx");ol("pushl %eax");ol("fildll (%esp)");ol("addl $8, %esp");
-   ol("testl %edx, %edx");ull2fcorr();}   /* %edx = high word; correct if top bit set */
+    ol("testl %edx, %edx");ull2fcorr();}   /* %edx = high word; correct if top bit set */
   else if(this->code==CD_ULL2F1)   /* unsigned 64-bit left(stack) -> x87 (2nd operand) */
   {ol("fildll (%esp)");ol("testl $-2147483648, 4(%esp)");ull2fcorr();
-   ol("addl $8, %esp");}
+    ol("addl $8, %esp");}
   else if(this->code==CD_F2LL)     /* x87 double -> signed 64-bit %edx:%eax (chop) */
   {
     ol("subl $12, %esp");
@@ -3054,16 +3054,16 @@ func xdivconst(k:int)
   var int:l;
   if(k==1)return ;
   if(!k){
-  error("division by zero");
-  return ;
+    error("division by zero");
+    return ;
   }
   l=1;
   while(l<15)if(k==(1<<l)){
-  ot("sarl $");
-  outdec(l);
-  outstr(", %eax");
-  nl();
-  return ;
+    ot("sarl $");
+    outdec(l);
+    outstr(", %eax");
+    nl();
+    return ;
   }
   else
   l++;
@@ -3084,7 +3084,7 @@ func xmulreg(k:int,s:*char)
     nl();
   }
   else
-    {
+  {
     l=1;
     while(l<15)if(k==(1<<l)){
       ot("sall $");
@@ -3095,8 +3095,8 @@ func xmulreg(k:int,s:*char)
       return ;
     }
     else
-      l++;
-    }
+    l++;
+  }
   ot("imull $");
   outdec(k);
   outstr(", ");

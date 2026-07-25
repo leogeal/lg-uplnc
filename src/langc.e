@@ -5,12 +5,12 @@
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
-  
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -81,7 +81,7 @@ method snamelist.find(*char:s)
   var *snamenode:p;
   for(p=lst;p;p=p->next)
   if(strid(p->name,s))
-    return p;
+  return p;
   return 0;
 }
 method snamelist.init(){lst=0;front=&lst;}
@@ -201,7 +201,7 @@ func ssymtabfindsym(symtab:*ssymtab,sname:*char)
   var *ssymlist:p;
   for(p=symtab->lst;p;p=p->next)
   if(strid(sname,p->sym.name))
-    return p;
+  return p;
   return 0;
 }
 var typtab:*styp;
@@ -262,8 +262,8 @@ var wqptr:int;
 func putlitst(c:char)
 {
   if(litstkpt[tolitstk]+litstkle[tolitstk]>=litstksz-1){
-  error("too large code from function arguments");
-  return 0;
+    error("too large code from function arguments");
+    return 0;
   }
   litstk[litstkpt[tolitstk]+litstkle[tolitstk]]=c;
   litstkle[tolitstk]=litstkle[tolitstk]+1;
@@ -272,8 +272,8 @@ func putlitst(c:char)
 func getlitst()
 {
   if(tolitstk>=litstknu-1){
-  error("too many function arguments");
-  return 0;
+    error("too many function arguments");
+    return 0;
   }
   ++tolitstk;
   litstkle[tolitstk]=0;
@@ -288,18 +288,18 @@ func dumpltst(tl:int)
   var *char:pp;
   q=litstk2;
   while(tolitstk>=tl){
-  i=litstkle[tolitstk];
-  p=litstkpt[tolitstk];
-  while(i--){
-    *q++=litstk[p++];
-  }
-  tolitstk--;
+    i=litstkle[tolitstk];
+    p=litstkpt[tolitstk];
+    while(i--){
+      *q++=litstk[p++];
+    }
+    tolitstk--;
   }
   pp=q;
   q=litstk2;
   while(q<pp){
-  outbyte(*q);
-  ++q;
+    outbyte(*q);
+    ++q;
   }
 }
 var iseof:int;
@@ -397,57 +397,57 @@ func parseopt(argc:int,argv:**char)
       var k:int;
       for(k=1;argv[i][k];k++)
       if(argv[i][k]=='m')
-        {
+      {
         tomap=1;
         if(argv[i][k+1]=='-')
-          {tomap=0;k++;}
+        {tomap=0;k++;}
         fprintf(stderr," tomap=%d\n",tomap);
-        }
+      }
       else if(argv[i][k]=='g')
-        {
+      {
         tograph=1;
         if(argv[i][k+1]=='-')
-          {tograph=0;k++;}
+        {tograph=0;k++;}
         fprintf(stderr," tograph=%d\n",tograph);
-        }
+      }
       else if(argv[i][k]=='M')
-        {
+      {
         if(argv[i][k+1])
-          {
+        {
           mapname=argv[i]+k+1;
           while(argv[i][k])++k;
           k=k-1;
-          }
+        }
         else if(i>=argc-1)
-          {
+        {
           fprintf(stderr,"needs more arguments\n");
-          }
+        }
         else
-          {
+        {
           mapname=argv[++i];
           break;   /* value taken as a separate arg; stop scanning it as flags */
-          }
-        fprintf(stderr," mapname=%s\n",mapname);
         }
+        fprintf(stderr," mapname=%s\n",mapname);
+      }
       else if(argv[i][k]=='G')
-        {
+      {
         if(argv[i][k+1])
-          {
+        {
           graphname=argv[i]+k+1;
           while(argv[i][k])++k;
           k=k-1;
-          }
+        }
         else if(i>=argc-1)
-          {
+        {
           fprintf(stderr,"needs more arguments\n");
-          }
+        }
         else
-          {
+        {
           graphname=argv[++i];
           break;   /* value taken as a separate arg; stop scanning it as flags */
-          }
-        fprintf(stderr," graphname=%s\n",graphname);
         }
+        fprintf(stderr," graphname=%s\n",graphname);
+      }
     }
   }
 }
@@ -635,9 +635,9 @@ func findtyp(sname:*char)
   var *char:p;
   res=1;
   while(res<typptr){
-  p=typtab[res].name;
-  if(astreq(sname,p,NAMEMAX))return res;
-  res++;
+    p=typtab[res].name;
+    if(astreq(sname,p,NAMEMAX))return res;
+    res++;
   }
   return 0;
 }
@@ -652,9 +652,9 @@ func dostruct()
   var int:offs;
   var int:res;
   if(typptr>=numtyp){
-  /*fprintf(stderr,"reallocating types\n");*/
-  numtyp=numtyp+NUMTYP;
-  chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+    /*fprintf(stderr,"reallocating types\n");*/
+    numtyp=numtyp+NUMTYP;
+    chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
   }
   res=typptr++;
   if(!symname(sname))error("structure name exected");
@@ -674,132 +674,132 @@ func dostruct()
   /* *top=0;*/typtab[res].type=0;
   offs=0;
   while(1){
-  blanks();
-  if(iseof)break;
-  /*if(ch()=='}')break;*/
-  if(streq(line+lptr,trcomp))break;
-  if(amatch(tfunc/*func*/,4))
+    blanks();
+    if(iseof)break;
+    /*if(ch()=='}')break;*/
+    if(streq(line+lptr,trcomp))break;
+    if(amatch(tfunc/*func*/,4))
     {
-    /* method slot: `func name;` returns int; a return type may come first
+      /* method slot: `func name;` returns int; a return type may come first
        (`func double area;`, the original grammar) or trail like a function
        declaration (`func area:double;`). The slot is the method's DECLARATION,
        so the type recorded here is what call sites use -- the definition
        must agree (checked in dofunc). */
-    var int:slottyped;
-    slottyped=0;
-    if(cbtype())
+      var int:slottyped;
+      slottyped=0;
+      if(cbtype())
       {t=gettypen();slottyped=1;}
-    else t=T_INT;
-    if(!symname(fname))
+      else t=T_INT;
+      if(!symname(fname))
       error("method name expected");
-    if(match(":"))
-    {
-      if(slottyped)error("method return type given twice");
-      t=gettypen();
-    }
-    if(t==T_FLOAT)
-    error("float method return not supported yet -- use double");
-    if(typtab[t].sort==V_STR)
-    error("a struct-returning method is not supported yet");
-    if(typtab[t].sort==V_ARR)
-    error("an array-returning method is not supported yet");
-    t=getfnctype(t);
-    ns();
-    if(!ttop)
+      if(match(":"))
       {
-      comment();outstr("BEGINNING\n");
-      typtab[res].type=afield(t,fname,offs);
-      ttop=typtab[res].type;
+        if(slottyped)error("method return type given twice");
+        t=gettypen();
       }
-    else
+      if(t==T_FLOAT)
+      error("float method return not supported yet -- use double");
+      if(typtab[t].sort==V_STR)
+      error("a struct-returning method is not supported yet");
+      if(typtab[t].sort==V_ARR)
+      error("an array-returning method is not supported yet");
+      t=getfnctype(t);
+      ns();
+      if(!ttop)
       {
-      comment();outstr("assigning");
-      fieldtab[ttop].next=afield(t,fname,offs);
-      nl();
-      ttop=fieldtab[ttop].next;
+        comment();outstr("BEGINNING\n");
+        typtab[res].type=afield(t,fname,offs);
+        ttop=typtab[res].type;
       }
-    /**top=afield(t,fname,offs);*/
-    /*top=&fieldtab[*top].next;*/
-    /*sz=gettsize(t);
+      else
+      {
+        comment();outstr("assigning");
+        fieldtab[ttop].next=afield(t,fname,offs);
+        nl();
+        ttop=fieldtab[ttop].next;
+      }
+      /**top=afield(t,fname,offs);*/
+      /*top=&fieldtab[*top].next;*/
+      /*sz=gettsize(t);
     if(sz&3)sz=sz+4-(sz&3);
     offs=offs+sz;*/
-    continue;
+      continue;
     }
-  var int:istyp;
-  istyp=0;
-  if(cbtype())
+    var int:istyp;
+    istyp=0;
+    if(cbtype())
     {
-    t=gettypen();
-    istyp=1;
-    if(match(":"));
+      t=gettypen();
+      istyp=1;
+      if(match(":"));
     }
-  var *ssymlist:lst,lsptr;
-  var **ssymlist:lpom;
-  lst=lsptr=0;
-  lpom=&lst;
-  while(symname(fname))
+    var *ssymlist:lst,lsptr;
+    var **ssymlist:lpom;
+    lst=lsptr=0;
+    lpom=&lst;
+    while(symname(fname))
     {
-    chkmem((*lpom)=calloc(1,sizeof(ssymlist)));
-    strcp((*lpom)->sym.name,fname);
-    lpom=&(*lpom)->next;
-    (*lpom)=0;
-    blanks();
-    if(istyp)
+      chkmem((*lpom)=calloc(1,sizeof(ssymlist)));
+      strcp((*lpom)->sym.name,fname);
+      lpom=&(*lpom)->next;
+      (*lpom)=0;
+      blanks();
+      if(istyp)
       {if(streq(line+lptr,";"))break;}
-    else
+      else
       {if(streq(line+lptr,":"))break;}
-    if(endst())break;
-    if(!match(","))
+      if(endst())break;
+      if(!match(","))
       {
-      error("',' or ':'|';' expected");
-      junk();
-      break;
+        error("',' or ':'|';' expected");
+        junk();
+        break;
       }
     }
-  if(!istyp)
+    if(!istyp)
     {
-    if(!match(":"))
+      if(!match(":"))
       error("':' expected for Pascal-style declaration");
-    t=gettypen();
-    istyp=1;
+      t=gettypen();
+      istyp=1;
     }
-  ns();
-  /*if(!symname(fname)){
+    ns();
+    /*if(!symname(fname)){
     error("field name expected");
     reset();
     }*/
-  for(lsptr=lst;lsptr;lsptr=lsptr->next)
+    for(lsptr=lst;lsptr;lsptr=lsptr->next)
     {
-    comment();outstr("adding ");outstr(lsptr->sym.name);
-    outstr(":");outdec(t);nl();
-    if(!ttop)
+      comment();outstr("adding ");outstr(lsptr->sym.name);
+      outstr(":");outdec(t);nl();
+      if(!ttop)
       {
-      typtab[res].type=afield(t,lsptr->sym.name,offs);
-      ttop=typtab[res].type;
+        typtab[res].type=afield(t,lsptr->sym.name,offs);
+        ttop=typtab[res].type;
       }
-    else
+      else
       {
-      var int:alpha;
+        var int:alpha;
+        comment();outstr("ttop=");outdec(ttop);nl();
+        alpha=afield(t,lsptr->sym.name,offs);
+        fieldtab[ttop].next=gggg();
+        comment();outstr("fieldtab[ttop].next=");
+        outdec(fieldtab[ttop].next);nl();
+        fieldtab[ttop].next=alpha;
+        /*fieldtab[ttop].next=afield(t,lsptr->sym.name,offs);*/
+        comment();outstr("fieldtab[ttop].next=");
+        outdec(fieldtab[ttop].next);
+        ttop=fieldtab[ttop].next;
+      }
       comment();outstr("ttop=");outdec(ttop);nl();
-      alpha=afield(t,lsptr->sym.name,offs);
-      fieldtab[ttop].next=gggg();
-      comment();outstr("fieldtab[ttop].next=");
-      outdec(fieldtab[ttop].next);nl();
-      fieldtab[ttop].next=alpha;
-      /*fieldtab[ttop].next=afield(t,lsptr->sym.name,offs);*/
-      comment();outstr("fieldtab[ttop].next=");
-      outdec(fieldtab[ttop].next);
-      ttop=fieldtab[ttop].next;
-      }
-    comment();outstr("ttop=");outdec(ttop);nl();
-    prstrct(res);
-    /**top=afield(t,lsptr->sym.name,offs);
+      prstrct(res);
+      /**top=afield(t,lsptr->sym.name,offs);
     comment();outstr("*top=");outdec(*top);nl();
     top=&fieldtab[*top].next;*/
-    sz=roundup(gettsize(t));
-    offs=offs+sz;
+      sz=roundup(gettsize(t));
+      offs=offs+sz;
     }
-  delsymlist(lst);
+    delsymlist(lst);
   }
   comment();
   outstr("2typptr=");
@@ -951,13 +951,13 @@ func prstrct(s:int)
   nl();
   k=typtab[s].type;
   while(k){
-  comment();
-  outstr("type ");
-  outdec(fieldtab[k].type);
-  outstr(" ");
-  outstr(fieldtab[k].name);
-  nl();
-  k=fieldtab[k].next;
+    comment();
+    outstr("type ");
+    outdec(fieldtab[k].type);
+    outstr(" ");
+    outstr(fieldtab[k].name);
+    nl();
+    k=fieldtab[k].next;
   }
 }
 func findfiel(nm:*char,s:int)
@@ -970,13 +970,13 @@ func findfiel(nm:*char,s:int)
   outdec(typtab[s].sort);
   nl();
   if(typtab[s].sort!=V_STR){
-  error("cannot find a field in a non-struct");
-  return 0;
+    error("cannot find a field in a non-struct");
+    return 0;
   }
   k=typtab[s].type;
   while(k){
-  if(strid(nm,fieldtab[k].name))return k;
-  k=fieldtab[k].next;
+    if(strid(nm,fieldtab[k].name))return k;
+    k=fieldtab[k].next;
   }
   return 0;
 }
@@ -1055,7 +1055,7 @@ func dovar()
     (*lpom)=0;
     if(istyp)
     {if(match(";"))break;
-     if(match("=")){hasinit=1;break;}}  /* var TYPE:name = constexpr; (global) */
+      if(match("=")){hasinit=1;break;}}  /* var TYPE:name = constexpr; (global) */
     else
     {if(match(":"))break;}
     if(endst())break;
@@ -1154,7 +1154,7 @@ func giconst()
   leaf=inode;
   gickind=GI_NONE;gicval=0;
   if(leaf&&(leaf->op==OP_UMINUS)&&leaf->r&&(leaf->r->op==OP_LEAF)
-   &&(leaf->r->leaf.vid==L_FNUM))
+  &&(leaf->r->leaf.vid==L_FNUM))
   {
     /* -3.14: prepend the sign to the literal's pool text */
     s=fpoolbuf+fpooloff[leaf->r->leaf.val];
@@ -1198,7 +1198,7 @@ func gichk(typ:int)
   else if((gickind==GI_WIDE)&&!is64(typ)&&(target.wordsize<8))
   {error("initializer does not fit a 32-bit int");return 0;}
   else if(((typ==T_CHAR)||(typ==T_UCHAR))
-   &&((gickind==GI_WIDE)||(gicval<(0-128))||(gicval>255)))
+  &&((gickind==GI_WIDE)||(gicval<(0-128))||(gicval>255)))
   {error("initializer does not fit a char");return 0;}
   return 1;
 }
@@ -1268,8 +1268,8 @@ func match(lit:*char)
   var int:k;
   blanks();
   if(k=streq(line+lptr,lit)){
-  lptr=lptr+k;
-  return 1;
+    lptr=lptr+k;
+    return 1;
   }
   return 0;
 }
@@ -1278,8 +1278,8 @@ func streq(str1:*char,str2:*char)
   var int:k;
   k=0;
   while(str2[k]){
-  if(str1[k]!=str2[k])return 0;
-  ++k;
+    if(str1[k]!=str2[k])return 0;
+    ++k;
   }
   return k;
 }
@@ -1288,8 +1288,8 @@ func strid(str1:*char,str2:*char)
   var int:k;
   k=0;
   while(str2[k]){
-  if(str1[k]!=str2[k])return 0;
-  ++k;
+    if(str1[k]!=str2[k])return 0;
+    ++k;
   }
   if(str1[k])return 0;
   return 1;
@@ -1299,8 +1299,8 @@ func amatch(lit:*char,len:int)
   var int:k;
   blanks();
   if(k=astreq(line+lptr,lit,len)){
-  lptr=lptr+k;
-  return 1;
+    lptr=lptr+k;
+    return 1;
   }
   return 0;
 }
@@ -1318,7 +1318,7 @@ func blanks()
     else
     if(ch()==9)gch();
     else
-      return ;
+    return ;
   }
 }
 func an(c:char)
@@ -1355,8 +1355,8 @@ func insline()
     lptr=0;
     line[0]=0;
     while((k=getchar())>0){
-    if((k==10)||(lptr>=linemax))break;
-    line[lptr++]=k;
+      if((k==10)||(lptr>=linemax))break;
+      line[lptr++]=k;
     }
     line[lptr]=0;
     if(k<0)isinp=0;
@@ -1380,10 +1380,10 @@ func insline()
       continue;
     }
     if(lptr){
-    comment();
-    outstr(line);
-    nl();
-    lptr=0;
+      comment();
+      outstr(line);
+      nl();
+      lptr=0;
     }
     cline++;
     return ;
@@ -1397,10 +1397,10 @@ func astreq(str1:*char,str2:*char,len:int)
   var int:k;
   k=0;
   while(k<len){
-  if((str1[k])!=(str2[k]))break;
-  if(!str1[k])break;
-  if(!str2[k])break;
-  ++k;
+    if((str1[k])!=(str2[k]))break;
+    if(!str1[k])break;
+    if(!str2[k])break;
+    ++k;
   }
   if(an(str1[k]))return 0;
   if(an(str2[k]))return 0;
@@ -1764,7 +1764,7 @@ func dofunc()
   outdec(gp);
   nl();*/
   if(gp){
-  if(gp->sort!=S_FUNC)error("multidef");
+    if(gp->sort!=S_FUNC)error("multidef");
   }
   else
   {
@@ -2103,8 +2103,8 @@ func dofunc()
     var *ssymlist:pq;
     for(pq=locsymtab.lst;pq;pq=pq->next)
     if((pq->sym.sort==S_VARL)&&pq->sym.ispar&&an(pq->sym.name[0])
-      &&((pq->sym.type==T_INT)||(pq->sym.type==T_UINT)||is64(pq->sym.type)
-        ||(typtab[pq->sym.type].sort==V_PTR)))
+    &&((pq->sym.type==T_INT)||(pq->sym.type==T_UINT)||is64(pq->sym.type)
+    ||(typtab[pq->sym.type].sort==V_PTR)))
     {
       pq->sym.promid=++g_promid;
       zparam(pq->sym.offset,pq->sym.promid);
@@ -2124,7 +2124,7 @@ func dofunc()
     var int:wk,wj,savecl;
     for(wl=locsymtab.lst;wl;wl=wl->next)
     if((wl->sym.sort==S_VARL)&&(!wl->sym.wused)
-     &&((wl->sym.name[0]<'0')||(wl->sym.name[0]>'9')))
+    &&((wl->sym.name[0]<'0')||(wl->sym.name[0]>'9')))
     {
       strcp(wmsg,"unused variable '");
       wk=strlen1(wmsg);
@@ -2178,56 +2178,56 @@ func statemen()
   if(amatch("var",3))dolocvar();
   else if(match(tlcomp/*"{"*/))compound();
   else if(amatch("if",2))
-    {
-      doif();
-      lastst=stif;
-    }
+  {
+    doif();
+    lastst=stif;
+  }
   else if(amatch("while",5))
-    {
+  {
     dowhile();
     lastst=stwhile;
-    }
+  }
   else if(amatch("for",3))
-    {
+  {
     dofor();
     lastst=stfor;
-    }
+  }
   else if(amatch("do",2))
-    {
+  {
     dodo();
     lastst=stdo;
-    }
+  }
   else if(amatch("switch",6))
-    {
+  {
     doswitch();
     lastst=stswitch;
-    }
+  }
   else if(amatch("return",6))
-    {
+  {
     doreturn();
     ns();
     lastst=streturn;
-    }
+  }
   else if(amatch("break",5))
-    {
+  {
     dobreak();
     ns();
     lastst=stbreak;
-    }
+  }
   else if(amatch("continue",8))
-    {
+  {
     docont();
     ns();
     lastst=stcont;
-    }
+  }
   else if(match(";"))g_stmtclosed=1;
   else
-    {
+  {
     g_stmtexp=1;   /* expressi warns if the whole statement is a comparison */
     expressi();
     ns();
     lastst=stexp;
-    }
+  }
   return lastst;
 }
 /* M6 2b: copy a struct (the lvalue `src`) through the pointer held in the local
@@ -2299,8 +2299,8 @@ func prestemps(node:*enode)
   prestemps(node->r);
   prestemps(node->third);
   if((node->op==OP_FUNC)&&node->l&&(node->l->op==OP_LEAF)
-   &&node->l->leaf.idx&&(node->l->leaf.idx->sort==S_FUNC)
-   &&(typtab[node->l->leaf.idx->type].sort==V_STR))
+  &&node->l->leaf.idx&&(node->l->leaf.idx->sort==S_FUNC)
+  &&(typtab[node->l->leaf.idx->type].sort==V_STR))
   node->leaf.idx=mkstemp(node->l->leaf.idx->type);
 }
 /* M6 2b: compute the address of a (named local or global) lvalue into the
@@ -2337,12 +2337,12 @@ func doreturn()
     }
     else
     {
-    var int:rt;
-    rt=expressi();
-    /* convert the return value to the function's return type. A long long return
+      var int:rt;
+      rt=expressi();
+      /* convert the return value to the function's return type. A long long return
        on i386 must leave the full %edx:%eax pair, not just the low word. */
-    if(curfunc)convto(curfunc->type,rt);
-    else if(rt==T_DOUBLE)zf2i();
+      if(curfunc)convto(curfunc->type,rt);
+      else if(rt==T_DOUBLE)zf2i();
     }
   }
   if(target.csrsave)restcsr(csrslot);
@@ -2393,11 +2393,11 @@ func modstk(newsp:int)
   cmodstk(k);
   return newsp;
   if(k>0){
-  ot("addl $");
-  outdec(k);
-  outasm(", %esp");
-  nl();
-  return newsp;
+    ot("addl $");
+    outdec(k);
+    outasm(", %esp");
+    nl();
+    return newsp;
   }
   else
   {
@@ -2453,7 +2453,7 @@ func dolocvar()
     (*lpom)=0;
     if(istyp)
     {if(match(";")){g_stmtclosed=1;break;}
-     if(match("=")){hasinit=1;break;}}   /* M6: var TYPE:name = expr; (initializer) */
+      if(match("=")){hasinit=1;break;}}   /* M6: var TYPE:name = expr; (initializer) */
     else
     {if(match(":"))break;}
     if(endst())break;
@@ -2657,11 +2657,11 @@ func doif()
   /*locptr=flev;*/
   ssymtabcut(&locsymtab,flev);
   if(!amatch("else",4)){
-  /*printlab(flab1);
+    /*printlab(flab1);
   col();
   nl();*/
-  clab(flab1);
-  return ;
+    clab(flab1);
+    return ;
   }
   jump(flab2=getlabel());
   /*printlab(flab1);
@@ -2786,7 +2786,7 @@ func dodo()
   statemen();
   Zsp=modstk(thesp);
   if(!amatch("while",5)){
-  error("'while' expected");
+    error("'while' expected");
   }
   needbrac(tlarg/*"("*/);
   clab(thecont);
@@ -2927,8 +2927,8 @@ func doswitch()
 func addwhile(sym:int,sp:int,loop:int,lab:int)
 {
   if(wqptr>=WQMAX){
-  error("too many nested loops");
-  return ;
+    error("too many nested loops");
+    return ;
   }
   wqsym[wqptr]=sym;
   wqsp[wqptr]=sp;
@@ -2939,8 +2939,8 @@ func addwhile(sym:int,sp:int,loop:int,lab:int)
 func readwhil()
 {
   if(!wqptr){
-  error("no active loops");
-  return 0;
+    error("no active loops");
+    return 0;
   }
   return wqptr-1;
 }
@@ -3011,7 +3011,7 @@ func _mulreg(k:int,s:*char)
     nl();
   }
   else
-    {
+  {
     l=1;
     while(l<15)if(k==(1<<l)){
       ot("sall $");
@@ -3022,8 +3022,8 @@ func _mulreg(k:int,s:*char)
       return ;
     }
     else
-      l++;
-    }
+    l++;
+  }
   ot("imull $");
   outdec(k);
   outstr(", ");
@@ -3035,16 +3035,16 @@ func _divconst(k:int)
   var int:l;
   if(k==1)return ;
   if(!k){
-  error("division by zero");
-  return ;
+    error("division by zero");
+    return ;
   }
   l=1;
   while(l<15)if(k==(1<<l)){
-  ot("sarl $");
-  outdec(l);
-  outstr(", %eax");
-  nl();
-  return ;
+    ot("sarl $");
+    outdec(l);
+    outstr(", %eax");
+    nl();
+    return ;
   }
   else
   l++;
@@ -3573,7 +3573,7 @@ func cttype(node:*enode)
     /* a call yields the callee's return type, so a double-returning call used
        as an argument is itself routed through the FP path (slice 4b). */
     if(node->l&&(node->l->op==OP_LEAF)&&node->l->leaf.idx
-       &&(node->l->leaf.idx->sort==S_FUNC))
+    &&(node->l->leaf.idx->sort==S_FUNC))
     return node->l->leaf.idx->type;
     /* a method call yields its slot's declared return type. Stay a pure,
        total oracle: resolve quietly and fall back to int on anything odd. */
@@ -3591,7 +3591,7 @@ func cttype(node:*enode)
     return T_INT;
   }
   else if(node->op==OP_PLUS||node->op==OP_MINUS||node->op==OP_MUL
-       ||node->op==OP_DIV||node->op==OP_REM)
+  ||node->op==OP_DIV||node->op==OP_REM)
   {
     var int:t1,t2;
     t1=cttype(node->l);
@@ -3612,8 +3612,8 @@ func cttype(node:*enode)
     return uresult(t1,t1);
   }
   else if(node->op==OP_UMINUS||node->op==OP_BNOT
-       ||node->op==OP_1PP||node->op==OP_1MM
-       ||node->op==OP_2PP||node->op==OP_2MM)
+  ||node->op==OP_1PP||node->op==OP_1MM
+  ||node->op==OP_2PP||node->op==OP_2MM)
   {
     return cttype(node->r);
   }
@@ -3806,7 +3806,7 @@ func ct_COMMA(node:*enode,lval:*elval)
     k=treetocode(cnode->l,&lval1);
     if(k)rvalue(&lval1);
     if(cnode->r&&cnode->r->op!=OP_COMMA)
-      return treetocode(cnode->r,lval);
+    return treetocode(cnode->r,lval);
   }
 }
 /* whole-struct assignment  s1 = s2  (M6 2a). Both sides are struct lvalues --
@@ -3827,9 +3827,9 @@ func ct_structasgn(node:*enode,dst:*elval,lval:*elval)
   /* M6 2b: s = f(...) where f returns a struct -- have the callee write straight
      into s through its sret pointer (no temporary, no second copy). */
   if(node->r&&(node->r->op==OP_FUNC)&&node->r->l
-     &&(node->r->l->op==OP_LEAF)&&node->r->l->leaf.idx
-     &&(node->r->l->leaf.idx->sort==S_FUNC)
-     &&(typtab[node->r->l->leaf.idx->type].sort==V_STR))
+  &&(node->r->l->op==OP_LEAF)&&node->r->l->leaf.idx
+  &&(node->r->l->leaf.idx->sort==S_FUNC)
+  &&(typtab[node->r->l->leaf.idx->type].sort==V_STR))
   {
     var elval:dummy;
     g_sretp=dst;
@@ -4180,10 +4180,10 @@ func ct_MINUS(node:*enode,lval:*elval)
   if(wide){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zsub64();return 0;}
   zpop();
   if(typtab[lval1.typ].sort==V_PTR||
-   typtab[lval1.typ].sort==V_ARR)
+  typtab[lval1.typ].sort==V_ARR)
   {
     if(typtab[lval2.typ].sort==V_PTR||
-     typtab[lval2.typ].sort==V_ARR)
+    typtab[lval2.typ].sort==V_ARR)
     {
       zsub();
       if(typtab[lval1.typ].type!=typtab[lval2.typ].type)
@@ -4202,7 +4202,7 @@ func ct_MINUS(node:*enode,lval:*elval)
   else
   {
     if(typtab[lval2.typ].sort==V_PTR||
-     typtab[lval2.typ].sort==V_ARR)
+    typtab[lval2.typ].sort==V_ARR)
     error("subtracting a pointer");
     zsub();
   }
@@ -4226,7 +4226,7 @@ func ct_PLUS(node:*enode,lval:*elval)
   lval->typ=uresult(lval1.typ,lval2.typ);
   if(wide){if(!is64(lval2.typ))i2ll(issigned(lval2.typ));zadd64();return 0;}
   if(typtab[lval1.typ].sort==V_PTR||
-   typtab[lval1.typ].sort==V_ARR)
+  typtab[lval1.typ].sort==V_ARR)
   {
     mulreg(gettsize(typtab[lval1.typ].type),/*"%eax"*/RG_A);
     isptr=1;
@@ -4234,7 +4234,7 @@ func ct_PLUS(node:*enode,lval:*elval)
   }
   zpop();
   if(typtab[lval2.typ].sort==V_PTR||
-   typtab[lval2.typ].sort==V_ARR)
+  typtab[lval2.typ].sort==V_ARR)
   {
     if(isptr)error("cannot add pointer to pointer");
     mulreg(gettsize(typtab[lval2.typ].type),/*"%edx"*/RG_D);
@@ -4354,7 +4354,7 @@ func constarr(n:*enode)
   {
     base=n->r->l;
     if(base&&(base->op==OP_LEAF)&&(base->leaf.vid==L_ID)&&base->leaf.idx
-       &&base->leaf.idx->cnst&&(typtab[base->leaf.idx->type].sort==V_ARR))
+    &&base->leaf.idx->cnst&&(typtab[base->leaf.idx->type].sort==V_ARR))
     return 1;
   }
   return 0;
@@ -4663,9 +4663,9 @@ func ct_FUNC(node:*enode,lval:*elval)
   var *enode:l,r;
   l=node->l;
   if(l&&((l->op==OP_LEAF&&l->leaf.vid==L_ID
-   &&l->leaf.idx
-   &&l->leaf.idx->sort==S_FUNC)
-     ))
+  &&l->leaf.idx
+  &&l->leaf.idx->sort==S_FUNC)
+  ))
   {
     var int:nargs;
     var int:structret;var *elval:sretp;
@@ -4724,7 +4724,7 @@ func ct_FUNC(node:*enode,lval:*elval)
          External C variadic interop is unchanged: without a `...` prototype the
          call cannot know, and keeps the plain SysV/AAPCS FP marshaling. */
       if((cfp>0)&&(!structret)&&(target.arch!=ARCH_RISCV)&&(target.arch!=ARCH_MIPS)
-         &&(!l->leaf.idx->isva))
+      &&(!l->leaf.idx->isva))
       {
         /* FP marshaling: doubles -> %xmm0../d0.., ints/ptrs -> %rdi../x0..
            (slot offsets use stackslot: 8 on x86_64, 16 on arm64). On arm64 the
@@ -4773,21 +4773,21 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     else
     {
-    if(structret){pushaddr(sretp);nargs=nargs+target.wordsize;}   /* sret first (deepest) */
-    while(r)
-    {
-      k=treetocode(r->l,&lval2);
-      if(k)rvalue(&lval2);
-      /* i386 cdecl: a double is passed as 8 bytes on the stack -- fpush pops the
+      if(structret){pushaddr(sretp);nargs=nargs+target.wordsize;}   /* sret first (deepest) */
+      while(r)
+      {
+        k=treetocode(r->l,&lval2);
+        if(k)rvalue(&lval2);
+        /* i386 cdecl: a double is passed as 8 bytes on the stack -- fpush pops the
          x87 accumulator (st0) into the slot. Ints/pointers are the usual 4-byte
          push. A float argument has already decayed to a double in st0. */
-      if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
-      else if(ll32(lval2.typ)){zpush64();nargs=nargs+8;}  /* 64-bit arg: 8 bytes */
-      else{zpush();nargs=nargs+target.wordsize;}
-      r=r->r;
-    }
-    zcall(l->leaf.idx->name,0);
-    Zsp=modstk(Zsp+nargs);
+        if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
+        else if(ll32(lval2.typ)){zpush64();nargs=nargs+8;}  /* 64-bit arg: 8 bytes */
+        else{zpush();nargs=nargs+target.wordsize;}
+        r=r->r;
+      }
+      zcall(l->leaf.idx->name,0);
+      Zsp=modstk(Zsp+nargs);
     }
     if(usetmp)
     {
@@ -4854,53 +4854,53 @@ func ct_FUNC(node:*enode,lval:*elval)
     }
     else
     {
-    if(target.arch!=ARCH_I386)
-    {
-      savezsp2=Zsp;
-      if(cnt2>target.nargreg)pad2=(((Zsp-(cnt2-target.nargreg)*target.stackslot)%16)+16)%16;
-      else pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
-      if(pad2)Zsp=modstk(Zsp-pad2);
-    }
-    while(r)
-    {
-      k=treetocode(r->l,&lval2);
-      if(k)rvalue(&lval2);
-      /* riscv/mips: a double travels as raw bits through its integer slot,
+      if(target.arch!=ARCH_I386)
+      {
+        savezsp2=Zsp;
+        if(cnt2>target.nargreg)pad2=(((Zsp-(cnt2-target.nargreg)*target.stackslot)%16)+16)%16;
+        else pad2=(((Zsp-cnt2*target.stackslot)%16)+16)%16;
+        if(pad2)Zsp=modstk(Zsp-pad2);
+      }
+      while(r)
+      {
+        k=treetocode(r->l,&lval2);
+        if(k)rvalue(&lval2);
+        /* riscv/mips: a double travels as raw bits through its integer slot,
          exactly like the function convention on those targets. i386: 8-byte
          stack push for doubles and long long, like function calls. */
-      if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
-      else if((target.arch==ARCH_I386)&&ll32(lval2.typ)){zpush64();nargs=nargs+8;}
-      else{zpush();nargs=nargs+target.wordsize;}
-      r=r->r;
-    }
-    k=ct_ADDRDIR(l->l,&lval2);
-    if(typtab[lval2.typ].sort!=V_PTR)
-    {
-      error("should be pointer...");
-      fprintf(stderr,"typtab[lval2.typ]=%d\n",
-          typtab[lval2.typ].sort);
-    }
-    if(typtab[typtab[lval2.typ].type].sort!=V_STR)
-    {
-      error("methods are for structures...\n");
-    }
-    if(k)rvalue(&lval2);
-    zpush();
-    nargs=nargs+target.wordsize;
-    makemethodname(methodname,typtab[typtab[lval2.typ].type].name,l->name);
-    cnmlst->addm(methodname);
-    if(target.arch!=ARCH_I386)
-    {
-      if(cnt2>target.nargreg){marshal(target.nargreg);Zsp=modstk(Zsp+target.nargreg*target.stackslot);}
-      else marshal(cnt2);
-      zcall(methodname,0);
-      Zsp=modstk(savezsp2);
-    }
-    else
-    {
-      zcall(methodname,0);
-      Zsp=modstk(Zsp+nargs);
-    }
+        if(isfp(lval2.typ)){fpush();nargs=nargs+8;}
+        else if((target.arch==ARCH_I386)&&ll32(lval2.typ)){zpush64();nargs=nargs+8;}
+        else{zpush();nargs=nargs+target.wordsize;}
+        r=r->r;
+      }
+      k=ct_ADDRDIR(l->l,&lval2);
+      if(typtab[lval2.typ].sort!=V_PTR)
+      {
+        error("should be pointer...");
+        fprintf(stderr,"typtab[lval2.typ]=%d\n",
+        typtab[lval2.typ].sort);
+      }
+      if(typtab[typtab[lval2.typ].type].sort!=V_STR)
+      {
+        error("methods are for structures...\n");
+      }
+      if(k)rvalue(&lval2);
+      zpush();
+      nargs=nargs+target.wordsize;
+      makemethodname(methodname,typtab[typtab[lval2.typ].type].name,l->name);
+      cnmlst->addm(methodname);
+      if(target.arch!=ARCH_I386)
+      {
+        if(cnt2>target.nargreg){marshal(target.nargreg);Zsp=modstk(Zsp+target.nargreg*target.stackslot);}
+        else marshal(cnt2);
+        zcall(methodname,0);
+        Zsp=modstk(savezsp2);
+      }
+      else
+      {
+        zcall(methodname,0);
+        Zsp=modstk(Zsp+nargs);
+      }
     }
     /* the slot in the struct declaration is the method's authoritative type;
        an unknown method is an error here rather than at link time */
@@ -4988,7 +4988,7 @@ func ct_FUNC(node:*enode,lval:*elval)
      declares no return types, so its own calls all stay int and the self-host
      fixpoints are byte-identical. */
   if(l&&(l->op==OP_LEAF)&&l->leaf.idx&&(l->leaf.idx->sort==S_FUNC)
-     &&(typtab[l->leaf.idx->type].sort!=V_STR))
+  &&(typtab[l->leaf.idx->type].sort!=V_STR))
   lval->typ=l->leaf.idx->type;
   return 0;
 }
@@ -5027,7 +5027,7 @@ func store(lval:*elval)
       if(ll32(lval->typ))
       zstow64(lval->idx->name,lval->offset);
       else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
-       typtab[lval->typ].sort==V_PTR)
+      typtab[lval->typ].sort==V_PTR)
       zstow(lval->idx->name,lval->offset);
       else if((lval->typ==T_CHAR)||(lval->typ==T_UCHAR))
       /*ot("movb %al, ");*/
@@ -5047,7 +5047,7 @@ func store(lval:*elval)
       if(ll32(lval->typ))
       zstlw64(lval->idx->offset+lval->offset);
       else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||
-       typtab[lval->typ].sort==V_PTR)
+      typtab[lval->typ].sort==V_PTR)
       zstlw(lval->idx->offset+lval->offset,lval->idx->promid);
       else if((lval->typ==T_CHAR)||(lval->typ==T_UCHAR))
       /*ot("movb %al, ");*/
@@ -5077,12 +5077,12 @@ func store(lval:*elval)
       zstow264(lval->offset);
       else
       {
-      zpop();
-      if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
-      zstob2(lval->offset);
-      else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
-      zstow2(lval->offset);
-      else error("error storing object if strange size");
+        zpop();
+        if(typtab[lval->typ].size==BYTESIZE)/*ot("movb %al, ");*/
+        zstob2(lval->offset);
+        else if(typtab[lval->typ].size==target.wordsize)/*ot("movl %eax, ");*/
+        zstow2(lval->offset);
+        else error("error storing object if strange size");
       }
       /*outdec(lval->offset);outstr("(%edx)");nl();*/
     }
@@ -5199,8 +5199,8 @@ func getmem(lval:*elval)
     else error("getmem ll ?");
   }
   else if(lval->typ==T_INT||lval->typ==T_UINT||is64(lval->typ)||lval->typ==T_INTP
-      ||lval->typ==T_CHARP
-      ||typtab[lval->typ].sort==V_PTR)
+  ||lval->typ==T_CHARP
+  ||typtab[lval->typ].sort==V_PTR)
   {
     /*ot("movl ");*/
     if(lval->idx->sort==S_VARG)
@@ -5333,8 +5333,8 @@ func foldtree(node:*enode)
   foldtree(node->third);
   ok=0;
   if(node->l&&node->r
-     &&(node->l->op==OP_LEAF)&&(node->l->leaf.vid==L_NUM)
-     &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
+  &&(node->l->op==OP_LEAF)&&(node->l->leaf.vid==L_NUM)
+  &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
   {
     a=node->l->leaf.val;b=node->r->leaf.val;ok=1;
     if(node->op==OP_PLUS)ok=foldadd(a,b,&res);
@@ -5358,7 +5358,7 @@ func foldtree(node:*enode)
     else ok=0;
   }
   else if((!node->l)&&node->r
-          &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
+  &&(node->r->op==OP_LEAF)&&(node->r->leaf.vid==L_NUM))
   {
     a=node->r->leaf.val;ok=1;
     if(node->op==OP_UMINUS)ok=foldsub(0,a,&res);
@@ -5391,7 +5391,7 @@ func expressi()
        almost always the '==' vs '=' typo */
     g_stmtexp=0;
     if(node&&((node->op==OP_EQ)||(node->op==OP_NEQ)||(node->op==OP_LT)
-     ||(node->op==OP_GT)||(node->op==OP_LE)||(node->op==OP_GE)))
+    ||(node->op==OP_GT)||(node->op==OP_LE)||(node->op==OP_GE)))
     warning("comparison result is not used ('==' where '=' was meant?)");
   }
   fprintf(stdout,"#:");pretree(node,stdout);fprintf(stdout,"\n");
@@ -5655,11 +5655,11 @@ func hgt()
   node=hshift();
   blanks();
   if(!streq(line+lptr,"<")
-   &&!streq(line+lptr,">")
-   &&!streq(line+lptr,"<=")
-   &&!streq(line+lptr,">=")
-   ||streq(line+lptr,"<<")
-   ||streq(line+lptr,">>"))
+  &&!streq(line+lptr,">")
+  &&!streq(line+lptr,"<=")
+  &&!streq(line+lptr,">=")
+  ||streq(line+lptr,"<<")
+  ||streq(line+lptr,">>"))
   return node;
   while(1)
   {
@@ -5921,13 +5921,13 @@ func hsubscr()
   node=primary();
   blanks();
   if((ch()=='[')||
-   streq(line+lptr,tlarg)
-   ||(ch()=='.')
-   ||streq(line+lptr,"->"))
+  streq(line+lptr,tlarg)
+  ||(ch()=='.')
+  ||streq(line+lptr,"->"))
   while (1)
-    {
+  {
     if(match("["))
-      {/* a[i] --> *((a)+(i)) */
+    {/* a[i] --> *((a)+(i)) */
       newnode=getenode();
       newnode->l=node;
       newnode->r=hcomma();
@@ -5939,9 +5939,9 @@ func hsubscr()
       node->r=newnode;
       node->third=0;
       node->op=OP_STAR;
-      }
+    }
     else if(match(tlarg/*"("*/))
-      {
+    {
       newnode=getenode();
       newnode->l=node;
       newnode->r=0;
@@ -5950,7 +5950,7 @@ func hsubscr()
       node=newnode;
       blanks();
       while(!streq(line+lptr,trarg))
-        {
+      {
         if(endst())break;
         newnode=getenode();
         newnode->l=hier1();
@@ -5959,14 +5959,14 @@ func hsubscr()
         newnode->op=OP_LIST;
         node->r=newnode;
         if(!match(","))break;
-        }
-      needbrac(trarg/*")"*/);
       }
+      needbrac(trarg/*")"*/);
+    }
     else if(match("->"))
-      {/* p->a (*p).a */
+    {/* p->a (*p).a */
       var [NAMESIZE]char:nm;
       if(!symname(nm))
-        error("field name expected");
+      error("field name expected");
       newnode=getenode();
       newnode->l=0;
       newnode->r=node;
@@ -5978,12 +5978,12 @@ func hsubscr()
       node->third=0;
       node->op=OP_DOT;
       strcp(node->name,nm);
-      }
+    }
     else if(match("."))
-      {
+    {
       var [NAMESIZE]char:nm;
       if(!symname(nm))
-        error("field name expected");
+      error("field name expected");
       newnode=getenode();
       newnode->l=node;
       newnode->r=0;
@@ -5991,10 +5991,10 @@ func hsubscr()
       newnode->op=OP_DOT;
       strcp(newnode->name,nm);
       node=newnode;
-      }
-    else
-      return node;
     }
+    else
+    return node;
+  }
   return node;
 }
 func getenode()
@@ -6292,53 +6292,53 @@ func number(val:*int)
   k=minus=1;bp=0;
   bad[0]=0;
   if(match("0x")){
-  k=0;
-  putnumbuf(buf,&bp,'0',bad);
-  putnumbuf(buf,&bp,'x',bad);
-  while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
-    c=inbyte();
-    putnumbuf(buf,&bp,c,bad);
-    /* shift only while the value still fits a signed 32-bit int; a hex literal
+    k=0;
+    putnumbuf(buf,&bp,'0',bad);
+    putnumbuf(buf,&bp,'x',bad);
+    while(numeric(ch())||((ch()>='a')&&(ch()<='f'))){
+      c=inbyte();
+      putnumbuf(buf,&bp,c,bad);
+      /* shift only while the value still fits a signed 32-bit int; a hex literal
        that would overflow is >0x7fffffff and takes the wide path below, so this
        k is discarded -- skipping the overflowing shift keeps the in-range value
        exact and avoids signed-overflow UB. 134217727 = INT_MAX>>4. */
-    if(numeric(c)){
-    if(k<=134217727)k=(k<<4)+(c-'0');
+      if(numeric(c)){
+        if(k<=134217727)k=(k<<4)+(c-'0');
+      }
+      else
+      {
+        if(k<=134217727)k=(k<<4)+(c-'a'+10);
+      }
     }
-    else
-    {
-      if(k<=134217727)k=(k<<4)+(c-'a'+10);
-    }
-  }
-  /* a hex value that does not fit a *signed* 32-bit int (more than 8 digits, or
+    /* a hex value that does not fit a *signed* 32-bit int (more than 8 digits, or
      8 digits with the top bit set) is kept as text and the assembler computes
      the 64-bit value -- so 0xffffffff is 4294967295 on every target and stage
      (the old accumulate-in-int path made it -1 in a 32-bit build but positive in
      a self-hosted 64-bit build). 16 digits max. */
-  dl=bp-2;
-  if(bad[0]||(dl>16)){error("integer literal too large");val[0]=0;return 1;}
-  if((dl>8)||((dl==8)&&(buf[2]>'7'))){buf[bp]=0;val[0]=addwide(buf);return 3;}
-  val[0]=k;
-  return 1;
+    dl=bp-2;
+    if(bad[0]||(dl>16)){error("integer literal too large");val[0]=0;return 1;}
+    if((dl>8)||((dl==8)&&(buf[2]>'7'))){buf[bp]=0;val[0]=addwide(buf);return 3;}
+    val[0]=k;
+    return 1;
   }
   while(k){
-  k=0;
-  if(match("+"))k=1;
-  if(match("-")){
-    minus=-1;
-    k=1;
-    putnumbuf(buf,&bp,'-',bad);
-  }
+    k=0;
+    if(match("+"))k=1;
+    if(match("-")){
+      minus=-1;
+      k=1;
+      putnumbuf(buf,&bp,'-',bad);
+    }
   }
   if(!numeric(ch()))return 0;
   while(numeric(ch())){
-  c=inbyte();
-  putnumbuf(buf,&bp,c,bad);
-  /* accumulate only while the value still fits a signed 32-bit int; a literal
+    c=inbyte();
+    putnumbuf(buf,&bp,c,bad);
+    /* accumulate only while the value still fits a signed 32-bit int; a literal
      that would overflow is >2147483647 and takes the wide path below, so this
      k is discarded -- skipping the overflowing multiply keeps the in-range
      result exact and avoids signed-overflow UB. 214748364=INT_MAX/10, 7=%10. */
-  if((k<214748364)||((k==214748364)&&(c<='7')))k=k*10+(c-'0');
+    if((k<214748364)||((k==214748364)&&(c<='7')))k=k*10+(c-'0');
   }
   /* a '.' or exponent makes this a floating-point literal: keep the text and
      hand it to the assembler as a .double (M4). */
@@ -6380,10 +6380,10 @@ func number(val:*int)
 func needbrac(p:*char)
 {
   if(!match(p)){
-  error("missing bracket");
-  comment();
-  outstr(p);
-  nl();
+    error("missing bracket");
+    comment();
+    outstr(p);
+    nl();
   }
 }
 func needlval()
@@ -6463,18 +6463,18 @@ func getptrty(t:int)
 {
   var int:k;
   if(t>=typptr){
-  error("unknown type");
-  return T_INTP;
+    error("unknown type");
+    return T_INTP;
   }
   k=1;
   while(k<typptr){
-  if((typtab[k].sort==V_PTR)&&(typtab[k].type==t))return k;
-  k++;
+    if((typtab[k].sort==V_PTR)&&(typtab[k].type==t))return k;
+    k++;
   }
   if(typptr>=numtyp){
-  /*fprintf(stderr,"reallocating types\n");*/
-  numtyp=numtyp+NUMTYP;
-  chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+    /*fprintf(stderr,"reallocating types\n");*/
+    numtyp=numtyp+NUMTYP;
+    chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
   }
   typtab[typptr].name[0]=0;
   typtab[typptr].sort=V_PTR;
@@ -6529,81 +6529,81 @@ func gettypen()
   if(amatch("double",6))return T_DOUBLE;
   if(amatch("float",5))return T_FLOAT;
   if(alpha(ch())){
-  var int:too_long;
-  k=l=too_long=0;
-  while(an(c=line[lptr+k])){
-    if(k<NAMEMAX)tname[l++]=c;
-    else too_long=1;
-    k++;
-  }
-  if(too_long)error("identifier too long");
-  comment();
-  outstr("l=");
-  outdec(l);
-  nl();
-  tname[l]=0;
-  comment();
-  outstr("typename:");
-  outstr(tname);
-  nl();
-  if(t=findtyp(tname)){
-    lptr=lptr+k;
+    var int:too_long;
+    k=l=too_long=0;
+    while(an(c=line[lptr+k])){
+      if(k<NAMEMAX)tname[l++]=c;
+      else too_long=1;
+      k++;
+    }
+    if(too_long)error("identifier too long");
     comment();
-    outstr("type handle:");
-    outdec(t);
+    outstr("l=");
+    outdec(l);
     nl();
-    trc(line+lptr);
-    return t;
-  }
-  else
+    tname[l]=0;
+    comment();
+    outstr("typename:");
+    outstr(tname);
+    nl();
+    if(t=findtyp(tname)){
+      lptr=lptr+k;
+      comment();
+      outstr("type handle:");
+      outdec(t);
+      nl();
+      trc(line+lptr);
+      return t;
+    }
+    else
     {
-    error("unknown type");
-    return T_INT;
+      error("unknown type");
+      return T_INT;
     }
   }
   if(match("*")){
-  if(!(t=gettypen()))return 0;
-  k=1;
-  while(k<typptr){
-    if((typtab[k].sort==V_PTR)&&(typtab[k].type==t))return k;
-    k++;
-  }
-  if(typptr>=numtyp){
-    /*fprintf(stderr,"reallocating types\n");*/
-    numtyp=numtyp+NUMTYP;
-    chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+    if(!(t=gettypen()))return 0;
+    k=1;
+    while(k<typptr){
+      if((typtab[k].sort==V_PTR)&&(typtab[k].type==t))return k;
+      k++;
     }
-  typtab[typptr].name[0]=0;
-  typtab[typptr].sort=V_PTR;
-  typtab[typptr].type=t;
-  typtab[typptr].size=target.wordsize;
-  return typptr++;
+    if(typptr>=numtyp){
+      /*fprintf(stderr,"reallocating types\n");*/
+      numtyp=numtyp+NUMTYP;
+      chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+    }
+    typtab[typptr].name[0]=0;
+    typtab[typptr].sort=V_PTR;
+    typtab[typptr].type=t;
+    typtab[typptr].size=target.wordsize;
+    return typptr++;
   }
   if(match("[")){
-  /* a constant integer expression (literal, enum constant, or arithmetic on
+    /* a constant integer expression (literal, enum constant, or arithmetic on
      them), not just a bare number -- so [N]int with an enum N works, and a bad
      dimension errors cleanly instead of looping. */
-  dim[0]=constexpr("array dimension must be a constant integer");
-  if(dim[0]<1)dim[0]=1;
-  needbrac("]");
-  if(!(t=gettypen()))return 0;
-  k=1;
-  while(k<typptr){
-    if((typtab[k].sort==V_ARR)&&(typtab[k].type==t)
-     &&(typtab[k].dim==dim[0]))return k;
-    k++;
-  }
-  if(typptr>=numtyp){
-    /*fprintf(stderr,"reallocating types\n");*/
-    numtyp=numtyp+NUMTYP;
-    chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
-  }
-  typtab[typptr].name[0]=0;
-  typtab[typptr].sort=V_ARR;
-  typtab[typptr].type=t;
-  typtab[typptr].size=gettsize(t)*dim[0];
-  typtab[typptr].dim=dim[0];
-  return typptr++;
+    dim[0]=constexpr("array dimension must be a constant integer");
+    if(dim[0]<1)dim[0]=1;
+    needbrac("]");
+    if(!(t=gettypen()))return 0;
+    k=1;
+    while(k<typptr){
+      if((typtab[k].sort==V_ARR)&&(typtab[k].type==t)
+      &&(typtab[k].dim==dim[0]))return k;
+      k++;
+    }
+    if(typptr>=numtyp){
+      /*fprintf(stderr,"reallocating types\n");*/
+      numtyp=numtyp+NUMTYP;
+      chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+    }
+    typtab[typptr].name[0]=0;
+    typtab[typptr].sort=V_ARR;
+    typtab[typptr].type=t;
+    typtab[typptr].size=gettsize(t)*dim[0];
+    typtab[typptr].dim=dim[0];
+    return typptr++;
   }
   error("type expected");
   return T_INT;
@@ -6616,9 +6616,9 @@ func outname(n:*char)
 func inbyte()
 {
   while(!ch()){
-  if(iseof)return 0;
-  insline();
-  preproce();
+    if(iseof)return 0;
+    insline();
+    preproce();
   }
   return gch();
 }
@@ -6672,11 +6672,11 @@ func findsym(sname:*char,syms:*ssym,ptr:int)
 func outdec(n:int)
 {
   if(n<0){
-  outbyte('-');
-  /* INT_MIN has no positive signed-int counterpart. It is reachable when a
+    outbyte('-');
+    /* INT_MIN has no positive signed-int counterpart. It is reachable when a
      checked fold leaves a target-wide expression for backend evaluation. */
-  if(n==(-2147483647-1)){outasm("2147483648");return;}
-  n=-n;
+    if(n==(-2147483647-1)){outasm("2147483648");return;}
+    n=-n;
   }
   outint(n);
 }
@@ -6754,16 +6754,16 @@ func dumplits()
   nl();
   k=0;
   while(k<stptr){
-  defbyte();
-  j=10;
-  while(j--){
-    outdec(litq[k++]);
-    if(!j|(k>=stptr)){
-    nl();
-    break;
+    defbyte();
+    j=10;
+    while(j--){
+      outdec(litq[k++]);
+      if(!j|(k>=stptr)){
+        nl();
+        break;
+      }
+      outbyte(',');
     }
-    outbyte(',');
-  }
   }
 }
 func defbyte()
@@ -6786,8 +6786,8 @@ func printmap()
   for(lst=glbsymtab.lst;lst;lst=lst->next)
   {
     fprintf(of,"%-10s\t%d\t%d\n",lst->sym.name,
-        lst->sym.line,
-        lst->sym.sort);
+    lst->sym.line,
+    lst->sym.sort);
   }
   fclose(of);
 }

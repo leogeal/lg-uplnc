@@ -1,18 +1,18 @@
 /*      -*- C -*-                                                       */
 /************************************************************************
-                       This is the preprocessor 
+                       This is the preprocessor
 *************************************************************************/
 /*
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
-  
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -112,7 +112,7 @@ func findmac(s:*char)
   var int: i;
   for(i=1;i<macptr;i++)
   if(strid(s,mactab[i].n))
-    return i;
+  return i;
   return 0;
 }
 func symname(sname:*char)
@@ -145,7 +145,7 @@ func amatch(lit:*char,len:int)
 func error(p:*char)
 {
   fprintf(stderr,"%s:%d: ***** Error:%s\nline:%s\n",
-      inamebuf+iptr*160,ilines[iptr],p,line);
+  inamebuf+iptr*160,ilines[iptr],p,line);
   ++errcnt;
 }
 func setiname(s:*char)   /* remember the (bounded) name of the file at iptr */
@@ -220,7 +220,7 @@ func isb(c:int)
 func sb()
 {
   while((line[lptr]==32)||(line[lptr]==9)||
-    (line[lptr]==10))
+  (line[lptr]==10))
   lptr++;
 }
 func match(lit:*char)
@@ -241,7 +241,7 @@ func streq(str1:*char,str2:*char)
 func astreq(str1:*char,str2:*char,len:int)
 {
   var int: k;
-  k=0;   
+  k=0;
   while(k<len)
   {
     if((str1[k])!=(str2[k]))break;
@@ -264,7 +264,7 @@ func prep()
     var [16]char:sname;
     var int:k;
     if(isb(line[lptr]))
-      {putres(' ');lptr++;}
+    {putres(' ');lptr++;}
     else if(symname(sname))
     {
       if(k=findmac(sname))
@@ -492,7 +492,7 @@ func main(argc:int,argv:**char)
   /* n=1 directly: nothing precedes the first source line (no blank to absorb) */
   linemark(1,inamebuf);
   process();
-  
+
   if(inn)fclose(ifil);
   if(outn)fclose(ofil);
   if(errcnt)return 1;

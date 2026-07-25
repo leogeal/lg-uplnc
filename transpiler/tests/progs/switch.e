@@ -18,14 +18,14 @@ func sumloop()
   var int:i;var int:s;
   s=0;
   for(i=0;i<5;i=i+1)
-    switch(i)
-    {
-      case 0: s=s+1; break;
-      case 1: s=s+2; break;
-      case 2: s=s+4;          /* fall through */
-      case 3: s=s+8; break;
-      default: s=s+100;
-    }
+  switch(i)
+  {
+    case 0: s=s+1; break;
+    case 1: s=s+2; break;
+    case 2: s=s+4;          /* fall through */
+    case 3: s=s+8; break;
+    default: s=s+100;
+  }
   return s;                   /* 1+2+(4+8)+8+100 = 123 */
 }
 func contsw()

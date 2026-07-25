@@ -19,7 +19,7 @@ func main()
     nc=nc+1;
     if(c==10)nl=nl+1;
     if(iswhite(c))
-      inword=0;
+    inword=0;
     else
     {
       if(!inword)nw=nw+1;

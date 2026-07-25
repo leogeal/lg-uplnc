@@ -30,7 +30,7 @@ func main(argc:int,argv:**char)
   for(i=1;i<argc;i=i+1)
   {
     if(isdash(argv[i]))
-      catfp(stdin);
+    catfp(stdin);
     else
     {
       fp=fopen(argv[i],"r");

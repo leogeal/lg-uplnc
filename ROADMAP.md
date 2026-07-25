@@ -965,6 +965,17 @@ What turns a teaching compiler into something you'd build a project with:
     idempotence, string/comment brace safety, the overlong-line warning,
     error statuses, and the semantic-preservation sweep over the examples,
     library, and the compiler's own units.
+    - ✅ **Adopted as the project's format gate** (2026-07): `-l` check mode
+      lists the files whose formatting would change (implemented as a
+      comparator sink behind the single output primitive, against a pristine
+      input copy — byte equality *is* the canonicality test) and exits 1;
+      the whole tree was reformatted once (`-w` over every tracked
+      `.e`/`.he`; 14 files changed, whitespace only — verified by rebuilding
+      and byte-comparing the stage-0 compiler's output before/after), and a
+      `[11]` gate test runs `-l` over `git ls-files '*.e' '*.he'` on every
+      suite run, so both CI test jobs enforce canonical formatting from now
+      on. Byte-exact input fixtures (`fuzz/corpus/`, `tests/pp_input.e`) are
+      excluded on principle.
   - All build with the stage-0 tools; wc/cat/grep/sort/calc run on all **five**
     backends (grep's matcher and sort's three units are separately linked per
     target), while fmtdemo/hexdump print byte-identical output on all five.

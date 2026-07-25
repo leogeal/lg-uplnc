@@ -6,12 +6,12 @@
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
-  
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -47,7 +47,7 @@ func grsqadd(*char:name,*snamelist:nmlst)
   {grsqstepx=-grsqstepy;grsqstepy=0;grsqby=grsqby/*+11*/;}
   else if(grsqstepy<0&&-grsqy>grsqby/*-grsqx*/)
   {grsqstepx=-grsqstepy;grsqstepy=0;grsqby=grsqby+11;}
-  
+
   return grsqptr++;
 }
 func grsqfind(*char s)
@@ -55,7 +55,7 @@ func grsqfind(*char s)
   var int:i;
   for(i=0;i<grsqptr;i++)
   if(strid(grsq[i].name,s))
-    return i;
+  return i;
   return i;
 }
 method ssq.draw()
@@ -95,8 +95,8 @@ func printgraph()
       /*grsq[i].draw();*/
     }
     if(0)fprintf(of,"%-10s\t%d\t%d\n {",lst->sym.name,
-        lst->sym.line,
-        lst->sym.sort);
+    lst->sym.line,
+    lst->sym.sort);
     if(0&&lst->sym.nmlst)
     {
       var *snamenode:q;
@@ -121,7 +121,7 @@ func printgraph()
       if(j<grsqptr)
       {
         fprintf(grphxof,"set arrow from %d,%d to %d,%d nohead lt 2 lw 0.2\n",
-            grsq[i].x,grsq[i].y,grsq[j].x,grsq[j].y);
+        grsq[i].x,grsq[i].y,grsq[j].x,grsq[j].y);
       }
     }
   }
@@ -130,7 +130,7 @@ func printgraph()
     grsq[i].draw();
   }
   fprintf(grphxof,"plot [%d:%d][%d:%d] \"dat0.dat\"",-grsqbx-11,grsqbx+11,
-      -grsqby-31,grsqby+31);
+  -grsqby-31,grsqby+31);
   fclose(of);
 }
 
