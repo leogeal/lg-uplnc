@@ -69,11 +69,17 @@ struct ssym{
   func done;
 };
 /* global initializer kinds (ssym.ginit); GI_VAL keeps the value in sym.offset,
-   the text kinds keep a float-pool index there (the assembler computes them) */
+   the text kinds keep a float-pool index there (the assembler computes them).
+   GI_SLIT keeps a string-pool byte offset (the address .L<stlab>+off is laid
+   down), GI_STR the same for a char array holding the bytes themselves, and
+   GI_ARR an index into the gainit element table (count, then kind/val pairs). */
 #define GI_NONE 0
 #define GI_VAL  1
 #define GI_WIDE 2
 #define GI_FLT  3
+#define GI_SLIT 4
+#define GI_STR  5
+#define GI_ARR  6
 struct ssymlist{
   ssym sym;
   *ssymlist next;

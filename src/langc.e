@@ -245,6 +245,10 @@ func getlabel()
   return ++nextlab;
 }
 var stlab:int;
+/* the global-array element table: for each GI_ARR symbol, sym.offset indexes
+   a run [count, kind0, val0, kind1, val1, ...] here */
+var gainit:*int;
+var ngai,agai:int;
 var stptr:int;
 var litq:[STSIZE]char;
 var wqsym:[WQNUM]int;
@@ -494,6 +498,7 @@ func main(argc:int,argv:**char)
   freefields();
   freetypes();
   freesyms();
+  if(gainit)free(gainit);
   /*fprintf(stderr,"(%d)(%d)%s%s",pp,pp2,pp,pp2);*/
   donedyn();
   if(errcnt)return 1;
@@ -1126,15 +1131,28 @@ func dovar()
    literal (GI_WIDE, float-pool index -- the assembler computes the value), or a
    float literal (GI_FLT, float-pool index, emitted .double/.float). A unary
    minus on a float literal is folded here textually (foldtree never folds FP). */
-func doginit(idx:*ssym,typ:int)
+func gaiadd(v:int)
+{
+  if(ngai>=agai)
+  {
+    agai=agai+256;
+    chkmem(gainit=realloc(gainit,agai*sizeof(int)));
+  }
+  gainit[ngai++]=v;
+}
+/* parse one constant initializer element into (kind, val): an integer
+   (GI_VAL), a wide 64-bit literal (GI_WIDE), a float literal (GI_FLT, with a
+   unary minus folded textually -- foldtree never folds FP), or a string
+   literal (GI_SLIT, string-pool offset: the address is the constant). */
+var gickind,gicval:int;
+func giconst()
 {
   var *enode:inode;var *enode:leaf;
-  var int:kind,v;
   var [52]char:nbuf;var int:i;var *char:s;
   inode=hier1();
   foldtree(inode);
   leaf=inode;
-  kind=GI_NONE;v=0;
+  gickind=GI_NONE;gicval=0;
   if(leaf&&(leaf->op==OP_UMINUS)&&leaf->r&&(leaf->r->op==OP_LEAF)
    &&(leaf->r->leaf.vid==L_FNUM))
   {
@@ -1143,30 +1161,96 @@ func doginit(idx:*ssym,typ:int)
     i=0;nbuf[i++]='-';
     while(*s&&(i<51))nbuf[i++]=*s++;
     nbuf[i]=0;
-    kind=GI_FLT;v=addfloat(nbuf);
+    gickind=GI_FLT;gicval=addfloat(nbuf);
   }
   else if(leaf&&(leaf->op==OP_LEAF))
   {
-    if(leaf->leaf.vid==L_NUM){kind=GI_VAL;v=leaf->leaf.val;}
-    else if(leaf->leaf.vid==L_WNUM){kind=GI_WIDE;v=leaf->leaf.val;}
-    else if(leaf->leaf.vid==L_FNUM){kind=GI_FLT;v=leaf->leaf.val;}
+    if(leaf->leaf.vid==L_NUM){gickind=GI_VAL;gicval=leaf->leaf.val;}
+    else if(leaf->leaf.vid==L_WNUM){gickind=GI_WIDE;gicval=leaf->leaf.val;}
+    else if(leaf->leaf.vid==L_FNUM){gickind=GI_FLT;gicval=leaf->leaf.val;}
+    else if(leaf->leaf.vid==L_STR){gickind=GI_SLIT;gicval=leaf->leaf.val;}
   }
   delenode(inode);
-  if(kind==GI_NONE)
-  {error("a global initializer must be a constant expression");return;}
-  /* type/kind agreement */
+  return gickind!=GI_NONE;
+}
+/* (kind, val) agree with a scalar of type typ? diagnoses and returns 0 if not.
+   Pointers accept an integer (normally 0) or a string literal's address. */
+func gichk(typ:int)
+{
+  if(typtab[typ].sort==V_PTR)
+  {
+    if((gickind==GI_VAL)||(gickind==GI_SLIT))return 1;
+    error("a pointer initializer needs an integer or a string literal");
+    return 0;
+  }
+  if(gickind==GI_SLIT)
+  {error("a string literal initializes a pointer or a char array");return 0;}
   if(isfp(typ))
-  {if(kind!=GI_FLT){error("a float global needs a float literal initializer (e.g. 1.0)");return;}}
-  else if(kind==GI_FLT)
-  {error("a float initializer on an integer global");return;}
-  else if((kind==GI_WIDE)&&!is64(typ)&&(target.wordsize<8))
-  {error("initializer does not fit a 32-bit int");return;}
-  if((typtab[typ].sort==V_ARR)||(typtab[typ].sort==V_STR))
-  {error("arrays and structs cannot be initialized yet");return;}
+  {if(gickind!=GI_FLT){error("a float global needs a float literal initializer (e.g. 1.0)");return 0;}}
+  else if(gickind==GI_FLT)
+  {error("a float initializer on an integer global");return 0;}
+  else if((gickind==GI_WIDE)&&!is64(typ)&&(target.wordsize<8))
+  {error("initializer does not fit a 32-bit int");return 0;}
+  else if(((typ==T_CHAR)||(typ==T_UCHAR))
+   &&((gicval<(0-128))||(gicval>255)))
+  {error("initializer does not fit a char");return 0;}
+  return 1;
+}
+func doginit(idx:*ssym,typ:int)
+{
+  var int:elem,dim,count,start,slen;
+  var [4]int:sval;
+  blanks();
+  if(typtab[typ].sort==V_ARR)
+  {
+    elem=typtab[typ].type;dim=typtab[typ].dim;
+    if(ch()=='"')
+    {
+      /* var [N]char:s = "text";  -- the array holds a copy of the bytes */
+      if((elem!=T_CHAR)&&(elem!=T_UCHAR))
+      {error("a string initializes a char array");junk();return;}
+      if(!qstr(sval))return;
+      slen=strlen1(litq+sval[0])+1;   /* bytes including the NUL */
+      if(slen>dim)
+      {error("string initializer does not fit the array");return;}
+      if(idx){idx->ginit=GI_STR;idx->offset=sval[0];}
+      return;
+    }
+    if(!match("{"))
+    {error("an array initializer needs { } or a string literal");junk();return;}
+    if((typtab[elem].sort==V_ARR)||(typtab[elem].sort==V_STR))
+    {error("nested array and struct initializers are not supported");junk();return;}
+    start=ngai;gaiadd(0);
+    count=0;
+    while(1)
+    {
+      if(!giconst())
+      {error("a global initializer must be a constant expression");junk();return;}
+      if(!gichk(elem)){junk();return;}
+      if(count>=dim)
+      {error("too many initializer elements for the array");junk();return;}
+      gaiadd(gickind);gaiadd(gicval);
+      count++;
+      if(match("}"))break;
+      if(!match(","))
+      {error("',' or '}' expected in the initializer list");junk();return;}
+      blanks();
+      if(match("}"))break;   /* allow a trailing comma */
+    }
+    if(!count){error("an empty initializer list");return;}
+    gainit[start]=count;    /* remaining elements are zero-filled at emission */
+    if(idx){idx->ginit=GI_ARR;idx->offset=start;}
+    return;
+  }
+  if(typtab[typ].sort==V_STR)
+  {error("structs cannot be initialized yet");junk();return;}
+  if(!giconst())
+  {error("a global initializer must be a constant expression");return;}
+  if(!gichk(typ))return;
   /* idx is 0 when the declarator had no valid name (malformed input already
      reported): the initializer expression above was still parsed to keep the
      token stream in sync, but there is no symbol to record it on. */
-  if(idx){idx->ginit=kind;idx->offset=v;}
+  if(idx){idx->ginit=gickind;idx->offset=gicval;}
 }
 func addmac()
 {
@@ -2322,6 +2406,8 @@ func dolocvar()
 {
   var [NAMESIZE]char:sname;
   var int:typ,istyp,wcnst,hasinit,irt;
+  var int:ielem,iesz,icnt,islen;   /* array-initializer element bookkeeping */
+  var [4]int:isval;                /* string-literal pool offset from qstr */
   var *ssym:idx;
   var int:k;
   var *ssymlist:lst,lptr;
@@ -2430,24 +2516,108 @@ func dolocvar()
     }*/
   if(hasinit)
   {
-    /* M6: var TYPE:name = expr;  -- emit the initializer as a direct store to the
-       (last) declared variable. Below the comma operator so it stops at ';'.
-       Stored directly (not via ct_ASSIGN), so a const local is initialized once
-       here and rejected on any later assignment. idx is that last variable. */
-    inode=hier1();
-    foldtree(inode);
-    /* A malformed name-first declaration (for example `var == 1`) has no
-       symbol. Parse its initializer to stay synchronized, but emit no store. */
-    if(idx)
+    /* M6: var TYPE:name = expr;  -- emit the initializer as direct stores to
+       the (last) declared variable. Below the comma operator so it stops at
+       ';'. Stored directly (not via ct_ASSIGN), so a const local is
+       initialized once here and rejected on any later assignment. idx is that
+       last variable. Arrays take a { } element list (each element any
+       expression, stored in order) or, for char arrays, a string literal
+       (bytes plus the NUL stored). Unlisted local elements stay uninitialized
+       -- a local initializer costs exactly the stores it writes. */
+    blanks();
+    if(typtab[typ].sort==V_ARR)
     {
-      prestemps(inode);
-      if(treetocode(inode,&ilv))rvalue(&ilv);
-      irt=ilv.typ;
-      convto(typ,irt);
-      ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
-      store(&ilv);
+      ielem=typtab[typ].type;
+      iesz=gettsize(ielem);
+      if(ch()=='"')
+      {
+        if((ielem!=T_CHAR)&&(ielem!=T_UCHAR))
+        error("a string initializes a char array");
+        else if(qstr(isval))
+        {
+          islen=strlen1(litq+isval[0])+1;   /* bytes including the NUL */
+          if(islen>typtab[typ].dim)
+          error("string initializer does not fit the array");
+          else if(idx)
+          for(icnt=0;icnt<islen;icnt++)
+          {
+            zldn(litq[isval[0]+icnt]);
+            ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt;ilv.typ=ielem;
+            strcp(ilv.name,idx->name);
+            store(&ilv);
+          }
+        }
+      }
+      else if((typtab[ielem].sort==V_ARR)||(typtab[ielem].sort==V_STR))
+      {
+        error("nested array and struct initializers are not supported");
+        junk();
+      }
+      else if(!match("{"))
+      {
+        error("an array initializer needs { } or a string literal");
+        junk();
+      }
+      else
+      {
+        icnt=0;
+        while(1)
+        {
+          inode=hier1();
+          foldtree(inode);
+          if(icnt>=typtab[typ].dim)
+          {
+            error("too many initializer elements for the array");
+            delenode(inode);
+            junk();
+            break;
+          }
+          if(idx&&inode)
+          {
+            prestemps(inode);
+            if(treetocode(inode,&ilv))rvalue(&ilv);
+            irt=ilv.typ;
+            convto(ielem,irt);
+            ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
+            strcp(ilv.name,idx->name);
+            store(&ilv);
+          }
+          delenode(inode);
+          icnt++;
+          if(match("}"))break;
+          if(!match(","))
+          {
+            error("',' or '}' expected in the initializer list");
+            junk();
+            break;
+          }
+          blanks();
+          if(match("}"))break;   /* allow a trailing comma */
+        }
+      }
     }
-    delenode(inode);
+    else if(typtab[typ].sort==V_STR)
+    {
+      error("structs cannot be initialized yet");
+      junk();
+    }
+    else
+    {
+      inode=hier1();
+      foldtree(inode);
+      /* A malformed name-first declaration (for example `var == 1`) has no
+         symbol. Parse its initializer to stay synchronized, but emit no store. */
+      if(idx)
+      {
+        prestemps(inode);
+        if(treetocode(inode,&ilv))rvalue(&ilv);
+        irt=ilv.typ;
+        convto(typ,irt);
+        ilv.sort=L_ID;ilv.idx=idx;ilv.offset=0;ilv.typ=typ;strcp(ilv.name,idx->name);
+        store(&ilv);
+      }
+      delenode(inode);
+    }
     blanks();
     if(ch()==',')
     {
@@ -6634,32 +6804,59 @@ func dumpglbs()
     }
   }
 }
+/* one scalar element of type elem: byte types MUST emit one byte -- a .quad
+   would put the value at the wrong end of the symbol on a big-endian target
+   (mips). GI_SLIT lays down the string literal's pool address. */
+func giemit1(elem:int,kind:int,v:int)
+{
+  if((elem==T_CHAR)||(elem==T_UCHAR))ot(".byte ");
+  else if(elem==T_DOUBLE)ot(".double ");
+  else if(elem==T_FLOAT)ot(".float ");
+  else if(is64(elem)||(target.wordsize==8))ot(".quad ");
+  else ot(".long ");
+  if(kind==GI_VAL)outdec(v);
+  else if(kind==GI_SLIT){printlab(stlab);outstr("+");outdec(v);}
+  else outstr(fpoolbuf+fpooloff[v]);
+  nl();
+}
 /* lay down one initialized global: value bytes in .data -- or .rodata when it
    is const, so a stray write through a pointer faults instead of corrupting.
-   The assembler computes wide/float texts (like the .LF pool). */
+   The assembler computes wide/float texts (like the .LF pool). Arrays emit
+   their elements in order and zero-fill the unlisted tail. */
 func dumpginit(sym:*ssym)
 {
-  var int:t;
-  t=sym->type;
+  var int:t,elem,i,count,k,v,pos,dim;
+  t=sym->type;elem=t;
+  if(typtab[t].sort==V_ARR)elem=typtab[t].type;
   if(sym->cnst){ot(target.dir_section);ot(target.dir_rodata);nl();}
   else ol(".data");
-  if((t!=T_CHAR)&&(t!=T_UCHAR)){ot(target.dir_align);nl();}
+  if((elem!=T_CHAR)&&(elem!=T_UCHAR)){ot(target.dir_align);nl();}
   outasm(target.dir_globl);
   outname(sym->name);
   nl();
   outname(sym->name);
   col();
   nl();
-  /* byte types MUST emit one byte: a .quad would put the value at the wrong
-     end of the symbol on a big-endian target (mips) */
-  if((t==T_CHAR)||(t==T_UCHAR))ot(".byte ");
-  else if(t==T_DOUBLE)ot(".double ");
-  else if(t==T_FLOAT)ot(".float ");
-  else if(is64(t)||(target.wordsize==8))ot(".quad ");
-  else ot(".long ");
-  if(sym->ginit==GI_VAL)outdec(sym->offset);
-  else outstr(fpoolbuf+fpooloff[sym->offset]);
-  nl();
+  if(sym->ginit==GI_STR)
+  {
+    dim=typtab[t].dim;
+    count=strlen1(litq+sym->offset)+1;   /* the bytes plus the NUL */
+    for(i=0;i<count;i++){ot(".byte ");outdec(litq[sym->offset+i]);nl();}
+    if(dim>count){ot(".zero ");outdec(dim-count);nl();}
+  }
+  else if(sym->ginit==GI_ARR)
+  {
+    dim=typtab[t].dim;
+    pos=sym->offset;
+    count=gainit[pos++];
+    for(i=0;i<count;i++)
+    {
+      k=gainit[pos++];v=gainit[pos++];
+      giemit1(elem,k,v);
+    }
+    if(dim>count){ot(".zero ");outdec((dim-count)*gettsize(elem));nl();}
+  }
+  else giemit1(t,sym->ginit,sym->offset);
   ol(".text");   /* back to code for whatever follows */
 }
 func trailer()

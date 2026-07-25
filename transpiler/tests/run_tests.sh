@@ -244,6 +244,53 @@ if [ -x "$LANGC" ] && [ -x "$LPP" ]; then
         bad "nameless local initializer diagnostic"
     fi
 
+    # array/string initializer diagnostics: every malformed form is rejected
+    # with its own message and without a crash
+    cat > "$TMPD/uplnc_bad_arrinit.e" <<'BADEOF'
+var [2]int:a = {1,2,3};
+var [3]char:s = "abc";
+var [2]int:b = {1.5,2};
+var [2]int:c = "ab";
+var [2]*char:d = {1.5};
+var [2][2]int:e = {1};
+struct pt{int x;};
+var q:pt = {1};
+func main()
+{
+  var [2]int:l = {1,2,3};
+  var [2]char:t = "xy";
+  return 0;
+}
+BADEOF
+    if "$LPP" "$TMPD/uplnc_bad_arrinit.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > /dev/null 2>"$TMPD/uplnc_bad_arrinit.err"; then
+        bad "malformed array initializers exit nonzero"
+    elif grep -q 'too many initializer elements' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'string initializer does not fit' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'a float initializer on an integer global' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'a string initializes a char array' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'a pointer initializer needs an integer or a string literal' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'nested array and struct initializers are not supported' "$TMPD/uplnc_bad_arrinit.err" \
+            && grep -q 'structs cannot be initialized yet' "$TMPD/uplnc_bad_arrinit.err"; then
+        ok "array initializer misuse is diagnosed per form"
+    else
+        bad "array initializer diagnostics"
+    fi
+
+    # layout: a const *char table lands in .rodata with pool addresses, a
+    # mutable global array in .data with a zero-filled tail
+    printf 'var const [2]*char:tt = {"a","b"};\nvar [4]int:zz = {7};\nfunc main(){return 0;}\n' \
+        > "$TMPD/uplnc_arrinit_lay.e"
+    "$LPP" "$TMPD/uplnc_arrinit_lay.e" 2>/dev/null \
+        | "$LANGC" -march=x86_64 > "$TMPD/uplnc_arrinit_lay.s" 2>/dev/null
+    if awk '/rodata/{ro=1} /^tt:/{intt=ro} intt&&/\.quad \.L[0-9]+\+/{seen=1} /^zz:/{intt=0}
+            END{exit !seen}' "$TMPD/uplnc_arrinit_lay.s" \
+            && grep -A3 '^zz:' "$TMPD/uplnc_arrinit_lay.s" | grep -q '\.zero 24'; then
+        ok "const tables land in .rodata; mutable tails are zero-filled"
+    else
+        bad "array initializer layout"
+    fi
+
     printf "func main(){ return 'unterminated; }\n" > "$TMPD/uplnc_bad_char.e"
     timeout 5 "$LANGC" -march=x86_64 > "$TMPD/uplnc_bad_char.s" 2>"$TMPD/uplnc_bad_char.err" \
         < "$TMPD/uplnc_bad_char.e"
