@@ -15,8 +15,10 @@
      uplncfmt < in.e > out.e
      uplncfmt file.e            (formatted text on stdout)
      uplncfmt -w a.e b.he       (rewrite in place)
+     uplncfmt -l a.e b.he       (list files whose formatting differs)
 
-   Exit status: 0 clean, 1 with warnings, 2 on usage or I/O errors. */
+   Exit status: 0 clean, 1 with warnings or (-l) files needing formatting,
+   2 on usage or I/O errors. */
 
 #include "cint.he"
 
@@ -46,6 +48,10 @@ var extern stderr,stdin,stdout:*int;
 var src:*char;             /* the whole input, slurped */
 var srclen:int;
 var srcpos:int;
+var lmode:int;             /* -l: compare the output against the input */
+var cmpb:*char;            /* -l: pristine input copy (nextline NUL-writes src) */
+var cmppos:int;            /* -l: input bytes matched so far */
+var cmpdiff:int;           /* -l: the formatted output differs */
 var lineb:*char;           /* current line, pointing into src */
 var linelen:int;
 var lname:*char;           /* current input name for diagnostics */
@@ -133,9 +139,23 @@ func scanline(countbraces:int)
   return 0;
 }
 
+/* every formatted byte leaves through here: -l compares it against the input
+   instead of writing, so "already canonical" is exact byte equality */
+func putb(c:int,out:*int)
+{
+  if(lmode)
+  {
+    if((cmppos>=srclen)||(cmpb[cmppos]!=c))cmpdiff=1;
+    cmppos++;
+    return 0;
+  }
+  fputc(c,out);
+  return 0;
+}
+
 func emitspaces(n:int,out:*int)
 {
-  while(n>0){fputc(' ',out);n--;}
+  while(n>0){putb(' ',out);n--;}
   return 0;
 }
 
@@ -146,8 +166,8 @@ func emitrest(from:int,ind:int,out:*int)
   end=linelen;
   while((end>from)&&((lineb[end-1]==' ')||(lineb[end-1]==9)))end--;
   if(end>from)emitspaces(ind,out);
-  for(i=from;i<end;i++)fputc(lineb[i],out);
-  fputc(10,out);
+  for(i=from;i<end;i++)putb(lineb[i],out);
+  putb(10,out);
   if(ind+(end-from)>MAXLINE)
   {
     fprintf(stderr,"uplncfmt:%s:%d: line exceeds %d bytes after formatting\n",
@@ -186,7 +206,7 @@ func fmtstream(out:*int)
     }
     if(lead>=linelen)
     {
-      fputc(10,out);               /* blank (or whitespace-only) line */
+      putb(10,out);                /* blank (or whitespace-only) line */
       continue;
     }
     if(isdir)
@@ -267,7 +287,7 @@ func fmtinput(fp:*int,out:*int)
 
 func usage()
 {
-  fprintf(stderr,"usage: uplncfmt [-w] [file ...]\n");
+  fprintf(stderr,"usage: uplncfmt [-w|-l] [file ...]\n");
   return 2;
 }
 
@@ -378,14 +398,16 @@ func flushstdout()
 
 func main(argc:int,argv:**char)
 {
-  var wflag,k,first:int;
+  var wflag,k,first,needfmt:int;
   var fp:*int;
-  wflag=0;first=1;warned=0;
+  wflag=0;first=1;warned=0;lmode=0;needfmt=0;
   if((argc>1)&&(argv[1][0]=='-')&&(argv[1][1]=='w')&&(!argv[1][2]))
   {wflag=1;first=2;}
+  else if((argc>1)&&(argv[1][0]=='-')&&(argv[1][1]=='l')&&(!argv[1][2]))
+  {lmode=1;first=2;}
   else if((argc>1)&&(argv[1][0]=='-')&&argv[1][1])
   return usage();
-  if(wflag&&(first>=argc))return usage();
+  if((wflag||lmode)&&(first>=argc))return usage();
   if(first>=argc)
   {
     lname="<stdin>";
@@ -417,11 +439,32 @@ func main(argc:int,argv:**char)
       return 2;
     }
     if(wflag){if(!fmtwrite(argv[k])){free(src);src=0;return 2;}}
+    else if(lmode)
+    {
+      /* format into the comparator: a file is canonical exactly when the
+         output reproduces the input byte for byte. The comparison runs
+         against a pristine copy -- nextline() NUL-terminates lines in src
+         itself. */
+      var ci:int;
+      cmpb=malloc(srclen+1);
+      if(!cmpb){fprintf(stderr,"uplncfmt: out of memory\n");exit(2);}
+      for(ci=0;ci<srclen;ci++)cmpb[ci]=src[ci];
+      cmppos=0;cmpdiff=0;
+      fmtstream(stdout);
+      if(cmpdiff||(cmppos!=srclen))
+      {
+        fprintf(stdout,"%s\n",argv[k]);
+        needfmt=1;
+      }
+      free(cmpb);
+      cmpb=0;
+    }
     else fmtstream(stdout);
     free(src);
     src=0;
   }
   if(!wflag&&!flushstdout())return 2;
+  if(needfmt)return 1;
   if(warned)return 1;
   return 0;
 }
