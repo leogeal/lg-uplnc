@@ -1476,20 +1476,43 @@ else
         else
             bad "uplncfmt -l check mode"
         fi
+        # CRLF is not canonical: -l must list it and -w must normalize it to
+        # LF, producing the same canonical source as a native-LF input.
+        printf 'func a()\r\n{\r\n  return 1;\r\n}\r\n' > "$TMPD/uplnc_fmt_crlf.e"
+        crlfout=$(timeout 5 "$FMT" -l "$TMPD/uplnc_fmt_crlf.e" 2>/dev/null)
+        crlfrc=$?
+        timeout 5 "$FMT" -w "$TMPD/uplnc_fmt_crlf.e" 2>/dev/null
+        crlfwrc=$?
+        if [ "$crlfrc" = 1 ] && [ "$crlfout" = "$TMPD/uplnc_fmt_crlf.e" ] \
+                && [ "$crlfwrc" = 0 ] \
+                && cmp -s "$TMPD/uplnc_fmt_crlf.e" "$TMPD/uplnc_fmt_canon.e"; then
+            ok "uplncfmt lists and normalizes CRLF source"
+        else
+            bad "uplncfmt CRLF normalization"
+        fi
         # The format gate: every tracked source file is canonical. Input
         # fixtures are excluded on principle -- fuzz corpus files and
         # pp_input.e are byte-exact test inputs, not source to style.
         if command -v git >/dev/null \
                 && git -C .. rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            gfiles=$(git -C .. ls-files '*.e' '*.he' \
-                | grep -v '^transpiler/fuzz/corpus/' \
-                | grep -v '^transpiler/tests/pp_input\.e$' \
-                | sed 's|^|../|')
-            gout=$(timeout 60 "$FMT" -l $gfiles 2>/dev/null)
+            gfiles=()
+            while IFS= read -r -d '' gf; do
+                case "$gf" in
+                    transpiler/fuzz/corpus/*|transpiler/tests/pp_input.e) continue;;
+                esac
+                gfiles+=("../$gf")
+            done < <(git -C .. ls-files -z '*.e' '*.he')
+            # Keep one canonical space-containing path in the invocation so
+            # the gate's argv handling stays pinned even if the tracked tree
+            # currently has no such pathname.
+            spaced="$TMPD/uplnc format gate.e"
+            cp "$TMPD/uplnc_fmt_canon.e" "$spaced"
+            gfiles+=("$spaced")
+            gout=$(timeout 60 "$FMT" -l "${gfiles[@]}" 2>/dev/null)
             if [ "$?" = 0 ] && [ -z "$gout" ]; then
                 ok "format gate: every tracked source is canonically formatted"
             else
-                bad "format gate: run uplncfmt -w on: $(echo $gout | tr '\n' ' ')"
+                bad "format gate: run uplncfmt -w on: $(printf '%s\n' "$gout" | tr '\n' ' ')"
             fi
         else
             echo "  skip - format gate needs a git checkout"
