@@ -31,8 +31,9 @@ sub usage {
     print {$fh} <<'USAGE';
 Usage: langdrv.pl [options] file...
 
-Compile and link UPLNC sources. Inputs may be .e source files, assembler files,
-or object files (object files are accepted when linking).
+Compile and link UPLNC sources. Inputs may be .e source files, C files (built
+with the target's cc, e.g. a platform shim), assembler files, or object files
+(object files are accepted when linking).
 
 Options:
   -march=ARCH    Target: i386, x86_64, arm64, riscv64, or mips64
@@ -205,8 +206,13 @@ for my $input (@ARGV) {
         $kind = 'assembly';
     } elsif ($input =~ /\.o\z/i) {
         $kind = 'object';
+    } elsif ($input =~ /\.c\z/i) {
+        # A C unit (e.g. the IDE's platform shim) rides along: the same cc
+        # that assembles and links for the selected target compiles it, so
+        # cross builds need no separate shim invocation.
+        $kind = 'csource';
     } else {
-        fail("unsupported input '$input' (expected .e, .s, .S, or .o)");
+        fail("unsupported input '$input' (expected .e, .c, .s, .S, or .o)");
     }
     fail("-S accepts only .e source files") if $emit_asm && $kind ne 'source';
     fail("-c does not accept object input '$input'")
@@ -260,10 +266,15 @@ if ($emit_asm) {
 my @host = uname();
 my $machine = $host[4] || '';
 my $cc_override = defined($cc_option) ? $cc_option : $ENV{UPLNC_CC};
-my ($default_cc, @assemble_flags, @link_flags);
+# C units (platform shims) compile with the target's DEFAULT code model, not
+# the asm-compat flags: on mips64 the compiler's assembly is -mno-abicalls
+# (it never sets up $gp; calls go through $t9, which abicalls callees expect),
+# but C code built that way cannot reach TLS -- errno faults at run time.
+my ($default_cc, @assemble_flags, @c_flags, @link_flags);
 if ($arch eq 'i386') {
     $default_cc = 'gcc';
     @assemble_flags = ('-m32');
+    @c_flags = ('-m32');
     @link_flags = ('-m32', '-no-pie');
 } elsif ($arch eq 'x86_64') {
     $default_cc = 'gcc';
@@ -288,6 +299,12 @@ if ($arch eq 'i386' && !$compile_only) {
     my $probe_output = File::Spec->catfile($tmpdir, 'm32-probe');
     open(my $probe, '>', $probe_source)
         or fail("cannot create i386 toolchain probe: $!");
+    # A C unit needs real 32-bit system headers, not just a -m32 linker: a
+    # multilib-less gcc passes the trivial probe but cannot compile a shim
+    # that includes <sys/ioctl.h>. Probe with what the inputs actually need.
+    my $have_csource = grep { $_ eq 'csource' } @input_kind;
+    print {$probe} "#include <sys/ioctl.h>\n#include <termios.h>\n"
+        if $have_csource;
     print {$probe} "int main(void){return 0;}\n";
     close($probe) or fail("cannot write i386 toolchain probe: $!");
     for my $candidate (@candidates) {
@@ -315,8 +332,9 @@ if ($compile_only) {
             $assembly = File::Spec->catfile($tmpdir, 'source-' . $sequence++ . '.s');
             compile_source($ARGV[$i], $assembly);
         }
+        my @unit_flags = $input_kind[$i] eq 'csource' ? @c_flags : @assemble_flags;
         my $temporary = staged_output($object);
-        my $rc = run_command(undef, undef, $cc, @assemble_flags,
+        my $rc = run_command(undef, undef, $cc, @unit_flags,
                              '-c', $assembly, '-o', $temporary);
         fail("assembling '$ARGV[$i]' failed (exit $rc)") if $rc != 0;
         commit_output($temporary, $object);
@@ -330,6 +348,12 @@ for my $i (0 .. $#ARGV) {
         my $assembly = File::Spec->catfile($tmpdir, 'source-' . $sequence++ . '.s');
         compile_source($ARGV[$i], $assembly);
         push @link_inputs, $assembly;
+    } elsif ($input_kind[$i] eq 'csource') {
+        my $object = File::Spec->catfile($tmpdir, 'cunit-' . $sequence++ . '.o');
+        my $rc = run_command(undef, undef, $cc, @c_flags,
+                             '-c', $ARGV[$i], '-o', $object);
+        fail("compiling C unit '$ARGV[$i]' failed (exit $rc)") if $rc != 0;
+        push @link_inputs, $object;
     } else {
         push @link_inputs, $ARGV[$i];
     }

@@ -1,0 +1,55 @@
+/* tui.he: the UPLNC terminal layer -- key codes, attributes, and the
+   interface of ide/tui.e. Link ide/tshim.c alongside (langdrv accepts it). */
+
+/* tuikey()/tuipoll() return a printable byte as itself; specials are >255 */
+#define K_NONE 0
+#define K_BS 8
+#define K_TAB 9
+#define K_ENTER 13
+#define K_ESC 27
+#define K_UP 256
+#define K_DOWN 257
+#define K_RIGHT 258
+#define K_LEFT 259
+#define K_HOME 260
+#define K_END 261
+#define K_PGUP 262
+#define K_PGDN 263
+#define K_INS 264
+#define K_DEL 265
+#define K_F1 266
+#define K_F2 267
+#define K_F3 268
+#define K_F4 269
+#define K_F5 270
+#define K_F6 271
+#define K_F7 272
+#define K_F8 273
+#define K_F9 274
+#define K_F10 275
+#define K_F11 276
+#define K_F12 277
+#define K_RESIZE 278
+
+/* attributes: PC-style, attr = fg + bg*16 (fg 0-15, 8-15 render bold;
+   bg 0-7), plus A_ACS for the DEC line-drawing charset (box glyphs are
+   single bytes in that set). lpp1 has no function-like macros, so the
+   fg/bg composition is written out at each use. */
+#define A_ACS 256
+#define C_BLACK 0
+#define C_BLUE 1
+#define C_GREEN 2
+#define C_CYAN 3
+#define C_RED 4
+#define C_MAGENTA 5
+#define C_BROWN 6
+#define C_WHITE 7
+#define C_BWHITE 15
+
+/* DEC special-graphics bytes for A_ACS cells */
+#define ACS_HLINE 'q'
+#define ACS_VLINE 'x'
+#define ACS_TL 'l'
+#define ACS_TR 'k'
+#define ACS_BL 'm'
+#define ACS_BR 'j'

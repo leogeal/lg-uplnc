@@ -136,10 +136,18 @@ and other languages" reduces mostly to configuration.
 
 ## 7. Phasing
 
-1. **Platform + screen/input slice**: land the ABI shim first, with all-target
-   pipe round-trip tests and PTY-hosted tests proving exact terminal restore
-   and resize delivery. Then add pinned escape-sequence transcripts for the
-   glyph-aware cell compositor, palette, box/shadow drawing, and key decoder.
+1. **Platform + screen/input slice** — ✅ landed 2026-07 (`ide/`): `tshim.c`
+   (intptr_t-clean termios/winsize/poll/sigaction/pipe; C structs never cross
+   the boundary), `tui.e`/`tui.he` (raw mode with exact restore via the
+   alternate screen, CSI/SS3/lone-ESC key decoder, diff-rendering cell
+   compositor with DEC line-drawing boxes and PC-style attributes), and
+   `tuidemo.e`. `langdrv.pl` accepts `.c` units so cross builds compile the
+   shim with the target's own cc — with the target's *default* code model
+   (the mips64 asm-compat flags break C TLS: errno faulted until the shim
+   compiled abicalls). Gated in `run_tests.sh` `[14]`: the pipe round-trip
+   and sign-extended-failure checks run on every target with a toolchain,
+   and PTY-hosted tests pin exact termios restore, a byte-exact 24x80
+   transcript, all decoder forms, and SIGWINCH redraw.
 2. **Phase 1 IDE** (~3–5k lines; langc is ~7k): menu bar, one editor window
    (open/save/search/block ops), F9 build with error-jump. *The Turbo feel
    arrives here.*

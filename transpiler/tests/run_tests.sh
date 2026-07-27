@@ -2213,6 +2213,118 @@ else
     bad "store/load forwarding shape"
 fi
 
+echo "[14] IDE platform slice: shim ABI, PTY terminal control, key decoding"
+# ide/tshim.c owns every C struct and returns intptr_t everywhere; shimtest.e
+# proves the pipe round-trip through full-width descriptor slots and that a
+# failing C call's -1 arrives sign-extended (the cint hazard class, owned by
+# the shim forever). Cross targets run under qemu where toolchains exist.
+if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_shimtest" \
+        ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1 \
+        && "$TMPD/uplnc_shimtest"; [ $? = 42 ]; then
+    ok "shim ABI: pipe round-trip + sign-extended failure (x86_64)"
+else
+    bad "shim ABI x86_64"
+fi
+if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_shimtest32" \
+        ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
+    "$TMPD/uplnc_shimtest32"
+    [ $? = 42 ] && ok "shim ABI: i386" || bad "shim ABI i386"
+else
+    echo "  skip - no i386 C toolchain with 32-bit system headers"
+fi
+for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
+             "riscv64:riscv64-linux-gnu-gcc:qemu-riscv64-static" \
+             "mips64:mips64-linux-gnuabi64-gcc:${QEMU_MIPS:-qemu-mips64-static}"; do
+    xarch=${xspec%%:*}; rest=${xspec#*:}
+    xcc=${rest%%:*}; xrun=${rest#*:}
+    if ! command -v "$xcc" >/dev/null; then
+        echo "  skip - no $xarch toolchain"
+        continue
+    fi
+    if perl "$DRIVER" "-march=$xarch" -o "$TMPD/uplnc_shimtest_$xarch" \
+            ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
+        $xrun "$TMPD/uplnc_shimtest_$xarch"
+        [ $? = 42 ] && ok "shim ABI: $xarch (qemu)" || bad "shim ABI $xarch"
+    else
+        bad "shim build $xarch"
+    fi
+done
+# The terminal layer, PTY-hosted: exact termios restore, a pinned byte
+# transcript at 24x80, decoded-key echoes, and resize redelivery.
+if command -v python3 >/dev/null \
+        && perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_tuidemo" \
+            ../ide/tuidemo.e ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
+    cat > "$TMPD/uplnc_ptyrun.py" <<'PTYEOF'
+import os, pty, sys, termios, fcntl, struct, signal, time, subprocess, select
+binpath, size = sys.argv[1], sys.argv[2]
+rows, cols = map(int, size.split('x'))
+m, s = pty.openpty()
+fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+before = termios.tcgetattr(s)
+p = subprocess.Popen([binpath], stdin=s, stdout=s, stderr=s, start_new_session=True)
+out = b''
+def drain(t=0.35):
+    global out
+    end = time.time()+t
+    while time.time() < end:
+        r,_,_ = select.select([m],[],[],0.05)
+        if r:
+            try: out += os.read(m, 65536)
+            except OSError: break
+drain()
+for op in sys.argv[3:]:
+    if op.startswith('w:'):
+        os.write(m, bytes.fromhex(op[2:])); drain()
+    elif op == 'p':
+        drain(0.3)
+    elif op.startswith('z:'):
+        r,c = map(int, op[2:].split('x'))
+        fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', r, c, 0, 0))
+        p.send_signal(signal.SIGWINCH); drain()
+rc = p.wait(timeout=5)
+drain(0.2)
+after = termios.tcgetattr(s)
+os.close(m); os.close(s)
+sys.stdout.buffer.write(out)
+print(f"\nRC={rc} TERMIOS_RESTORED={before==after}", file=sys.stderr)
+PTYEOF
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:71 \
+        > "$TMPD/uplnc_tui_q.bin" 2> "$TMPD/uplnc_tui_q.err"
+    if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_tui_q.err" \
+            && grep -qa $'\x1b\[?1049l' "$TMPD/uplnc_tui_q.bin"; then
+        ok "tui restores the terminal exactly (termios + alternate screen)"
+    else
+        bad "tui terminal restore"
+    fi
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:1b5b42 w:71 \
+        > "$TMPD/uplnc_tui_g.bin" 2>/dev/null
+    if cmp -s "$TMPD/uplnc_tui_g.bin" tests/tui_transcript.expected; then
+        ok "tui emits the pinned 24x80 byte transcript"
+    else
+        bad "tui transcript drifted from tests/tui_transcript.expected"
+    fi
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 \
+        w:1b5b41 w:1b5b337e w:1b4f50 w:1b5b31357e w:1b p w:71 \
+        > "$TMPD/uplnc_tui_k.bin" 2>/dev/null
+    tui_keys_ok=1
+    for kname in UP DEL F1 F5 C27; do
+        grep -qa "$kname" "$TMPD/uplnc_tui_k.bin" || tui_keys_ok=0
+    done
+    [ "$tui_keys_ok" = 1 ] \
+        && ok "tui decodes CSI, CSI~, SS3, and a lone ESC" \
+        || bad "tui key decoding"
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 z:30x100 p w:71 \
+        > "$TMPD/uplnc_tui_r.bin" 2>/dev/null
+    if grep -qa 'size 100x30' "$TMPD/uplnc_tui_r.bin" \
+            && grep -qa 'RESIZE' "$TMPD/uplnc_tui_r.bin"; then
+        ok "tui redraws at the new size after SIGWINCH"
+    else
+        bad "tui resize redelivery"
+    fi
+else
+    echo "  skip - PTY tests need python3 and an x86_64 build"
+fi
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]
