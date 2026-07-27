@@ -144,11 +144,9 @@ struct sdbgloc{
 #define litstksz 30000
 #define litstknu 15
 
-/* Per-unit string-literal pool. codegen.e is the binding unit: each retargeted
-   backend adds mnemonic literals (the integer MIPS backend pushed it to ~8.9KB),
-   so this is sized with headroom for the FP backends still to come. */
-#define STSIZE 16000
-#define STMAX 15999
+/* The per-unit string-literal pool (litq in langc.e) grows on demand -- no
+   fixed size. It was a 16000-byte array until 2026-07; the planned IDE is a
+   UI-string-heavy unit far past any headroom worth hardcoding. */
 
 #define WQNUM 75
 #define WQMAX 74

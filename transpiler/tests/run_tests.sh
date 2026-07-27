@@ -414,19 +414,23 @@ EMPTYINIT
         bad "long identifier diagnostic"
     fi
 
+    # The string-literal pool grows on demand (it was a fixed 16000 bytes):
+    # a unit carrying ~90KB of literals must compile and run correctly. The
+    # program checks its own literals so a pool-growth bug shows as data
+    # corruption, not just a crash.
     strchunk=$(printf '%0100d' 0 | tr 0 a)
     {
-        printf 'func main(){\n'
-        for _ in $(seq 1 180); do printf '  "%s";\n' "$strchunk"; done
-        printf '  return 0;\n}\n'
+        printf 'func strlen0(s:*char)\n{\n  var int:n;\n  n=0;\n  while(s[n])n=n+1;\n  return n;\n}\n'
+        printf 'func main()\n{\n  var int:t;\n  t=0;\n'
+        for _ in $(seq 1 900); do printf '  t=t+strlen0("%s");\n' "$strchunk"; done
+        printf '  if(t==90000)return 42;\n  return 1;\n}\n'
     } > "$TMPD/uplnc_string_pool.e"
-    if "$LPP" "$TMPD/uplnc_string_pool.e" 2>/dev/null \
-            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_string_pool.s" 2>"$TMPD/uplnc_string_pool.err"; then
-        bad "string literal pool overflow exits nonzero"
-    elif grep -q 'string space exhausted' "$TMPD/uplnc_string_pool.s"; then
-        ok "string literal pool overflow diagnosed"
+    if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_string_pool_bin" \
+            "$TMPD/uplnc_string_pool.e" >/dev/null 2>&1 \
+            && "$TMPD/uplnc_string_pool_bin"; [ $? = 42 ]; then
+        ok "the string-literal pool grows past the old 16KB limit"
     else
-        bad "string literal pool overflow diagnostic"
+        bad "string-literal pool growth"
     fi
 
     printf 'func main(){return 0;} /* unterminated\n' > "$TMPD/uplnc_bad_comment.e"
