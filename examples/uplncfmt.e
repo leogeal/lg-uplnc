@@ -84,8 +84,10 @@ func slurp(fp:*int)
 }
 
 /* Point lineb at the next line in src, normalize CRLF to LF, and replace the
-   line ending with NUL. linelen, not the terminator, remains authoritative for
-   embedded NUL bytes. */
+   line ending with NUL. Every CR directly before the LF is dropped -- a
+   double-converted DOS file carries \r\r\n, and stripping just one would take
+   two -w passes to converge, breaking idempotence. linelen, not the
+   terminator, remains authoritative for embedded NUL bytes. */
 func nextline()
 {
   var c:int;
@@ -98,7 +100,7 @@ func nextline()
     if(c==10)break;
     linelen++;
   }
-  if((c==10)&&linelen&&(lineb[linelen-1]==13))linelen--;
+  while((c==10)&&linelen&&(lineb[linelen-1]==13))linelen--;
   lineb[linelen]=0;
   return 1;
 }

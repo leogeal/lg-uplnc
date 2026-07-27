@@ -1490,6 +1490,19 @@ else
         else
             bad "uplncfmt CRLF normalization"
         fi
+        # A double-converted DOS file (\r\r\n) must normalize in ONE -w pass:
+        # every CR before the LF is dropped, so -l is immediately silent and
+        # the result matches the canonical LF file.
+        printf 'func a()\r\r\n{\r\r\n  return 1;\r\r\n}\r\r\n' > "$TMPD/uplnc_fmt_crcr.e"
+        timeout 5 "$FMT" -w "$TMPD/uplnc_fmt_crcr.e" 2>/dev/null
+        crcrwrc=$?
+        if [ "$crcrwrc" = 0 ] \
+                && timeout 5 "$FMT" -l "$TMPD/uplnc_fmt_crcr.e" >/dev/null 2>&1 \
+                && cmp -s "$TMPD/uplnc_fmt_crcr.e" "$TMPD/uplnc_fmt_canon.e"; then
+            ok "uplncfmt normalizes stacked CRs in one pass (idempotence)"
+        else
+            bad "uplncfmt stacked-CR idempotence"
+        fi
         # The format gate: every tracked source file is canonical. Input
         # fixtures are excluded on principle -- fuzz corpus files and
         # pp_input.e are byte-exact test inputs, not source to style.
