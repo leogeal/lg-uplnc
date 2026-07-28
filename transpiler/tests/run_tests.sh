@@ -414,19 +414,40 @@ EMPTYINIT
         bad "long identifier diagnostic"
     fi
 
+    # The string-literal pool grows on demand (it was a fixed 16000 bytes):
+    # a unit carrying ~90KB of literals must compile and run correctly. The
+    # program checks its own literals so a pool-growth bug shows as data
+    # corruption, not just a crash.
     strchunk=$(printf '%0100d' 0 | tr 0 a)
     {
-        printf 'func main(){\n'
-        for _ in $(seq 1 180); do printf '  "%s";\n' "$strchunk"; done
-        printf '  return 0;\n}\n'
+        printf 'func strlen0(s:*char)\n{\n  var int:n;\n  n=0;\n  while(s[n])n=n+1;\n  return n;\n}\n'
+        printf 'func main()\n{\n  var int:t;\n  t=0;\n'
+        for _ in $(seq 1 900); do printf '  t=t+strlen0("%s");\n' "$strchunk"; done
+        printf '  if(t==90000)return 42;\n  return 1;\n}\n'
     } > "$TMPD/uplnc_string_pool.e"
-    if "$LPP" "$TMPD/uplnc_string_pool.e" 2>/dev/null \
-            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_string_pool.s" 2>"$TMPD/uplnc_string_pool.err"; then
-        bad "string literal pool overflow exits nonzero"
-    elif grep -q 'string space exhausted' "$TMPD/uplnc_string_pool.s"; then
-        ok "string literal pool overflow diagnosed"
+    # run natively where the host maps to a target; any host can at least
+    # compile it (langc is a cross compiler) and must emit no diagnostics
+    case "$(uname -m)" in
+        x86_64) poolarch=x86_64;;
+        aarch64) poolarch=arm64;;
+        riscv64) poolarch=riscv64;;
+        mips64) poolarch=mips64;;
+        *) poolarch="";;
+    esac
+    if [ -n "$poolarch" ]; then
+        if perl "$DRIVER" "-march=$poolarch" -o "$TMPD/uplnc_string_pool_bin" \
+                "$TMPD/uplnc_string_pool.e" >/dev/null 2>&1 \
+                && "$TMPD/uplnc_string_pool_bin"; [ $? = 42 ]; then
+            ok "the string-literal pool grows past the old 16KB limit"
+        else
+            bad "string-literal pool growth"
+        fi
+    elif "$LPP" "$TMPD/uplnc_string_pool.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_string_pool.s" 2>&1 \
+            && ! grep -q 'Error' "$TMPD/uplnc_string_pool.s"; then
+        ok "the string-literal pool grows past the old 16KB limit (compile-only)"
     else
-        bad "string literal pool overflow diagnostic"
+        bad "string-literal pool growth"
     fi
 
     printf 'func main(){return 0;} /* unterminated\n' > "$TMPD/uplnc_bad_comment.e"
@@ -2207,6 +2228,133 @@ if grep -qE $'^\tmovq %rax, -[0-9]+\(%rbp\)$' "$TMPD/uplnc_storeload.s" \
     ok "same-slot store/load forwarding crosses debug markers safely"
 else
     bad "store/load forwarding shape"
+fi
+
+echo "[14] IDE platform slice: shim ABI, PTY terminal control, key decoding"
+# ide/tshim.c owns every C struct and returns intptr_t everywhere; shimtest.e
+# proves the pipe round-trip through full-width descriptor slots and that a
+# failing C call's -1 arrives sign-extended (the cint hazard class, owned by
+# the shim forever). The native run uses the HOST arch (this suite also runs
+# on a native arm64 runner); a cross target needs both a toolchain and qemu.
+case "$(uname -m)" in
+    x86_64) TUIHOST=x86_64;;
+    aarch64) TUIHOST=arm64;;
+    riscv64) TUIHOST=riscv64;;
+    mips64) TUIHOST=mips64;;
+    *) TUIHOST="";;
+esac
+if [ -z "$TUIHOST" ]; then
+    echo "  skip - no native UPLNC target for host $(uname -m)"
+elif perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_shimtest" \
+        ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1 \
+        && "$TMPD/uplnc_shimtest"; [ $? = 42 ]; then
+    ok "shim ABI: pipe round-trip + sign-extended failure ($TUIHOST native)"
+else
+    bad "shim ABI $TUIHOST native"
+fi
+if [ "$TUIHOST" = x86_64 ]; then
+    if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_shimtest32" \
+            ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
+        "$TMPD/uplnc_shimtest32"
+        [ $? = 42 ] && ok "shim ABI: i386" || bad "shim ABI i386"
+    else
+        echo "  skip - no i386 C toolchain with 32-bit system headers"
+    fi
+fi
+for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
+             "riscv64:riscv64-linux-gnu-gcc:qemu-riscv64-static" \
+             "mips64:mips64-linux-gnuabi64-gcc:${QEMU_MIPS:-qemu-mips64-static}"; do
+    xarch=${xspec%%:*}; rest=${xspec#*:}
+    xcc=${rest%%:*}; xrun=${rest#*:}
+    [ "$xarch" = "$TUIHOST" ] && continue   # already covered natively above
+    if ! command -v "$xcc" >/dev/null || ! command -v "${xrun%% *}" >/dev/null; then
+        echo "  skip - no $xarch cross toolchain + qemu"
+        continue
+    fi
+    if perl "$DRIVER" "-march=$xarch" -o "$TMPD/uplnc_shimtest_$xarch" \
+            ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
+        $xrun "$TMPD/uplnc_shimtest_$xarch"
+        [ $? = 42 ] && ok "shim ABI: $xarch (qemu)" || bad "shim ABI $xarch"
+    else
+        bad "shim build $xarch"
+    fi
+done
+# The terminal layer, PTY-hosted on the native target: exact termios restore,
+# a pinned byte transcript at 24x80 (the stream is target-independent, so the
+# same golden pins the arm64 host too), decoded-key echoes, and resize
+# redelivery.
+if [ -n "$TUIHOST" ] && command -v python3 >/dev/null \
+        && perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tuidemo" \
+            ../ide/tuidemo.e ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
+    cat > "$TMPD/uplnc_ptyrun.py" <<'PTYEOF'
+import os, pty, sys, termios, fcntl, struct, signal, time, subprocess, select
+binpath, size = sys.argv[1], sys.argv[2]
+rows, cols = map(int, size.split('x'))
+m, s = pty.openpty()
+fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+before = termios.tcgetattr(s)
+p = subprocess.Popen([binpath], stdin=s, stdout=s, stderr=s, start_new_session=True)
+out = b''
+def drain(t=0.35):
+    global out
+    end = time.time()+t
+    while time.time() < end:
+        r,_,_ = select.select([m],[],[],0.05)
+        if r:
+            try: out += os.read(m, 65536)
+            except OSError: break
+drain()
+for op in sys.argv[3:]:
+    if op.startswith('w:'):
+        os.write(m, bytes.fromhex(op[2:])); drain()
+    elif op == 'p':
+        drain(0.3)
+    elif op.startswith('z:'):
+        r,c = map(int, op[2:].split('x'))
+        fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', r, c, 0, 0))
+        p.send_signal(signal.SIGWINCH); drain()
+rc = p.wait(timeout=5)
+drain(0.2)
+after = termios.tcgetattr(s)
+os.close(m); os.close(s)
+sys.stdout.buffer.write(out)
+print(f"\nRC={rc} TERMIOS_RESTORED={before==after}", file=sys.stderr)
+PTYEOF
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:71 \
+        > "$TMPD/uplnc_tui_q.bin" 2> "$TMPD/uplnc_tui_q.err"
+    if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_tui_q.err" \
+            && grep -qa $'\x1b\[?1049l' "$TMPD/uplnc_tui_q.bin"; then
+        ok "tui restores the terminal exactly (termios + alternate screen)"
+    else
+        bad "tui terminal restore"
+    fi
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:1b5b42 w:71 \
+        > "$TMPD/uplnc_tui_g.bin" 2>/dev/null
+    if cmp -s "$TMPD/uplnc_tui_g.bin" tests/tui_transcript.expected; then
+        ok "tui emits the pinned 24x80 byte transcript"
+    else
+        bad "tui transcript drifted from tests/tui_transcript.expected"
+    fi
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 \
+        w:1b5b41 w:1b5b337e w:1b4f50 w:1b5b31357e w:1b p w:71 \
+        > "$TMPD/uplnc_tui_k.bin" 2>/dev/null
+    tui_keys_ok=1
+    for kname in UP DEL F1 F5 C27; do
+        grep -qa "$kname" "$TMPD/uplnc_tui_k.bin" || tui_keys_ok=0
+    done
+    [ "$tui_keys_ok" = 1 ] \
+        && ok "tui decodes CSI, CSI~, SS3, and a lone ESC" \
+        || bad "tui key decoding"
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 z:30x100 p w:71 \
+        > "$TMPD/uplnc_tui_r.bin" 2>/dev/null
+    if grep -qa 'size 100x30' "$TMPD/uplnc_tui_r.bin" \
+            && grep -qa 'RESIZE' "$TMPD/uplnc_tui_r.bin"; then
+        ok "tui redraws at the new size after SIGWINCH"
+    else
+        bad "tui resize redelivery"
+    fi
+else
+    echo "  skip - PTY tests need python3 and an x86_64 build"
 fi
 
 echo

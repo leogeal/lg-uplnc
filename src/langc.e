@@ -250,7 +250,8 @@ var stlab:int;
 var gainit:*int;
 var ngai,agai:int;
 var stptr:int;
-var litq:[STSIZE]char;
+var litq:*char;    /* the per-unit string-literal pool; grows on demand */
+var litcap:int;
 var wqsym:[WQNUM]int;
 var wqsp:[WQNUM]int;
 var wqloop:[WQNUM]int;
@@ -499,6 +500,7 @@ func main(argc:int,argv:**char)
   freetypes();
   freesyms();
   if(gainit)free(gainit);
+  if(litq)free(litq);
   /*fprintf(stderr,"(%d)(%d)%s%s",pp,pp2,pp,pp2);*/
   donedyn();
   if(errcnt)return 1;
@@ -6175,6 +6177,21 @@ func pstr(val:*int)
   /*fprintf(stderr,"the character:%d\n",k);*/
   return 1;
 }
+/* room for need more pool bytes; the pool doubles as required, so a large
+   translation unit (the planned IDE is UI-string-heavy) never hits a wall */
+func litgrow(need:int)
+{
+  if(!litq)
+  {
+    litcap=4096;
+    chkmem(litq=malloc(litcap));
+  }
+  while(stptr+need>=litcap)
+  {
+    litcap=litcap*2;
+    chkmem(litq=realloc(litq,litcap));
+  }
+}
 func qstr(val:*int)
 {
   var int:k;
@@ -6182,25 +6199,10 @@ func qstr(val:*int)
   k=0;
   if(!match(quote))return 0;
   val[0]=stptr;
-  if(stptr>STMAX)
-  {
-    error("string space exhausted");
-    while(ch()!='"')if(!gch())break;
-    if(ch()=='"')gch();
-    return 1;
-  }
   while(ch()!='"')
   {
     if(!ch())break;
-    if(stptr>=STMAX)
-    {
-      error("string space exhausted");
-      litq[STMAX]=0;
-      stptr=STMAX+1;
-      while(ch()!='"')if(!gch())break;
-      if(ch()=='"')gch();
-      return 1;
-    }
+    litgrow(2);
     c=gch();
     if(c!=92)litq[stptr++]=c;
     else
@@ -6215,6 +6217,7 @@ func qstr(val:*int)
     }
   }
   if(ch()=='"')gch();
+  litgrow(1);
   litq[stptr++]=0;
   return 1;
 }

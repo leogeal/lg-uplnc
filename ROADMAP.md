@@ -859,7 +859,7 @@ What turns a teaching compiler into something you'd build a project with:
   propagation, and path safety. A **source formatter** (`examples/uplncfmt.e`)
   now exists — see the M7 examples below. Still open: editor support (the
   planned Turbo-style IDE, [`IDE.md`](IDE.md))
-  - ⏳ **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
+  - 🟡 **A Turbo-style IDE in UPLNC** — assessed 2026-07, feasible now;
     design plan in [`IDE.md`](IDE.md). Full-screen Borland-style text UI
     (ANSI cells, pull-down menus, F-keys), editing + building UPLNC and
     other languages, with integrated debugging by driving `gdb --interpreter=mi`
@@ -867,8 +867,25 @@ What turns a teaching compiler into something you'd build a project with:
     handles exact terminal restoration, C-width descriptor arrays/event polling,
     and the dedicated inferior PTY. This would be the largest UPLNC program yet
     and the ultimate M7 dogfood; the constraints it will hit (15-char
-    identifiers/mangles, the per-unit string pool, int-only indirect-call
-    returns) are recorded there as expected findings.
+    identifiers/mangles, int-only indirect-call returns) are recorded there
+    as expected findings — the per-unit string pool wall was removed
+    preemptively (litq grows on demand).
+    - ✅ **Step 1, the platform + screen/input slice** (`ide/`, 2026-07):
+      `tshim.c` keeps every C struct and bare C `int` on the C side of the
+      boundary (intptr_t everywhere); `tui.e` provides raw mode with exact
+      restore, the key decoder (CSI, CSI-number-~, SS3, lone ESC), and a
+      diff-rendering cell compositor (DEC line-drawing boxes, PC attributes,
+      one batched write per flush); `tuidemo.e` demonstrates and is the PTY
+      test vehicle. `langdrv.pl` now takes `.c` units, compiled by the
+      target's cc with the target's default code model — found the hard way:
+      mips64's asm-compat flags (`-mno-abicalls -fno-pic`) break C TLS, so
+      the shim's first errno access faulted until C units stopped inheriting
+      them; the i386 cc probe now demands real 32-bit system headers when a
+      C unit is present. `[14]` gates the shim ABI on every target with a
+      toolchain (pipe round-trip through full-width slots; a failing call's
+      -1 arrives sign-extended) and PTY-pins exact termios restore, the
+      byte-exact 24x80 transcript (`tests/tui_transcript.expected`), every
+      decoder form, and SIGWINCH-driven redraw at the new size.
 - 💭 Module/namespace system; package layout
 - ✅ Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array

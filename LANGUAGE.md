@@ -757,7 +757,7 @@ The version 0 implementation diagnoses or restricts the following:
 | Include nesting | 8 nested included files |
 | Resolved include path | 159 bytes (the including file's directory + the quoted name) |
 | Preprocessor macros | 299 definitions; 6000-byte shared name/body pool |
-| String literals | 16000-byte pool per translation unit, including NULs |
+| String literals | no fixed limit (the per-unit pool grows on demand) |
 | Floating and wide literals | 200 entries and a 4000-byte text pool per unit |
 | Numeric token | 47 characters |
 | `switch` | 256 case labels |
