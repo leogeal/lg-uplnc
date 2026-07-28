@@ -425,10 +425,27 @@ EMPTYINIT
         for _ in $(seq 1 900); do printf '  t=t+strlen0("%s");\n' "$strchunk"; done
         printf '  if(t==90000)return 42;\n  return 1;\n}\n'
     } > "$TMPD/uplnc_string_pool.e"
-    if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_string_pool_bin" \
-            "$TMPD/uplnc_string_pool.e" >/dev/null 2>&1 \
-            && "$TMPD/uplnc_string_pool_bin"; [ $? = 42 ]; then
-        ok "the string-literal pool grows past the old 16KB limit"
+    # run natively where the host maps to a target; any host can at least
+    # compile it (langc is a cross compiler) and must emit no diagnostics
+    case "$(uname -m)" in
+        x86_64) poolarch=x86_64;;
+        aarch64) poolarch=arm64;;
+        riscv64) poolarch=riscv64;;
+        mips64) poolarch=mips64;;
+        *) poolarch="";;
+    esac
+    if [ -n "$poolarch" ]; then
+        if perl "$DRIVER" "-march=$poolarch" -o "$TMPD/uplnc_string_pool_bin" \
+                "$TMPD/uplnc_string_pool.e" >/dev/null 2>&1 \
+                && "$TMPD/uplnc_string_pool_bin"; [ $? = 42 ]; then
+            ok "the string-literal pool grows past the old 16KB limit"
+        else
+            bad "string-literal pool growth"
+        fi
+    elif "$LPP" "$TMPD/uplnc_string_pool.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > "$TMPD/uplnc_string_pool.s" 2>&1 \
+            && ! grep -q 'Error' "$TMPD/uplnc_string_pool.s"; then
+        ok "the string-literal pool grows past the old 16KB limit (compile-only)"
     else
         bad "string-literal pool growth"
     fi
