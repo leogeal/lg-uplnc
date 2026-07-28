@@ -2217,28 +2217,41 @@ echo "[14] IDE platform slice: shim ABI, PTY terminal control, key decoding"
 # ide/tshim.c owns every C struct and returns intptr_t everywhere; shimtest.e
 # proves the pipe round-trip through full-width descriptor slots and that a
 # failing C call's -1 arrives sign-extended (the cint hazard class, owned by
-# the shim forever). Cross targets run under qemu where toolchains exist.
-if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_shimtest" \
+# the shim forever). The native run uses the HOST arch (this suite also runs
+# on a native arm64 runner); a cross target needs both a toolchain and qemu.
+case "$(uname -m)" in
+    x86_64) TUIHOST=x86_64;;
+    aarch64) TUIHOST=arm64;;
+    riscv64) TUIHOST=riscv64;;
+    mips64) TUIHOST=mips64;;
+    *) TUIHOST="";;
+esac
+if [ -z "$TUIHOST" ]; then
+    echo "  skip - no native UPLNC target for host $(uname -m)"
+elif perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_shimtest" \
         ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1 \
         && "$TMPD/uplnc_shimtest"; [ $? = 42 ]; then
-    ok "shim ABI: pipe round-trip + sign-extended failure (x86_64)"
+    ok "shim ABI: pipe round-trip + sign-extended failure ($TUIHOST native)"
 else
-    bad "shim ABI x86_64"
+    bad "shim ABI $TUIHOST native"
 fi
-if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_shimtest32" \
-        ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
-    "$TMPD/uplnc_shimtest32"
-    [ $? = 42 ] && ok "shim ABI: i386" || bad "shim ABI i386"
-else
-    echo "  skip - no i386 C toolchain with 32-bit system headers"
+if [ "$TUIHOST" = x86_64 ]; then
+    if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_shimtest32" \
+            ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
+        "$TMPD/uplnc_shimtest32"
+        [ $? = 42 ] && ok "shim ABI: i386" || bad "shim ABI i386"
+    else
+        echo "  skip - no i386 C toolchain with 32-bit system headers"
+    fi
 fi
 for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
              "riscv64:riscv64-linux-gnu-gcc:qemu-riscv64-static" \
              "mips64:mips64-linux-gnuabi64-gcc:${QEMU_MIPS:-qemu-mips64-static}"; do
     xarch=${xspec%%:*}; rest=${xspec#*:}
     xcc=${rest%%:*}; xrun=${rest#*:}
-    if ! command -v "$xcc" >/dev/null; then
-        echo "  skip - no $xarch toolchain"
+    [ "$xarch" = "$TUIHOST" ] && continue   # already covered natively above
+    if ! command -v "$xcc" >/dev/null || ! command -v "${xrun%% *}" >/dev/null; then
+        echo "  skip - no $xarch cross toolchain + qemu"
         continue
     fi
     if perl "$DRIVER" "-march=$xarch" -o "$TMPD/uplnc_shimtest_$xarch" \
@@ -2249,10 +2262,12 @@ for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
         bad "shim build $xarch"
     fi
 done
-# The terminal layer, PTY-hosted: exact termios restore, a pinned byte
-# transcript at 24x80, decoded-key echoes, and resize redelivery.
-if command -v python3 >/dev/null \
-        && perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_tuidemo" \
+# The terminal layer, PTY-hosted on the native target: exact termios restore,
+# a pinned byte transcript at 24x80 (the stream is target-independent, so the
+# same golden pins the arm64 host too), decoded-key echoes, and resize
+# redelivery.
+if [ -n "$TUIHOST" ] && command -v python3 >/dev/null \
+        && perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tuidemo" \
             ../ide/tuidemo.e ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
     cat > "$TMPD/uplnc_ptyrun.py" <<'PTYEOF'
 import os, pty, sys, termios, fcntl, struct, signal, time, subprocess, select
