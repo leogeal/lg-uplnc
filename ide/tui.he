@@ -1,7 +1,7 @@
 /* tui.he: the UPLNC terminal layer -- key codes, attributes, and the
    interface of ide/tui.e. Link ide/tshim.c alongside (langdrv accepts it). */
 
-/* tuikey()/tuipoll() return a printable byte as itself; specials are >255 */
+/* tuikey() returns a printable byte as itself; specials are >255 */
 #define K_NONE 0
 #define K_BS 8
 #define K_TAB 9
@@ -30,6 +30,7 @@
 #define K_F11 276
 #define K_F12 277
 #define K_RESIZE 278
+#define K_EOF 279
 
 /* attributes: PC-style, attr = fg + bg*16 (fg 0-15, 8-15 render bold;
    bg 0-7), plus A_ACS for the DEC line-drawing charset (box glyphs are

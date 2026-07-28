@@ -20,9 +20,9 @@ func tuibox(x:int,y:int,w:int,h:int,attr:int);
 func tuiflush();
 func tuikey(ms:int);
 
-var const [23]*char:knames = {"UP","DOWN","RIGHT","LEFT","HOME","END",
+var const [24]*char:knames = {"UP","DOWN","RIGHT","LEFT","HOME","END",
   "PGUP","PGDN","INS","DEL","F1","F2","F3","F4","F5","F6","F7","F8","F9",
-  "F10","F11","F12","RESIZE"};
+  "F10","F11","F12","RESIZE","EOF"};
 
 var frame,text,hot:int;
 
@@ -90,6 +90,7 @@ func main()
   {
     k=tuikey(0-1);
     if(k==K_NONE)continue;
+    if(k==K_EOF)break;
     if((k=='q')||(k==K_F10))break;
     if(k==K_RESIZE)
     {

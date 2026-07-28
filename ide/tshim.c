@@ -72,8 +72,8 @@ intptr_t tsh_tookwinch(void)
     return w;
 }
 
-/* wait up to ms for fd to become readable: 1 readable, 0 timeout or resize
- * interruption (the caller checks tsh_tookwinch), -1 error */
+/* wait up to ms for fd to become readable or reach EOF: 1 ready, 0 timeout or
+ * resize interruption (the caller checks tsh_tookwinch), -1 descriptor/error */
 intptr_t tsh_poll(intptr_t fd, intptr_t ms)
 {
     struct pollfd p;
@@ -85,7 +85,11 @@ intptr_t tsh_poll(intptr_t fd, intptr_t ms)
         r = poll(&p, 1, (int)ms);
     } while (r < 0 && errno == EINTR && !tsh_winch);
     if (r < 0) return tsh_winch ? 0 : -1;
-    return r > 0 ? 1 : 0;
+    if (r == 0) return 0;
+    if (p.revents & POLLNVAL) return -1;
+    if (p.revents & (POLLIN | POLLHUP)) return 1;
+    if (p.revents & POLLERR) return -1;
+    return 0;
 }
 
 /* read up to n bytes; the byte count, 0 at EOF, -1 on error */
@@ -122,4 +126,9 @@ intptr_t tsh_pipe(intptr_t *fds)
     fds[0] = (intptr_t)p[0];
     fds[1] = (intptr_t)p[1];
     return 0;
+}
+
+intptr_t tsh_close(intptr_t fd)
+{
+    return close((int)fd) != 0 ? -1 : 0;
 }
