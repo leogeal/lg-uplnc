@@ -724,8 +724,27 @@ What turns a teaching compiler into something you'd build a project with:
     arrays and structs still reject cleanly; every misuse has its own
     diagnostic (pinned in `[4b]`). Golden `initarr.e` on all five backends;
     the compiler itself uses no aggregate initializers, so all five
-    fixpoints stay byte-identical. Follow-up idea: `[]` dimension inference
-    from the initializer.
+    fixpoints stay byte-identical.
+  - ✅ **`[]` dimension inference** — `var []T:a = {e1,e2,...};` and
+    `var []char:s = "text";` take the dimension *from* the initializer
+    (element count, or a string's bytes plus its NUL), in both declaration
+    forms. `gettypen` accepts `[]` only as the outermost constructor of a
+    declaration carrying an initializer (the flag is cleared on entry, so
+    every recursive element/pointee parse rejects it) and returns a
+    provisional `[1]T`; the declaration rebuilds the type through a new
+    `getarrty` (the array analogue of `getptrty`) once the elements are
+    counted. Globals just patch the symbol's type before `dumpglbs` runs.
+    Locals cannot: their frame slot is sized before the initializer is
+    seen, so an inferred local parses its element expressions into held
+    trees first, then allocates (`addlocnow`) and emits the stores in
+    source order — the parse/emit split `hier1`/`treetocode` already
+    provided. Every misuse (no initializer, several declarators, empty
+    list, nested/pointer/parameter/field/`sizeof` position) has its own
+    diagnostic, each pinned by compiling it *alone* so no other form's
+    recovery can mask it. Golden `initinfer.e` on all five backends
+    (neighbour objects stand guard, so a wrong dimension corrupts them);
+    gdb reports `int [3]` and prints exactly three elements. The compiler
+    uses no inferred dimensions, so all five fixpoints stay byte-identical.
   - ✅ **Function pointers** — a bare function name (or `&f`) is now a value:
     its address, loaded like a global's (`CD_LDA`). Any expression can be
     *called*: variables, parameters (callbacks — `apply(f,x){return f(x);}`),

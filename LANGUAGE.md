@@ -195,7 +195,8 @@ Pointers and arrays use prefix type syntax:
 ```ebnf
 type = base-type
      | "*" type
-     | "[" constant-expression "]" type ;
+     | "[" constant-expression "]" type
+     | "[" "]" type ;
 ```
 
 Examples:
@@ -208,9 +209,14 @@ Examples:
 *[4]int     pointer to an array of four int
 ```
 
-An array dimension must be a positive integer constant expression. Arrays are
-stored contiguously with no padding between elements. There are no
-parenthesized declarators or typed function pointers.
+An array dimension must be a positive integer constant expression, or `[]` in
+a variable declaration that has an initializer, where the initializer's
+element count (or a string's bytes including its NUL) becomes the dimension —
+see section 6.1. `[]` is valid only as the outermost constructor of such a
+declaration: it is rejected in a parameter, a structure field, a `sizeof`, and
+under another `[N]` or `*`. Arrays are stored contiguously with no padding
+between elements. There are no parenthesized declarators or typed function
+pointers.
 
 ### 4.3 Structure layout
 
@@ -296,7 +302,11 @@ declaration cannot have an initializer.
 A one-dimensional array takes a brace-enclosed element list (a trailing comma
 is permitted), or, when its element type is `char` or `unsigned char`, a
 string literal, which stores the bytes and the terminating NUL — the array
-must be large enough for them. A brace list may not exceed the array
+must be large enough for them. Written `[]`, the dimension is instead taken
+*from* the initializer: the number of listed elements, or a string's bytes
+including its NUL. An empty list infers nothing and is rejected, `[]` requires
+an initializer, and because an initializer attaches only to the last
+declarator, `[]` requires a single one. A brace list may not exceed the array
 dimension. Element rules follow the scalar rules per element; a `*char`
 element also accepts a string literal. Initialized global arrays are laid
 down statically, and elements beyond the list are zero. A *local* array
