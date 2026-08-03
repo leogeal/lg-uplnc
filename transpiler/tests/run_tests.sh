@@ -123,6 +123,27 @@ else
     bad "driver compiles and links multiple UPLNC sources"
 fi
 
+printf '#include <stdint.h>\nintptr_t canswer(void){return 42;}\n' \
+    > "$DRVSPACE/helper unit.C"
+printf 'func canswer();\nfunc main(){return canswer();}\n' \
+    > "$DRVSPACE/c caller.e"
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -o "c caller" \
+        "c caller.e" "helper unit.C" >driver_C.out 2>driver_C.err) \
+        && "$DRVSPACE/c caller"; [ $? = 42 ]; then
+    ok "driver compiles accepted uppercase .C inputs as C"
+else
+    bad "driver uppercase .C language selection"
+fi
+if (cd "$DRVSPACE" && perl "$DRIVER" "-march=$DRVARCH" -c -o "helper unit.o" \
+        "helper unit.C" >driver_Cc.out 2>driver_Cc.err \
+        && perl "$DRIVER" "-march=$DRVARCH" -o "c object caller" \
+            "c caller.e" "helper unit.o" >driver_Co.out 2>driver_Co.err) \
+        && "$DRVSPACE/c object caller"; [ $? = 42 ]; then
+    ok "driver -c compiles accepted uppercase .C inputs as C"
+else
+    bad "driver -c uppercase .C language selection"
+fi
+
 printf 'func main(){return (1 + ;}\n' > "$DRVSPACE/bad.e"
 printf 'preserve-existing-output\n' > "$DRVSPACE/bad.s"
 if perl "$DRIVER" "-march=$DRVARCH" -S -o "$DRVSPACE/bad.s" "$DRVSPACE/bad.e" \
@@ -429,6 +450,7 @@ EMPTYINIT
     # compile it (langc is a cross compiler) and must emit no diagnostics
     case "$(uname -m)" in
         x86_64) poolarch=x86_64;;
+        i?86) poolarch=i386;;
         aarch64) poolarch=arm64;;
         riscv64) poolarch=riscv64;;
         mips64) poolarch=mips64;;
@@ -2232,12 +2254,13 @@ fi
 
 echo "[14] IDE platform slice: shim ABI, PTY terminal control, key decoding"
 # ide/tshim.c owns every C struct and returns intptr_t everywhere; shimtest.e
-# proves the pipe round-trip through full-width descriptor slots and that a
-# failing C call's -1 arrives sign-extended (the cint hazard class, owned by
-# the shim forever). The native run uses the HOST arch (this suite also runs
-# on a native arm64 runner); a cross target needs both a toolchain and qemu.
+# proves the pipe round-trip through full-width descriptor slots, poll's
+# hangup/error distinction, and that a failing C call's -1 arrives
+# sign-extended (the cint hazard class, owned by the shim forever). The native
+# run uses the HOST arch; a cross target needs both a toolchain and qemu.
 case "$(uname -m)" in
     x86_64) TUIHOST=x86_64;;
+    i?86) TUIHOST=i386;;
     aarch64) TUIHOST=arm64;;
     riscv64) TUIHOST=riscv64;;
     mips64) TUIHOST=mips64;;
@@ -2248,7 +2271,7 @@ if [ -z "$TUIHOST" ]; then
 elif perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_shimtest" \
         ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1 \
         && "$TMPD/uplnc_shimtest"; [ $? = 42 ]; then
-    ok "shim ABI: pipe round-trip + sign-extended failure ($TUIHOST native)"
+    ok "shim ABI: pipe/poll round-trip + sign-extended failure ($TUIHOST native)"
 else
     bad "shim ABI $TUIHOST native"
 fi
@@ -2256,7 +2279,7 @@ if [ "$TUIHOST" = x86_64 ]; then
     if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_shimtest32" \
             ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
         "$TMPD/uplnc_shimtest32"
-        [ $? = 42 ] && ok "shim ABI: i386" || bad "shim ABI i386"
+        [ $? = 42 ] && ok "shim ABI: pipe/poll i386" || bad "shim ABI i386"
     else
         echo "  skip - no i386 C toolchain with 32-bit system headers"
     fi
@@ -2274,11 +2297,24 @@ for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
     if perl "$DRIVER" "-march=$xarch" -o "$TMPD/uplnc_shimtest_$xarch" \
             ../ide/shimtest.e ../ide/tshim.c >/dev/null 2>&1; then
         $xrun "$TMPD/uplnc_shimtest_$xarch"
-        [ $? = 42 ] && ok "shim ABI: $xarch (qemu)" || bad "shim ABI $xarch"
+        [ $? = 42 ] && ok "shim ABI: pipe/poll $xarch (qemu)" || bad "shim ABI $xarch"
     else
         bad "shim build $xarch"
     fi
 done
+printf '#define K_EOF 279\nfunc tuikey(ms:int);\n' \
+    > "$TMPD/uplnc_tui_eof.e"
+printf 'func main(){if(tuikey(0)==K_EOF)return 42;return 1;}\n' \
+    >> "$TMPD/uplnc_tui_eof.e"
+if [ -z "$TUIHOST" ]; then
+    echo "  skip - no native target for tui EOF test"
+elif perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tui_eof" \
+        "$TMPD/uplnc_tui_eof.e" ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1 \
+        && "$TMPD/uplnc_tui_eof" </dev/null; [ $? = 42 ]; then
+        ok "tui reports closed input as K_EOF"
+else
+    bad "tui EOF event"
+fi
 # The terminal layer, PTY-hosted on the native target: exact termios restore,
 # a pinned byte transcript at 24x80 (the stream is target-independent, so the
 # same golden pins the arm64 host too), decoded-key echoes, and resize
@@ -2345,6 +2381,37 @@ PTYEOF
     [ "$tui_keys_ok" = 1 ] \
         && ok "tui decodes CSI, CSI~, SS3, and a lone ESC" \
         || bad "tui key decoding"
+    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 \
+        w:1b5b31353b327e w:71 > "$TMPD/uplnc_tui_mod.bin" 2>/dev/null
+    if grep -Fqa 'F5' "$TMPD/uplnc_tui_mod.bin" \
+            && ! grep -Fqa 'INS' "$TMPD/uplnc_tui_mod.bin"; then
+        ok "tui preserves the primary key in modified CSI sequences"
+    else
+        bad "tui modified CSI key decoding"
+    fi
+    {
+        printf 'func tuiinit();\nfunc tuidone();\n'
+        printf 'func tuitext(x:int,y:int,s:*char,attr:int);\nfunc tuiflush();\n'
+        printf 'func main()\n{\n  var [12]char:s;\n  if(tuiinit())return 2;\n'
+        printf '  s[0]=27;s[1]=91;s[2]=51;s[3]=49;s[4]=109;s[5]=88;\n'
+        printf '  s[6]=155;s[7]=51;s[8]=49;s[9]=109;s[10]=89;s[11]=0;\n'
+        printf '  tuitext(1,1,s,7);tuiflush();tuidone();return 0;\n}\n'
+    } > "$TMPD/uplnc_tui_cells.e"
+    if perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tui_cells" \
+            "$TMPD/uplnc_tui_cells.e" ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
+        python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tui_cells" 24x80 \
+            > "$TMPD/uplnc_tui_cells.bin" 2> "$TMPD/uplnc_tui_cells.err"
+        if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_tui_cells.err" \
+                && grep -Fqa '?[31mX?31mY' "$TMPD/uplnc_tui_cells.bin" \
+                && ! grep -Fqa $'\x1b[31mX' "$TMPD/uplnc_tui_cells.bin" \
+                && ! grep -Fqa $'\x9b' "$TMPD/uplnc_tui_cells.bin"; then
+            ok "tui renders control cells without terminal-sequence injection"
+        else
+            bad "tui control-cell sanitization"
+        fi
+    else
+        bad "tui control-cell test build"
+    fi
     python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 z:30x100 p w:71 \
         > "$TMPD/uplnc_tui_r.bin" 2>/dev/null
     if grep -qa 'size 100x30' "$TMPD/uplnc_tui_r.bin" \

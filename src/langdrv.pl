@@ -39,7 +39,7 @@ Options:
   -march=ARCH    Target: i386, x86_64, arm64, riscv64, or mips64
   -o FILE        Write the output to FILE (default when linking: a.out)
   -S             Compile .e sources to assembly without assembling
-  -c             Compile .e/.s inputs to object files without linking
+  -c             Compile .e/.c/.s inputs to object files without linking
   -g             Emit source line info (.file/.loc) so gdb can map addresses
   -v, --verbose  Print commands as they are executed
   --lpp FILE     Use FILE as the preprocessor
@@ -333,6 +333,7 @@ if ($compile_only) {
             compile_source($ARGV[$i], $assembly);
         }
         my @unit_flags = $input_kind[$i] eq 'csource' ? @c_flags : @assemble_flags;
+        push @unit_flags, ('-x', 'c') if $input_kind[$i] eq 'csource';
         my $temporary = staged_output($object);
         my $rc = run_command(undef, undef, $cc, @unit_flags,
                              '-c', $assembly, '-o', $temporary);
@@ -351,7 +352,7 @@ for my $i (0 .. $#ARGV) {
     } elsif ($input_kind[$i] eq 'csource') {
         my $object = File::Spec->catfile($tmpdir, 'cunit-' . $sequence++ . '.o');
         my $rc = run_command(undef, undef, $cc, @c_flags,
-                             '-c', $ARGV[$i], '-o', $object);
+                             '-x', 'c', '-c', $ARGV[$i], '-o', $object);
         fail("compiling C unit '$ARGV[$i]' failed (exit $rc)") if $rc != 0;
         push @link_inputs, $object;
     } else {

@@ -4,12 +4,12 @@
    ide/tshim.c; tuidone() restores the terminal exactly as tuiinit found it
    (alternate screen + cursor + termios), which the PTY tests pin.
 
-   The screen is a grid of cells, one int each: the byte in bits 0-7 and the
-   attribute above it (fg 0-15, bg 0-7, A_ACS selects the DEC line-drawing
-   charset for single-byte box glyphs). Draw calls touch only the back grid;
-   tuiflush() emits the difference against the front grid as one write --
-   cursor moves, SGR changes, and charset shifts are coalesced, so the byte
-   stream is deterministic and cheap. */
+   The screen is a grid of cells, one int each: a printable byte in bits 0-7
+   and the attribute above it (fg 0-15, bg 0-7, A_ACS selects the DEC
+   line-drawing charset for single-byte box glyphs). Draw calls touch only the
+   back grid; tuiflush() emits the difference against the front grid as one
+   write -- cursor moves, SGR changes, and charset shifts are coalesced, so the
+   byte stream is deterministic and cheap. */
 
 #include "tui.he"
 
@@ -166,7 +166,11 @@ func tuiresize()
 func tuiput(x:int,y:int,c:int,attr:int)
 {
   if((x<0)||(y<0)||(x>=tui_w)||(y>=tui_h))return 0;
-  tui_back[y*tui_w+x]=(c&255)+256*attr;
+  c=c&255;
+  /* Cells are display glyphs, never terminal protocol. In particular, source
+     text containing ESC/C1 bytes must not be able to inject CSI or OSC. */
+  if((c<32)||((c>=127)&&(c<160)))c='?';
+  tui_back[y*tui_w+x]=c+256*attr;
   return 0;
 }
 
@@ -262,12 +266,16 @@ func tuiflush()
   return 0;
 }
 
-/* one byte from stdin, or -1 on timeout/EOF within ms */
+/* one byte from stdin, -1 on timeout, or -2 on EOF/error */
 func kbyte(ms:int)
 {
   var [4]char:b;
-  if(tsh_poll(0,ms)!=1)return 0-1;
-  if(tsh_read(0,b,1)!=1)return 0-1;
+  var r:int;
+  r=tsh_poll(0,ms);
+  if(r<0)return 0-2;
+  if(r!=1)return 0-1;
+  r=tsh_read(0,b,1);
+  if(r<1)return 0-2;
   if(b[0]<0)return b[0]+256;
   return b[0];
 }
@@ -275,16 +283,24 @@ func kbyte(ms:int)
 /* decode a CSI sequence after ESC [ was read: arrows, nav keys, Fn via ~ */
 func kcsi()
 {
-  var c,n:int;
-  n=0;
+  var c,n,keyn,hasmod:int;
+  n=keyn=hasmod=0;
   while(1)
   {
     c=kbyte(25);
+    if(c==0-2)return K_EOF;
     if(c<0)return K_NONE;
     if((c>='0')&&(c<='9')){n=n*10+c-'0';continue;}
-    if(c==';'){n=0;continue;}   /* modifiers are ignored in this slice */
+    if(c==';')
+    {
+      if(!hasmod)keyn=n;
+      hasmod=1;
+      n=0;
+      continue;                 /* modifiers are ignored in this slice */
+    }
     break;
   }
+  if(!hasmod)keyn=n;
   if(c=='A')return K_UP;
   if(c=='B')return K_DOWN;
   if(c=='C')return K_RIGHT;
@@ -293,36 +309,37 @@ func kcsi()
   if(c=='F')return K_END;
   if(c=='~')
   {
-    if(n==1)return K_HOME;
-    if(n==2)return K_INS;
-    if(n==3)return K_DEL;
-    if(n==4)return K_END;
-    if(n==5)return K_PGUP;
-    if(n==6)return K_PGDN;
-    if(n==11)return K_F1;
-    if(n==12)return K_F2;
-    if(n==13)return K_F3;
-    if(n==14)return K_F4;
-    if(n==15)return K_F5;
-    if(n==17)return K_F6;
-    if(n==18)return K_F7;
-    if(n==19)return K_F8;
-    if(n==20)return K_F9;
-    if(n==21)return K_F10;
-    if(n==23)return K_F11;
-    if(n==24)return K_F12;
+    if(keyn==1)return K_HOME;
+    if(keyn==2)return K_INS;
+    if(keyn==3)return K_DEL;
+    if(keyn==4)return K_END;
+    if(keyn==5)return K_PGUP;
+    if(keyn==6)return K_PGDN;
+    if(keyn==11)return K_F1;
+    if(keyn==12)return K_F2;
+    if(keyn==13)return K_F3;
+    if(keyn==14)return K_F4;
+    if(keyn==15)return K_F5;
+    if(keyn==17)return K_F6;
+    if(keyn==18)return K_F7;
+    if(keyn==19)return K_F8;
+    if(keyn==20)return K_F9;
+    if(keyn==21)return K_F10;
+    if(keyn==23)return K_F11;
+    if(keyn==24)return K_F12;
   }
   return K_NONE;
 }
 
 /* wait up to ms for one key event; K_NONE on timeout, K_RESIZE after a
-   SIGWINCH (the caller runs tuiresize and repaints) */
+   SIGWINCH (the caller runs tuiresize and repaints), K_EOF on EOF/error */
 func tuikey(ms:int)
 {
   var c:int;
   if(tsh_tookwinch())return K_RESIZE;
   c=kbyte(ms);
   if(tsh_tookwinch())return K_RESIZE;
+  if(c==0-2)return K_EOF;
   if(c<0)return K_NONE;
   if(c==127)return K_BS;
   if(c!=27)return c;
@@ -332,6 +349,7 @@ func tuikey(ms:int)
   if(c=='O')
   {
     c=kbyte(25);
+    if(c==0-2)return K_EOF;
     if(c=='P')return K_F1;
     if(c=='Q')return K_F2;
     if(c=='R')return K_F3;
