@@ -298,6 +298,55 @@ BADEOF
         bad "array initializer diagnostics"
     fi
 
+    # `[]` inference: every misuse is diagnosed with its own message and
+    # without a crash. `[]` is legal only as the outermost constructor of a
+    # declaration that carries an initializer. Each case is compiled on its
+    # own, so one form's error recovery cannot mask another's diagnostic.
+    infer_bad_ok=1
+    while IFS='|' read -r label want src; do
+        [ -z "$label" ] && continue
+        printf '%b\n' "$src" > "$TMPD/uplnc_bad_infer.e"
+        if "$LPP" "$TMPD/uplnc_bad_infer.e" 2>/dev/null \
+                | "$LANGC" -march=x86_64 > /dev/null 2>"$TMPD/uplnc_bad_infer.err"; then
+            echo "         $label: compiled without an error"
+            infer_bad_ok=0
+        elif ! grep -q "$want" "$TMPD/uplnc_bad_infer.err"; then
+            echo "         $label: wanted '$want', got $(grep -o 'Error:.*' "$TMPD/uplnc_bad_infer.err" | head -1)"
+            infer_bad_ok=0
+        fi
+    done <<'INFEREOF'
+global no initializer|needs an initializer to infer|var []int:a;\nfunc main(){return 0;}
+local no initializer|needs an initializer to infer|func main(){var []int:a;return 0;}
+several declarators|needs a single declarator|var []int:a,b = {1,2};\nfunc main(){return 0;}
+nested array|allowed only on a declaration|var [2][]int:a = {1};\nfunc main(){return 0;}
+pointer to inferred|allowed only on a declaration|var *[]int:a = {1};\nfunc main(){return 0;}
+struct field|allowed only on a declaration|struct s{[]int x;};\nfunc main(){return 0;}
+parameter|allowed only on a declaration|func f(a:[]int){return 0;}\nfunc main(){return 0;}
+sizeof|allowed only on a declaration|func main(){return sizeof([]int);}
+global empty list|an empty initializer list|var []int:a = {};\nfunc main(){return 0;}
+local empty list|an empty initializer list|func main(){var []int:a = {};return 0;}
+scalar initializer|needs { } or a string literal|var []int:a = 5;\nfunc main(){return 0;}
+INFEREOF
+    [ "$infer_bad_ok" = 1 ] \
+        && ok "[] inference misuse is diagnosed per form" \
+        || bad "[] inference diagnostics"
+
+    # the inferred dimension is the real one: exactly the listed elements, no
+    # zero-filled tail, and a string takes its bytes plus the NUL
+    printf 'var []int:t3 = {7,8,9};\nvar []char:s3 = "ab";\nfunc main(){return 0;}\n' \
+        > "$TMPD/uplnc_infer_lay.e"
+    "$LPP" "$TMPD/uplnc_infer_lay.e" 2>/dev/null \
+        | "$LANGC" -march=x86_64 > "$TMPD/uplnc_infer_lay.s" 2>/dev/null
+    if [ "$(awk '/^t3:/{f=1;next} /^s3:/{f=0} f&&/\.quad/{n++} END{print n+0}' \
+                "$TMPD/uplnc_infer_lay.s")" = 3 ] \
+            && [ "$(awk '/^s3:/{f=1;next} /\.text/{f=0} f&&/\.byte/{n++} END{print n+0}' \
+                "$TMPD/uplnc_infer_lay.s")" = 3 ] \
+            && ! grep -q '\.zero' "$TMPD/uplnc_infer_lay.s"; then
+        ok "[] lays down exactly the initializer's elements"
+    else
+        bad "[] inferred global layout"
+    fi
+
     # layout: a const *char table lands in .rodata with pool addresses, a
     # mutable global array in .data with a zero-filled tail
     printf 'var const [2]*char:tt = {"a","b"};\nvar [4]int:zz = {7};\nfunc main(){return 0;}\n' \

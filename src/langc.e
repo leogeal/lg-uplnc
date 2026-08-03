@@ -233,6 +233,10 @@ var g_cu:int;         /* -g: CU header + abbrev table already emitted */
 var dbgloclst:*sdbgloc; /* -g: block locals harvested at scope exit (per fn) */
 var ndbgloc,adbgloc:int;
 var g_promid:int;    /* unique identity for each promotable local in a function */
+var g_infok:int;     /* a `[]` dimension may be inferred in this declaration */
+var g_infarr:int;    /* ... and gettypen consumed one (outermost constructor) */
+var itreelst:**enode; /* `[]` local init: element trees held until the slot exists */
+var nitree,aitree:int;
 var g_vaoff:int;      /* varargs: frame offset of this function's va area (0 = not variadic) */
 var g_stmtexp:int;    /* set by statemen for a bare expression statement (no-effect warning) */
 var g_stmtclosed:int; /* the current statement consumed its ; or closing } */
@@ -501,6 +505,7 @@ func main(argc:int,argv:**char)
   freesyms();
   if(gainit)free(gainit);
   if(litq)free(litq);
+  if(itreelst)free(itreelst);
   /*fprintf(stderr,"(%d)(%d)%s%s",pp,pp2,pp,pp2);*/
   donedyn();
   if(errcnt)return 1;
@@ -1015,7 +1020,7 @@ func delsymlist(p:*ssymlist)
 }
 func dovar()
 {
-  var int:typ,istyp,wdfd,wcnst,hasinit;
+  var int:typ,istyp,wdfd,wcnst,hasinit,infarr;
   var *ssymlist:lst,lptr;
   var **ssymlist:lpom;
   var *ssym:idx;
@@ -1024,6 +1029,7 @@ func dovar()
   lst=lptr=0;
   lpom=&lst;
   wdfd=1;wcnst=0;hasinit=0;idx=0;   /* idx stays 0 if no name parsed (malformed) */
+  g_infok=1;g_infarr=0;   /* a file-scope declaration may infer a [] dimension */
   while(1)
   {
     if(amatch("extern",6))wdfd=0;
@@ -1111,13 +1117,24 @@ func dovar()
     if(wcnst)idx->cnst=1;   /* M6 const */
     if(wdfd)++nvars;
   }
+  /* the inferred dimension belongs to this declaration only: read and clear it
+     before any nested parse (an initializer expression can call gettypen via
+     sizeof) can see a stale flag */
+  infarr=g_infarr;g_infok=0;g_infarr=0;
+  if(infarr)
+  {
+    if(!hasinit)error("[] needs an initializer to infer its dimension");
+    /* the initializer only attaches to the last declarator, so the others
+       would silently keep the provisional [1] */
+    if(lst&&lst->next)error("an inferred [] dimension needs a single declarator");
+  }
   if(hasinit)
   {
     /* var TYPE:name = constexpr;  -- a *static* initializer: the value is laid
        down in .data (.rodata if const) by dumpglbs, no code runs. idx is the
        (single/last) declared variable, like the local-initializer rule. */
     if(!wdfd)error("an extern declaration cannot have an initializer");
-    else doginit(idx,typ);
+    else doginit(idx,typ,infarr);
     blanks();
     if(ch()==',')
     {
@@ -1204,7 +1221,7 @@ func gichk(typ:int)
   {error("initializer does not fit a char");return 0;}
   return 1;
 }
-func doginit(idx:*ssym,typ:int)
+func doginit(idx:*ssym,typ:int,inf:int)
 {
   var int:elem,dim,count,start,slen;
   var [4]int:sval;
@@ -1219,9 +1236,14 @@ func doginit(idx:*ssym,typ:int)
       {error("a string initializes a char array");junk();return;}
       if(!qstr(sval))return;
       slen=strlen1(litq+sval[0])+1;   /* bytes including the NUL */
+      if(inf)dim=slen;                /* var []char:s = "text"; */
       if(slen>dim)
       {error("string initializer does not fit the array");return;}
-      if(idx){idx->ginit=GI_STR;idx->offset=sval[0];}
+      if(idx)
+      {
+        idx->ginit=GI_STR;idx->offset=sval[0];
+        if(inf)idx->type=getarrty(elem,slen);
+      }
       return;
     }
     if(!match("{"))
@@ -1236,7 +1258,7 @@ func doginit(idx:*ssym,typ:int)
       if(!giconst())
       {error("a global initializer must be a constant expression");junk();return;}
       if(!gichk(elem)){junk();return;}
-      if(count>=dim)
+      if((!inf)&&(count>=dim))
       {error("too many initializer elements for the array");junk();return;}
       gaiadd(gickind);gaiadd(gicval);
       count++;
@@ -1247,7 +1269,11 @@ func doginit(idx:*ssym,typ:int)
       if(match("}"))break;   /* allow a trailing comma */
     }
     gainit[start]=count;    /* remaining elements are zero-filled at emission */
-    if(idx){idx->ginit=GI_ARR;idx->offset=start;}
+    if(idx)
+    {
+      idx->ginit=GI_ARR;idx->offset=start;
+      if(inf)idx->type=getarrty(elem,count);   /* var []T:a = {...}; */
+    }
     return;
   }
   if(typtab[typ].sort==V_STR)
@@ -2410,11 +2436,40 @@ func modstk(newsp:int)
     return newsp;
   }
 }
+/* `[]` local init: hold one element's parsed tree until the count (and so the
+   frame slot) is known. A declaration cannot nest inside an initializer, so a
+   single buffer is enough. */
+func itreeadd(p:*enode)
+{
+  if(nitree>=aitree)
+  {
+    aitree=aitree+64;
+    chkmem(itreelst=realloc(itreelst,aitree*sizeof(*enode)));
+  }
+  itreelst[nitree++]=p;
+  return 0;
+}
+/* Create a local whose type became final only after its initializer was read
+   (`[]` inference), allocating its frame slot the way the declarator loop in
+   dolocvar does. Arrays are never promotion candidates, so no promid here. */
+func addlocnow(nm:*char,t:int,iscnst:int)
+{
+  var *ssym:idx;
+  var int:k;
+  k=gettsize(t);k=roundup(k);k=slotup(k);
+  idx=addloc(nm,S_VARL,1,Zsp-k,t);
+  idx->line=cline;
+  strcp(idx->wfile,cfile);
+  if(iscnst)idx->cnst=1;
+  Zsp=modstk(Zsp-k);
+  return idx;
+}
 func dolocvar()
 {
   var [NAMESIZE]char:sname;
   var int:typ,istyp,wcnst,hasinit,irt;
   var int:ielem,iesz,icnt,islen;   /* array-initializer element bookkeeping */
+  var int:infarr;                  /* this declaration infers its [] dimension */
   var [4]int:isval;                /* string-literal pool offset from qstr */
   var *ssym:idx;
   var int:k;
@@ -2426,6 +2481,7 @@ func dolocvar()
   lpom=&lst;
   istyp=0;
   wcnst=0;hasinit=0;idx=0;
+  g_infok=1;g_infarr=0;   /* a local declaration may infer a [] dimension too */
   while(amatch("const",5))wcnst=1;   /* M6: var const TYPE:name (local) */
   if(cbtype())
   {
@@ -2484,6 +2540,19 @@ func dolocvar()
     outdec(k);
     nl();
   }
+  /* read and clear before any nested parse (a sizeof in the initializer calls
+     gettypen) can see a stale flag */
+  infarr=g_infarr;g_infok=0;g_infarr=0;
+  if(infarr)
+  {
+    /* The frame slot cannot be sized until the initializer has been counted,
+       so the symbol is created below, once the type is final. */
+    if(!hasinit)error("[] needs an initializer to infer its dimension");
+    if(lst&&lst->next)error("an inferred [] dimension needs a single declarator");
+    if(lst&&findloc(lst->sym.name))error("local multidef");
+    idx=0;
+  }
+  else
   for(lptr=lst;lptr;lptr=lptr->next)
   {
     idx=findloc(lptr->sym.name);
@@ -2544,6 +2613,13 @@ func dolocvar()
         else if(qstr(isval))
         {
           islen=strlen1(litq+isval[0])+1;   /* bytes including the NUL */
+          /* var []char:s = "text";  -- the string's length is the dimension,
+             so the slot can only be allocated now */
+          if(infarr&&lst)
+          {
+            typ=getarrty(ielem,islen);
+            idx=addlocnow(lst->sym.name,typ,wcnst);
+          }
           if(islen>typtab[typ].dim)
           error("string initializer does not fit the array");
           else if(idx)
@@ -2571,30 +2647,40 @@ func dolocvar()
         if(match("}"))error("an empty initializer list");
         else
         {
-          icnt=0;
+          icnt=0;nitree=0;
           while(1)
           {
             inode=hier1();
             foldtree(inode);
-            if(icnt>=typtab[typ].dim)
+            if(infarr)
             {
-              error("too many initializer elements for the array");
+              /* the slot does not exist yet: hold the tree and emit its store
+                 below, once the element count has fixed the type */
+              itreeadd(inode);
+              icnt++;
+            }
+            else
+            {
+              if(icnt>=typtab[typ].dim)
+              {
+                error("too many initializer elements for the array");
+                delenode(inode);
+                junk();
+                break;
+              }
+              if(idx&&inode)
+              {
+                prestemps(inode);
+                if(treetocode(inode,&ilv))rvalue(&ilv);
+                irt=ilv.typ;
+                convto(ielem,irt);
+                ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
+                strcp(ilv.name,idx->name);
+                store(&ilv);
+              }
               delenode(inode);
-              junk();
-              break;
+              icnt++;
             }
-            if(idx&&inode)
-            {
-              prestemps(inode);
-              if(treetocode(inode,&ilv))rvalue(&ilv);
-              irt=ilv.typ;
-              convto(ielem,irt);
-              ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
-              strcp(ilv.name,idx->name);
-              store(&ilv);
-            }
-            delenode(inode);
-            icnt++;
             if(match("}"))break;
             if(!match(","))
             {
@@ -2604,6 +2690,32 @@ func dolocvar()
             }
             blanks();
             if(match("}"))break;   /* allow a trailing comma */
+          }
+          if(infarr)
+          {
+            /* the count is final: build the type, allocate the slot, then emit
+               the held elements in source order */
+            if(lst&&nitree)
+            {
+              typ=getarrty(ielem,nitree);
+              idx=addlocnow(lst->sym.name,typ,wcnst);
+            }
+            for(icnt=0;icnt<nitree;icnt++)
+            {
+              inode=itreelst[icnt];
+              if(idx&&inode)
+              {
+                prestemps(inode);
+                if(treetocode(inode,&ilv))rvalue(&ilv);
+                irt=ilv.typ;
+                convto(ielem,irt);
+                ilv.sort=L_ID;ilv.idx=idx;ilv.offset=icnt*iesz;ilv.typ=ielem;
+                strcp(ilv.name,idx->name);
+                store(&ilv);
+              }
+              delenode(inode);
+            }
+            nitree=0;
           }
         }
       }
@@ -6462,6 +6574,33 @@ func typget()
   return typptr++;
 }
 /*returns pointer to a type */
+/* the array type [dim]t, reusing an existing entry (mirrors getptrty). Used
+   by gettypen and by the `[]` inference, which rebuilds the type once the
+   initializer has been counted. */
+func getarrty(t:int,dim:int)
+{
+  var int:k;
+  if(t>=typptr){
+    error("unknown type");
+    return T_INT;
+  }
+  k=1;
+  while(k<typptr){
+    if((typtab[k].sort==V_ARR)&&(typtab[k].type==t)
+    &&(typtab[k].dim==dim))return k;
+    k++;
+  }
+  if(typptr>=numtyp){
+    numtyp=numtyp+NUMTYP;
+    chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
+  }
+  typtab[typptr].name[0]=0;
+  typtab[typptr].sort=V_ARR;
+  typtab[typptr].type=t;
+  typtab[typptr].size=gettsize(t)*dim;
+  typtab[typptr].dim=dim;
+  return typptr++;
+}
 func getptrty(t:int)
 {
   var int:k;
@@ -6512,8 +6651,14 @@ func gettypen()
   var int:l;
   var int:t;
   var int:c;
+  var int:infok;
   var [1]int:dim;
   trc("gettypename");
+  /* `[]` is legal only as the OUTERMOST constructor of a declaration that has
+     an initializer: clearing the flag here means every recursive element/
+     pointee parse (`[2][]int`, `*[]int`) rejects it. */
+  infok=g_infok;
+  g_infok=0;
   if(amatch("char",4))return T_CHAR;
   if(amatch("int",3))return T_INT;
   if(amatch("unsigned",8))
@@ -6583,6 +6728,16 @@ func gettypen()
     return typptr++;
   }
   if(match("[")){
+    /* `[]`: the dimension comes from the initializer. The declaration parsers
+       rebuild the type once they have counted the elements; the provisional
+       [1] here keeps every downstream user well-formed even if the rest of
+       the declaration turns out to be malformed. */
+    if(match("]")){
+      if(!infok)error("[] is allowed only on a declaration with an initializer");
+      else g_infarr=1;
+      if(!(t=gettypen()))return 0;
+      return getarrty(t,1);
+    }
     /* a constant integer expression (literal, enum constant, or arithmetic on
      them), not just a bare number -- so [N]int with an enum N works, and a bad
      dimension errors cleanly instead of looping. */
@@ -6590,23 +6745,7 @@ func gettypen()
     if(dim[0]<1)dim[0]=1;
     needbrac("]");
     if(!(t=gettypen()))return 0;
-    k=1;
-    while(k<typptr){
-      if((typtab[k].sort==V_ARR)&&(typtab[k].type==t)
-      &&(typtab[k].dim==dim[0]))return k;
-      k++;
-    }
-    if(typptr>=numtyp){
-      /*fprintf(stderr,"reallocating types\n");*/
-      numtyp=numtyp+NUMTYP;
-      chkmem(typtab=realloc(typtab,sizeof(styp)*numtyp));
-    }
-    typtab[typptr].name[0]=0;
-    typtab[typptr].sort=V_ARR;
-    typtab[typptr].type=t;
-    typtab[typptr].size=gettsize(t)*dim[0];
-    typtab[typptr].dim=dim[0];
-    return typptr++;
+    return getarrty(t,dim[0]);
   }
   error("type expected");
   return T_INT;
