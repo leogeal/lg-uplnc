@@ -12,6 +12,8 @@ var int:guard2 = 222;
 var []double:gd = {1.5,-2.5};
 var []long long:gll = {123456789012345,-7};
 var gnf:[]int = {BASE,BASE+2};
+var [1]int:shadow = {100};   /* a local of this name must win inside its own
+                                initializer; see the block scope in main */
 func strlen0(s:*char)
 {
   var int:n;
@@ -48,6 +50,14 @@ func main()
     inner[1]=inner[0]+inner[1];
     if((inner[1]==11)&&(iguard==9))r=r+1;
   }
-  if(r==9)return 42;
+  /* An inferred local is in scope inside its own initializer, so the
+     self-reference below reads the element just stored (7+1), not the global
+     of the same name (which would give 101). */
+  if(1)
+  {
+    var []int:shadow = {7,shadow[0]+1};
+    if((shadow[0]==7)&&(shadow[1]==8))r=r+1;
+  }
+  if(r==10)return 42;
   return r;
 }

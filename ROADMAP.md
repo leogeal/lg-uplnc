@@ -745,6 +745,18 @@ What turns a teaching compiler into something you'd build a project with:
     (neighbour objects stand guard, so a wrong dimension corrupts them);
     gdb reports `int [3]` and prints exactly three elements. The compiler
     uses no inferred dimensions, so all five fixpoints stay byte-identical.
+    Follow-up (review): the provisional type must never escape into a
+    *decision*. Three places did. A prior declaration was compared against
+    the provisional `[1]` (accepting `extern [1]int` + `{1,2,3}`, rejecting
+    the matching `extern [3]int`), so the comparison now happens after the
+    dimension is known; and the inferred local was created only after its
+    initializer, leaving it out of scope inside it (a self-reference bound
+    an outer name of the same spelling, diverging from the fixed-size form)
+    and dating its diagnostics at the initializer's closing line. The symbol
+    is now created *before* the initializer with the provisional type and a
+    placeholder offset — parsing emits no code, so `fixlocslot` can give it
+    the real type and offset before the first store — which restores the
+    declaration-scope rule and the declaration line together.
   - ✅ **Function pointers** — a bare function name (or `&f`) is now a value:
     its address, loaded like a global's (`CD_LDA`). Any expression can be
     *called*: variables, parameters (callbacks — `apply(f,x){return f(x);}`),

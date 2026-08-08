@@ -1020,7 +1020,7 @@ func delsymlist(p:*ssymlist)
 }
 func dovar()
 {
-  var int:typ,istyp,wdfd,wcnst,hasinit,infarr;
+  var int:typ,istyp,wdfd,wcnst,hasinit,infarr,priortyp;
   var *ssymlist:lst,lptr;
   var **ssymlist:lpom;
   var *ssym:idx;
@@ -1092,6 +1092,11 @@ func dovar()
     if(match("="))hasinit=1;  /* var name:TYPE = constexpr; (init block ends with ns) */
     else ns();
   }
+  /* the inferred dimension belongs to this declaration only: read and clear it
+     before any nested parse (an initializer expression can call gettypen via
+     sizeof) can see a stale flag */
+  infarr=g_infarr;g_infok=0;g_infarr=0;
+  priortyp=0;
   for(lptr=lst;lptr;lptr=lptr->next)
   {
     idx=findglb(lptr->sym.name);
@@ -1107,6 +1112,9 @@ func dovar()
         error("multidef global var, was defined");
         break;
       }
+      /* an inferred type is still the provisional [1] here: remember what the
+         earlier declaration said and compare once the dimension is known */
+      else if(infarr)priortyp=idx->type;
       else if(typ!=idx->type)
       {
         error("conflicting types!");
@@ -1117,10 +1125,6 @@ func dovar()
     if(wcnst)idx->cnst=1;   /* M6 const */
     if(wdfd)++nvars;
   }
-  /* the inferred dimension belongs to this declaration only: read and clear it
-     before any nested parse (an initializer expression can call gettypen via
-     sizeof) can see a stale flag */
-  infarr=g_infarr;g_infok=0;g_infarr=0;
   if(infarr)
   {
     if(!hasinit)error("[] needs an initializer to infer its dimension");
@@ -1134,7 +1138,14 @@ func dovar()
        down in .data (.rodata if const) by dumpglbs, no code runs. idx is the
        (single/last) declared variable, like the local-initializer rule. */
     if(!wdfd)error("an extern declaration cannot have an initializer");
-    else doginit(idx,typ,infarr);
+    else
+    {
+      doginit(idx,typ,infarr);
+      /* only now is an inferred type final: an earlier declaration of this
+         name has to match the inferred dimension, not the provisional [1] */
+      if(infarr&&priortyp&&idx&&(idx->type!=priortyp))
+      error("conflicting types!");
+    }
     blanks();
     if(ch()==',')
     {
@@ -2449,20 +2460,32 @@ func itreeadd(p:*enode)
   itreelst[nitree++]=p;
   return 0;
 }
-/* Create a local whose type became final only after its initializer was read
-   (`[]` inference), allocating its frame slot the way the declarator loop in
-   dolocvar does. Arrays are never promotion candidates, so no promid here. */
-func addlocnow(nm:*char,t:int,iscnst:int)
+/* An inferred local becomes visible at its declaration like every other local
+   (LANGUAGE.md 6.1), so it is created BEFORE its initializer is parsed, with
+   the provisional type and a placeholder offset. Parsing emits no code, and
+   fixlocslot below fixes the type and offset before the first store goes out,
+   so a self-reference in the initializer resolves to this local rather than
+   silently binding an outer name. Creating it here also dates the symbol at
+   the declaration line, not at the initializer's closing line. */
+func addlocpre(nm:*char,t:int,iscnst:int)
 {
   var *ssym:idx;
-  var int:k;
-  k=gettsize(t);k=roundup(k);k=slotup(k);
-  idx=addloc(nm,S_VARL,1,Zsp-k,t);
+  idx=addloc(nm,S_VARL,1,Zsp,t);
   idx->line=cline;
   strcp(idx->wfile,cfile);
   if(iscnst)idx->cnst=1;
-  Zsp=modstk(Zsp-k);
   return idx;
+}
+/* give an inferred local its final type and frame slot, the way the declarator
+   loop in dolocvar does. Arrays are never promotion candidates, so no promid. */
+func fixlocslot(idx:*ssym,t:int)
+{
+  var int:k;
+  k=gettsize(t);k=roundup(k);k=slotup(k);
+  idx->type=t;
+  idx->offset=Zsp-k;
+  Zsp=modstk(Zsp-k);
+  return 0;
 }
 func dolocvar()
 {
@@ -2546,11 +2569,17 @@ func dolocvar()
   if(infarr)
   {
     /* The frame slot cannot be sized until the initializer has been counted,
-       so the symbol is created below, once the type is final. */
+       but the name must already be visible while that initializer is parsed:
+       create the symbol now with the provisional type, and let fixlocslot
+       give it its real type and offset before any store is emitted. */
     if(!hasinit)error("[] needs an initializer to infer its dimension");
     if(lst&&lst->next)error("an inferred [] dimension needs a single declarator");
-    if(lst&&findloc(lst->sym.name))error("local multidef");
     idx=0;
+    if(lst)
+    {
+      if(findloc(lst->sym.name))error("local multidef");
+      else idx=addlocpre(lst->sym.name,typ,wcnst);
+    }
   }
   else
   for(lptr=lst;lptr;lptr=lptr->next)
@@ -2614,11 +2643,11 @@ func dolocvar()
         {
           islen=strlen1(litq+isval[0])+1;   /* bytes including the NUL */
           /* var []char:s = "text";  -- the string's length is the dimension,
-             so the slot can only be allocated now */
-          if(infarr&&lst)
+             so the slot can only be sized now */
+          if(infarr)
           {
             typ=getarrty(ielem,islen);
-            idx=addlocnow(lst->sym.name,typ,wcnst);
+            if(idx)fixlocslot(idx,typ);
           }
           if(islen>typtab[typ].dim)
           error("string initializer does not fit the array");
@@ -2693,13 +2722,11 @@ func dolocvar()
           }
           if(infarr)
           {
-            /* the count is final: build the type, allocate the slot, then emit
-               the held elements in source order */
-            if(lst&&nitree)
-            {
-              typ=getarrty(ielem,nitree);
-              idx=addlocnow(lst->sym.name,typ,wcnst);
-            }
+            /* the count is final: fix the type and the slot (always, so the
+               frame stays accounted for even on the error paths that collected
+               nothing), then emit the held elements in source order */
+            if(nitree)typ=getarrty(ielem,nitree);
+            if(idx)fixlocslot(idx,typ);
             for(icnt=0;icnt<nitree;icnt++)
             {
               inode=itreelst[icnt];
