@@ -917,6 +917,24 @@ What turns a teaching compiler into something you'd build a project with:
       -1 arrives sign-extended) and PTY-pins exact termios restore, the
       byte-exact 24x80 transcript (`tests/tui_transcript.expected`), every
       decoder form, and SIGWINCH-driven redraw at the new size.
+    - ✅ **Phase 1 slice 1a: the text buffer + editor window** (`ide/buf.e`,
+      `ide/ed.e`, 2026-08). The buffer is an `sbuf` **struct with methods**
+      (the design's own claim about why the language is ready, now used in
+      anger): a growable line array, each line a NUL-terminated string with
+      its own capacity; insert/delete character, split/join line, insert/
+      delete line, load/save. Bounds checks make every out-of-range index a
+      no-op, so cursor arithmetic can never corrupt text. The editor adds the
+      Turbo-blue frame, motion, scrolling, and F2/F10 over the phase-1
+      compositor, which gained `tuicurs` for the caret — hidden by default,
+      so the pinned transcript is untouched. `[15]` proves the buffer on
+      **all five backends** (`buftest.e` returns the number of the step that
+      failed) and drives the editor on a pseudo-terminal for edit/save,
+      backspace-join, scrolling, and the final-newline rule. The PTY harness
+      moved out of a heredoc into `tests/ptyrun.py`, joined by
+      `tests/screen.py`, which replays the escape stream into a screen model:
+      editor assertions read the *rendered screen*, because the compositor
+      emits only changed cells and grepping the raw stream reports phantom
+      failures after a scroll.
 - 💭 Module/namespace system; package layout
 - ✅ Robustness: the original compiler can loop or corrupt memory on malformed
   input — add limits / graceful errors. Fixed so far: non-constant array

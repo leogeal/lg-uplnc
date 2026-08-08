@@ -1,0 +1,37 @@
+/* buf.he: the IDE's editable text buffer (IDE.md phase 1). A growable array
+   of lines, each a NUL-terminated malloc'd string carrying its own capacity,
+   so an edit touches only the line it changes. The buffer always holds at
+   least one line, so a cursor always has somewhere to sit.
+
+   Line and column numbers are 0-based everywhere; the editor adds 1 only when
+   it displays them. */
+
+#define BF_CHUNK 64      /* initial per-line capacity, doubled as needed */
+#define BF_ROWS0 64      /* initial line-slot count, doubled as needed */
+
+struct sbline{
+  *char s;               /* NUL-terminated text */
+  int len;               /* bytes before the NUL */
+  int cap;               /* bytes allocated for s */
+};
+
+struct sbuf{
+  *sbline l;             /* the lines */
+  int n;                 /* how many (always >= 1) */
+  int a;                 /* line slots allocated */
+  int dirty;             /* modified since the last load or save */
+  func init;
+  func done;
+  func grow;             /* ensure n line slots */
+  func setcap;           /* ensure line i can hold c bytes plus the NUL */
+  func insline;          /* insert an empty line before i */
+  func delline;          /* remove line i (never the last remaining one) */
+  func line:*char;       /* the text of line i */
+  func llen;             /* the length of line i */
+  func insch;            /* insert byte c at line i, column col */
+  func delch;            /* delete the byte at line i, column col */
+  func split;            /* split line i at col into two lines (Enter) */
+  func join;             /* append line i+1 to line i and remove it */
+  func load;             /* replace the contents with a file's; 0 on failure */
+  func save;             /* write the contents to a file; 0 on failure */
+};

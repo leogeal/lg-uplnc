@@ -32,6 +32,8 @@ var tui_back:*int;         /* what the next flush should show */
 var tui_ob:*char;          /* the flush batch buffer */
 var tui_obn,tui_obcap:int;
 var tui_up:int;            /* tuiinit ran and tuidone has not */
+var tui_cx,tui_cy:int;     /* where the terminal's own cursor belongs, or x<0 */
+var tui_cshow:int;         /* ... and whether it is currently shown */
 
 func obgrow(need:int)
 {
@@ -122,6 +124,7 @@ func tuiinit()
 {
   if(tui_up)return 0;
   tui_obcap=4096;tui_obn=0;
+  tui_cx=0-1;tui_cy=0;tui_cshow=0;   /* caret hidden until tuicurs asks */
   tui_ob=malloc(tui_obcap);
   if(!tui_ob){fprintf(stderr,"tui: out of memory\n");exit(2);}
   tsh_sigwinch();
@@ -262,7 +265,23 @@ func tuiflush()
     tui_front[i]=cell;
   }
   if(curacs)obesc("(B");
+  /* the caret last, so it ends up where the editor wants it rather than
+     after the final painted cell; hidden unless someone asked for it */
+  if(tui_cx>=0)
+  {
+    obesc("[");obdec(tui_cy+1);obput(';');obdec(tui_cx+1);obput('H');
+    if(!tui_cshow){obesc("[?25h");tui_cshow=1;}
+  }
+  else if(tui_cshow){obesc("[?25l");tui_cshow=0;}
   obflush();
+  return 0;
+}
+
+/* place the terminal's caret at a cell; x<0 keeps it hidden, which is the
+   default tuiinit sets, so a program that never calls this is unaffected */
+func tuicurs(x:int,y:int)
+{
+  tui_cx=x;tui_cy=y;
   return 0;
 }
 
