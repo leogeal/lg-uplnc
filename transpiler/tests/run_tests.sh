@@ -76,6 +76,15 @@ case "$(uname -m)" in
     mips64)  DRVARCH=mips64 ;;
     *)       DRVARCH=x86_64 ;;
 esac
+# Build for the HOST's own target. Every test that LINKS or RUNS a binary must
+# go through this: the suite also runs on a native arm64 runner, where an
+# -march=x86_64 build cannot be linked, let alone executed. Only compile-only
+# "$LANGC" invocations that inspect diagnostics or emitted assembly text may
+# name a fixed target, because those are host-independent by construction.
+hostbuild() {
+    hb_out=$1; shift
+    perl "$DRIVER" "-march=$DRVARCH" -o "$hb_out" "$@"
+}
 DRVSPACE="$TMPD/uplnc driver space"
 mkdir -p "$DRVSPACE"
 printf 'func main(){return 42;}\n' > "$DRVSPACE/hello world.e"
@@ -2417,41 +2426,7 @@ fi
 if [ -n "$TUIHOST" ] && command -v python3 >/dev/null \
         && perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tuidemo" \
             ../ide/tuidemo.e ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
-    cat > "$TMPD/uplnc_ptyrun.py" <<'PTYEOF'
-import os, pty, sys, termios, fcntl, struct, signal, time, subprocess, select
-binpath, size = sys.argv[1], sys.argv[2]
-rows, cols = map(int, size.split('x'))
-m, s = pty.openpty()
-fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
-before = termios.tcgetattr(s)
-p = subprocess.Popen([binpath], stdin=s, stdout=s, stderr=s, start_new_session=True)
-out = b''
-def drain(t=0.35):
-    global out
-    end = time.time()+t
-    while time.time() < end:
-        r,_,_ = select.select([m],[],[],0.05)
-        if r:
-            try: out += os.read(m, 65536)
-            except OSError: break
-drain()
-for op in sys.argv[3:]:
-    if op.startswith('w:'):
-        os.write(m, bytes.fromhex(op[2:])); drain()
-    elif op == 'p':
-        drain(0.3)
-    elif op.startswith('z:'):
-        r,c = map(int, op[2:].split('x'))
-        fcntl.ioctl(m, termios.TIOCSWINSZ, struct.pack('HHHH', r, c, 0, 0))
-        p.send_signal(signal.SIGWINCH); drain()
-rc = p.wait(timeout=5)
-drain(0.2)
-after = termios.tcgetattr(s)
-os.close(m); os.close(s)
-sys.stdout.buffer.write(out)
-print(f"\nRC={rc} TERMIOS_RESTORED={before==after}", file=sys.stderr)
-PTYEOF
-    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:71 \
+    python3 tests/ptyrun.py "$TMPD/uplnc_tuidemo" 24x80 w:71 \
         > "$TMPD/uplnc_tui_q.bin" 2> "$TMPD/uplnc_tui_q.err"
     if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_tui_q.err" \
             && grep -qa $'\x1b\[?1049l' "$TMPD/uplnc_tui_q.bin"; then
@@ -2459,14 +2434,14 @@ PTYEOF
     else
         bad "tui terminal restore"
     fi
-    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 w:1b5b42 w:71 \
+    python3 tests/ptyrun.py "$TMPD/uplnc_tuidemo" 24x80 w:1b5b42 w:71 \
         > "$TMPD/uplnc_tui_g.bin" 2>/dev/null
     if cmp -s "$TMPD/uplnc_tui_g.bin" tests/tui_transcript.expected; then
         ok "tui emits the pinned 24x80 byte transcript"
     else
         bad "tui transcript drifted from tests/tui_transcript.expected"
     fi
-    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 \
+    python3 tests/ptyrun.py "$TMPD/uplnc_tuidemo" 24x80 \
         w:1b5b41 w:1b5b337e w:1b4f50 w:1b5b31357e w:1b p w:71 \
         > "$TMPD/uplnc_tui_k.bin" 2>/dev/null
     tui_keys_ok=1
@@ -2476,7 +2451,7 @@ PTYEOF
     [ "$tui_keys_ok" = 1 ] \
         && ok "tui decodes CSI, CSI~, SS3, and a lone ESC" \
         || bad "tui key decoding"
-    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 \
+    python3 tests/ptyrun.py "$TMPD/uplnc_tuidemo" 24x80 \
         w:1b5b31353b327e w:71 > "$TMPD/uplnc_tui_mod.bin" 2>/dev/null
     if grep -Fqa 'F5' "$TMPD/uplnc_tui_mod.bin" \
             && ! grep -Fqa 'INS' "$TMPD/uplnc_tui_mod.bin"; then
@@ -2494,7 +2469,7 @@ PTYEOF
     } > "$TMPD/uplnc_tui_cells.e"
     if perl "$DRIVER" "-march=$TUIHOST" -o "$TMPD/uplnc_tui_cells" \
             "$TMPD/uplnc_tui_cells.e" ../ide/tui.e ../ide/tshim.c >/dev/null 2>&1; then
-        python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tui_cells" 24x80 \
+        python3 tests/ptyrun.py "$TMPD/uplnc_tui_cells" 24x80 \
             > "$TMPD/uplnc_tui_cells.bin" 2> "$TMPD/uplnc_tui_cells.err"
         if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_tui_cells.err" \
                 && grep -Fqa '?[31mX?31mY' "$TMPD/uplnc_tui_cells.bin" \
@@ -2507,7 +2482,7 @@ PTYEOF
     else
         bad "tui control-cell test build"
     fi
-    python3 "$TMPD/uplnc_ptyrun.py" "$TMPD/uplnc_tuidemo" 24x80 z:30x100 p w:71 \
+    python3 tests/ptyrun.py "$TMPD/uplnc_tuidemo" 24x80 z:30x100 p w:71 \
         > "$TMPD/uplnc_tui_r.bin" 2>/dev/null
     if grep -qa 'size 100x30' "$TMPD/uplnc_tui_r.bin" \
             && grep -qa 'RESIZE' "$TMPD/uplnc_tui_r.bin"; then
@@ -2517,6 +2492,102 @@ PTYEOF
     fi
 else
     echo "  skip - PTY tests need python3 and an x86_64 build"
+fi
+
+echo "[15] IDE editor: the text buffer and the editor window"
+# The buffer is pure logic plus file I/O, so it is proved on every backend
+# with a toolchain: buftest.e walks every editing primitive, the growth paths,
+# and a save/load round trip, and returns the number of the step that failed.
+if [ -z "$TUIHOST" ]; then
+    echo "  skip - no native UPLNC target for host $(uname -m)"
+elif hostbuild "$TMPD/uplnc_buftest" ../ide/buftest.e ../ide/buf.e >/dev/null 2>&1 \
+        && "$TMPD/uplnc_buftest" "$TMPD/uplnc_buftest.txt"; [ $? = 42 ]; then
+    ok "text buffer: every editing primitive ($TUIHOST native)"
+else
+    bad "text buffer $TUIHOST native (step $?)"
+fi
+for xspec in "arm64:aarch64-linux-gnu-gcc:qemu-aarch64-static" \
+             "riscv64:riscv64-linux-gnu-gcc:qemu-riscv64-static" \
+             "mips64:mips64-linux-gnuabi64-gcc:${QEMU_MIPS:-qemu-mips64-static}"; do
+    xarch=${xspec%%:*}; rest=${xspec#*:}
+    xcc=${rest%%:*}; xrun=${rest#*:}
+    [ "$xarch" = "$TUIHOST" ] && continue
+    if ! command -v "$xcc" >/dev/null || ! command -v "${xrun%% *}" >/dev/null; then
+        echo "  skip - no $xarch cross toolchain + qemu"
+        continue
+    fi
+    if perl "$DRIVER" "-march=$xarch" -o "$TMPD/uplnc_buftest_$xarch" \
+            ../ide/buftest.e ../ide/buf.e >/dev/null 2>&1; then
+        $xrun "$TMPD/uplnc_buftest_$xarch" "$TMPD/uplnc_buftest_$xarch.txt"
+        [ $? = 42 ] && ok "text buffer: $xarch (qemu)" || bad "text buffer $xarch"
+    else
+        bad "text buffer build $xarch"
+    fi
+done
+if [ "$TUIHOST" = x86_64 ]; then
+    if perl "$DRIVER" -march=i386 -o "$TMPD/uplnc_buftest32" \
+            ../ide/buftest.e ../ide/buf.e >/dev/null 2>&1; then
+        "$TMPD/uplnc_buftest32" "$TMPD/uplnc_buftest32.txt"
+        [ $? = 42 ] && ok "text buffer: i386" || bad "text buffer i386"
+    else
+        echo "  skip - no i386 toolchain"
+    fi
+fi
+# The editor window, driven on a pseudo-terminal. Assertions read the RENDERED
+# SCREEN (tests/screen.py replays the escape stream), never the raw bytes: the
+# compositor emits only changed cells, so after a scroll no whole line appears
+# contiguously in the stream even though the user plainly sees it.
+if [ -n "$TUIHOST" ] && command -v python3 >/dev/null \
+        && hostbuild "$TMPD/uplnc_ed" ../ide/ed.e ../ide/buf.e ../ide/tui.e \
+            ../ide/tshim.c >/dev/null 2>&1; then
+    printf 'alpha\nbeta\ngamma\n' > "$TMPD/uplnc_ed_edit.txt"
+    # type X at the top, move to the end of the last line, open a new line,
+    # type "new", save with F2, quit with F10
+    python3 tests/ptyrun.py "$TMPD/uplnc_ed" 24x80 "a:$TMPD/uplnc_ed_edit.txt" \
+        w:58 w:1b5b42 w:1b5b42 w:1b5b46 w:0d w:6e6577 w:1b4f51 p w:1b5b32317e \
+        > "$TMPD/uplnc_ed_edit.bin" 2> "$TMPD/uplnc_ed_edit.err"
+    printf 'Xalpha\nbeta\ngamma\nnew\n' > "$TMPD/uplnc_ed_edit.want"
+    if grep -q 'RC=0 TERMIOS_RESTORED=True' "$TMPD/uplnc_ed_edit.err" \
+            && cmp -s "$TMPD/uplnc_ed_edit.txt" "$TMPD/uplnc_ed_edit.want"; then
+        ok "editor types, splits lines, saves, and restores the terminal"
+    else
+        bad "editor edit/save session"
+    fi
+    # Backspace at column 0 joins with the previous line.
+    printf 'ab\ncd\n' > "$TMPD/uplnc_ed_join.txt"
+    python3 tests/ptyrun.py "$TMPD/uplnc_ed" 24x80 "a:$TMPD/uplnc_ed_join.txt" \
+        w:1b5b42 w:1b5b48 w:7f w:1b4f51 p w:1b5b32317e >/dev/null 2>&1
+    printf 'abcd\n' > "$TMPD/uplnc_ed_join.want"
+    cmp -s "$TMPD/uplnc_ed_join.txt" "$TMPD/uplnc_ed_join.want" \
+        && ok "editor joins lines with backspace at column 0" \
+        || bad "editor backspace join"
+    # Scrolling: two PgDn through a 60-line file must leave the viewport and
+    # the status line agreeing about where the cursor is.
+    python3 -c "
+import sys
+open(sys.argv[1],'w').write(''.join('line%02d\n'%i for i in range(60)))" \
+        "$TMPD/uplnc_ed_scroll.txt"
+    python3 tests/ptyrun.py "$TMPD/uplnc_ed" 24x80 "a:$TMPD/uplnc_ed_scroll.txt" \
+        w:1b5b367e w:1b5b367e p w:1b5b32317e 2>/dev/null \
+        | python3 tests/screen.py 24x80 > "$TMPD/uplnc_ed_scroll.screen"
+    if grep -q '^line44$' "$TMPD/uplnc_ed_scroll.screen" \
+            && grep -q '^line45$' "$TMPD/uplnc_ed_scroll.screen" \
+            && ! grep -q '^line00$' "$TMPD/uplnc_ed_scroll.screen" \
+            && grep -q 'L45 C1' "$TMPD/uplnc_ed_scroll.screen"; then
+        ok "editor scrolls the viewport and reports the cursor position"
+    else
+        bad "editor scrolling"
+    fi
+    # A file with no trailing newline gains one; the text is otherwise exact.
+    printf 'one\ntwo' > "$TMPD/uplnc_ed_nl.txt"
+    python3 tests/ptyrun.py "$TMPD/uplnc_ed" 24x80 "a:$TMPD/uplnc_ed_nl.txt" \
+        w:1b4f51 p w:1b5b32317e >/dev/null 2>&1
+    printf 'one\ntwo\n' > "$TMPD/uplnc_ed_nl.want"
+    cmp -s "$TMPD/uplnc_ed_nl.txt" "$TMPD/uplnc_ed_nl.want" \
+        && ok "editor round-trips a file lacking its final newline" \
+        || bad "editor final-newline handling"
+else
+    echo "  skip - editor tests need python3 and a native build"
 fi
 
 echo

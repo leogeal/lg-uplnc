@@ -124,15 +124,27 @@ and other languages" reduces mostly to configuration.
 - **15-char identifiers, and `Struct.method` mangles ≤ 15 total**
   (LANGUAGE.md §14) — the first limit to hurt at 10k+ lines; may motivate
   raising NAMESIZE (a fixpoint-affecting change to plan deliberately).
-- **16,000-byte string-literal pool per unit** — an IDE is full of UI text.
-  Authentic fix: Borland's own — help/UI text in external files loaded at
-  runtime (`TURBO.HLP` style), plus spreading literals across units.
+- ~~**16,000-byte string-literal pool per unit**~~ — removed preemptively
+  (2026-08): the per-unit pool grows on demand, so an IDE full of UI text no
+  longer hits a wall. Borland's own approach — help/UI text in external files
+  loaded at runtime (`TURBO.HLP` style) — remains worthwhile for other
+  reasons, but it is no longer forced.
 - **No internal linkage** — 15+ units share one namespace; keep the
   `grep_`/`sort_` prefix discipline.
 - **Indirect calls return `int` only** — handler tables fit today; a
   pointer-returning handler would extend the typed-return story to indirect
   calls (a natural future language item).
 - 158-byte source lines, 6000-byte macro pool: minor, workable.
+
+Found while writing slice 1a, both worth knowing before phase 1 continues:
+
+- **Plain braces are not a name scope** (LANGUAGE.md §6.1), so two `{ var i; }`
+  blocks in one function collide. Declare loop variables once per function.
+- **A typed method must declare its return type in the struct slot**
+  (`func line:*char;`); an annotation on the definition may repeat it but not
+  introduce it. Nothing else about methods needed working around: sibling
+  calls through `this`, `realloc`'d arrays of structs, and indexing a
+  method's pointer result all behave.
 
 ## 7. Phasing
 
@@ -151,6 +163,24 @@ and other languages" reduces mostly to configuration.
 2. **Phase 1 IDE** (~3–5k lines; langc is ~7k): menu bar, one editor window
    (open/save/search/block ops), F9 build with error-jump. *The Turbo feel
    arrives here.*
+   - ✅ **Slice 1a: text buffer + editor window** (2026-08). `buf.e`/`buf.he`
+     is an `sbuf` **struct with methods** — the design §3 promised, now
+     exercised: a growable line array, each line a NUL-terminated string with
+     its own capacity, with insert/delete character, split/join line, insert/
+     delete line, and load/save. Every operation is bounds-checked and a
+     out-of-range index is a no-op, so the editor's cursor arithmetic cannot
+     corrupt the buffer. `ed.e` adds the Turbo-blue frame, cursor motion,
+     scrolling, and F2/F10, driving the phase-1 compositor; `tui.e` gained
+     `tuicurs` for the caret (hidden by default, so the pinned `tuidemo`
+     transcript is unchanged). Gated in `run_tests.sh` `[15]`: `buftest.e`
+     walks every primitive plus a save/load round trip **on all five
+     backends**, and the editor is driven on a pseudo-terminal for
+     edit/save, backspace-join, scrolling, and final-newline behaviour.
+   - **Test lesson worth keeping**: assertions about the editor read the
+     *rendered screen* (`tests/screen.py` replays the escape stream), never
+     the raw byte stream. The compositor emits only changed cells, so after a
+     scroll no whole line appears contiguously in the output even though the
+     user plainly sees it — grepping the stream reports a phantom failure.
 3. **Phase 2**: gdb/MI debugging — structured MI parser, dedicated inferior
    PTY and console pane, breakpoint margin, F7/F8, watch and call-stack
    windows.
