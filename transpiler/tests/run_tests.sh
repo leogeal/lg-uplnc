@@ -347,9 +347,11 @@ INFEREOF
         > "$TMPD/uplnc_infer_scope.e"
     printf 'var [1]int:a = {40};\nfunc main(){var [2]int:a = {2,a[0]};return a[1];}\n' \
         > "$TMPD/uplnc_infer_scope_fixed.e"
-    if perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_infer_scope" \
+    # built for the HOST's own target: this suite also runs on a native arm64
+    # runner, where an -march=x86_64 binary cannot be linked or run
+    if perl "$DRIVER" "-march=$DRVARCH" -o "$TMPD/uplnc_infer_scope" \
             "$TMPD/uplnc_infer_scope.e" >/dev/null 2>&1 \
-            && perl "$DRIVER" -march=x86_64 -o "$TMPD/uplnc_infer_scope_fixed" \
+            && perl "$DRIVER" "-march=$DRVARCH" -o "$TMPD/uplnc_infer_scope_fixed" \
             "$TMPD/uplnc_infer_scope_fixed.e" >/dev/null 2>&1; then
         "$TMPD/uplnc_infer_scope"; scope_inf=$?
         "$TMPD/uplnc_infer_scope_fixed"; scope_fix=$?
