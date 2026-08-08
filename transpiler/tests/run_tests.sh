@@ -326,7 +326,53 @@ sizeof|allowed only on a declaration|func main(){return sizeof([]int);}
 global empty list|an empty initializer list|var []int:a = {};\nfunc main(){return 0;}
 local empty list|an empty initializer list|func main(){var []int:a = {};return 0;}
 scalar initializer|needs { } or a string literal|var []int:a = 5;\nfunc main(){return 0;}
+extern dimension mismatch|conflicting types|var extern [1]int:a;\nvar []int:a = {1,2,3};\nfunc main(){return 0;}
 INFEREOF
+    # ... and the inverse: a prior declaration that matches the INFERRED
+    # dimension must be accepted (it is compared against [3], never against
+    # the provisional [1] the type parser hands out).
+    printf 'var extern [3]int:a;\nvar []int:a = {1,2,3};\nfunc main(){return 0;}\n' \
+        > "$TMPD/uplnc_infer_extern.e"
+    if "$LPP" "$TMPD/uplnc_infer_extern.e" 2>/dev/null \
+            | "$LANGC" -march=x86_64 > /dev/null 2>"$TMPD/uplnc_infer_extern.err"; then
+        ok "[] matches a prior declaration of the inferred dimension"
+    else
+        bad "[] extern compatibility: $(grep -o 'Error:.*' "$TMPD/uplnc_infer_extern.err" | head -1)"
+    fi
+
+    # An inferred local is visible inside its own initializer, like every
+    # other local (LANGUAGE.md 6.1): a self-reference must NOT silently bind
+    # an outer name of the same spelling. Both forms must agree.
+    printf 'var [1]int:a = {40};\nfunc main(){var []int:a = {2,a[0]};return a[1];}\n' \
+        > "$TMPD/uplnc_infer_scope.e"
+    printf 'var [1]int:a = {40};\nfunc main(){var [2]int:a = {2,a[0]};return a[1];}\n' \
+        > "$TMPD/uplnc_infer_scope_fixed.e"
+    # built for the HOST's own target: this suite also runs on a native arm64
+    # runner, where an -march=x86_64 binary cannot be linked or run
+    if perl "$DRIVER" "-march=$DRVARCH" -o "$TMPD/uplnc_infer_scope" \
+            "$TMPD/uplnc_infer_scope.e" >/dev/null 2>&1 \
+            && perl "$DRIVER" "-march=$DRVARCH" -o "$TMPD/uplnc_infer_scope_fixed" \
+            "$TMPD/uplnc_infer_scope_fixed.e" >/dev/null 2>&1; then
+        "$TMPD/uplnc_infer_scope"; scope_inf=$?
+        "$TMPD/uplnc_infer_scope_fixed"; scope_fix=$?
+        [ "$scope_inf" = "$scope_fix" ] \
+            && ok "an inferred local is in scope inside its own initializer" \
+            || bad "[] scope: inferred gave $scope_inf, fixed-size gave $scope_fix"
+    else
+        bad "[] initializer scope test build"
+    fi
+
+    # A multiline inferred declaration is dated at its declaration line, not
+    # at the initializer's closing brace.
+    printf 'func main()\n{\n  var []int:un = {\n    1,\n    2\n  };\n  return 0;\n}\n' \
+        > "$TMPD/uplnc_infer_line.e"
+    "$LPP" "$TMPD/uplnc_infer_line.e" 2>/dev/null \
+        | "$LANGC" -march=x86_64 > /dev/null 2>"$TMPD/uplnc_infer_line.err"
+    if grep -q ':3: Warning:unused variable' "$TMPD/uplnc_infer_line.err"; then
+        ok "[] diagnostics cite the declaration line"
+    else
+        bad "[] declaration line: $(grep -o '[0-9]*: Warning:.*' "$TMPD/uplnc_infer_line.err" | head -1)"
+    fi
     [ "$infer_bad_ok" = 1 ] \
         && ok "[] inference misuse is diagnosed per form" \
         || bad "[] inference diagnostics"
